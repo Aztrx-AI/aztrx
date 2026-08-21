@@ -13,6 +13,7 @@ import { ReplayEngine } from "./replay.js";
 import { minimize } from "./minimizer.js";
 import { writeSpec } from "./specCompiler.js";
 import { validate } from "./validator.js";
+import { writeReport } from "./report.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface RunOptions {
@@ -148,7 +149,14 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         const minimal = await minimize(engine, f.actionHistory, { url, fingerprint: f.fingerprint });
         const specPath = writeSpec(repoRoot, f, minimal, url);
         const v = await validate(engine, url, f, minimal, options.reproRuns ?? 3);
-        f.repro = { actions: minimal, specPath, verdict: v.verdict, rate: v.rate, runs: v.runs };
+        f.repro = {
+          actions: minimal,
+          specPath,
+          verdict: v.verdict,
+          rate: v.rate,
+          runs: v.runs,
+          reproductions: v.reproductions,
+        };
 
         const mark =
           v.verdict === "deterministic"
@@ -165,6 +173,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       await engine.close();
     }
   }
+
+  const reportPath = writeReport(repoRoot, url, findings);
+  console.log(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
 
   const counts: Record<string, number> = {};
   for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;

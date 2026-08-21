@@ -43,6 +43,7 @@ export interface ReproReport {
   verdict: ReproVerdict;
   rate: number;
   runs: number;
+  reproductions: number;
 }
 
 export interface Finding {
