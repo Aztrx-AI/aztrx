@@ -18,6 +18,23 @@ npx playwright install chromium
 npm run build
 ```
 
+## Setup
+
+```bash
+# scaffold aztrx.config.ts, detect framework + default port, seed .gitignore
+node dist/cli.js init --repo /path/to/your-app
+```
+
+`init` reads your `package.json` to detect the framework (Next.js, Vite,
+SvelteKit, Remix, …), picks the default dev port, writes `aztrx.config.ts`
+and appends `.aztrx/` to `.gitignore`. Then run the target directly:
+
+```bash
+node dist/cli.js run http://localhost:3000 --repo /path/to/your-app
+```
+
+> The `run` subcommand is the default, so `aztrx <url> --repo …` is equivalent.
+
 ## Run
 
 ```bash
@@ -80,5 +97,12 @@ them (hexagonal, so a cloud sink can replace the CLI later):
 
 ## Output
 
-Repros land in `.aztrx/repro/<id>.spec.ts`; the baseline of already-known
-fingerprints lives in `.aztrx/baseline.json`. Both are gitignored.
+Every run writes three things under `.aztrx/` (gitignored):
+
+- `.aztrx/report.html` — a standalone, self-contained report (inline CSS, no
+  CDN): severity pills, source snippets, repro verdicts, and per-finding action
+  history. Open it in a browser to triage a run offline.
+- `.aztrx/repro/<id>.spec.ts` — the minimized Playwright repro for each
+  crash/error finding.
+- `.aztrx/baseline.json` — fingerprints of already-known findings (seeded by
+  `--crash-test`), so repeat runs don't re-flag known noise.
