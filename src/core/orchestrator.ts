@@ -14,6 +14,7 @@ import { minimize } from "./minimizer.js";
 import { writeSpec } from "./specCompiler.js";
 import { validate } from "./validator.js";
 import { writeReport } from "./report.js";
+import { RunLog } from "./events.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface RunOptions {
@@ -71,6 +72,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const bus = new EventBus();
   const classifier = new SignalClassifier(await loadBaseline(repoRoot));
   const recorder = new ActionRecorder();
+  const runLog = new RunLog(repoRoot);
+  runLog.reset();
+  runLog.append({ type: "run_start", url, ts: Date.now() });
 
   bus.on("action", (a: RecordedAction) => recorder.record(a));
   bus.on("telemetry", async (payload: TelemetryErrorPayload) => {
@@ -78,6 +82,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     if (!finding) return;
     finding.actionHistory = recorder.snapshot();
     if (finding.severity === "noise") return;
+    runLog.append({ type: "finding", finding });
 
     if (payload.url && payload.line) {
       const resolved = await resolveFrame(
@@ -179,6 +184,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
 
   const counts: Record<string, number> = {};
   for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+  runLog.append({ type: "run_end", counts, ts: Date.now() });
 
   console.log(pc.dim("────────────────────────────────────────────"));
   console.log(pc.cyan(`${findings.length} unique finding(s)`));

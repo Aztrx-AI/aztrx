@@ -3,6 +3,7 @@ import pc from "picocolors";
 import { program } from "commander";
 import { run } from "./core/orchestrator.js";
 import { initProject } from "./core/init.js";
+import { startStudio } from "./core/studio.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -10,7 +11,6 @@ function collect(value: string, prev: string[]): string[] {
 }
 
 interface CliOptions {
-  repo: string;
   maxActions: string;
   dryRun?: boolean;
   crashTest?: boolean;
@@ -24,17 +24,17 @@ interface CliOptions {
 
 program
   .name("aztrx")
-  .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro");
+  .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
+  .option("--repo <path>", "project root to inspect/watch (default: cwd)", process.cwd());
 
 program
   .command("init")
   .description("scaffold aztrx.config.ts and seed .aztrx/ into .gitignore")
-  .option("--repo <path>", "project root to scaffold into", process.cwd())
   .option("--url <url>", "dev server URL (default: auto-detect port)")
   .option("--framework <name>", "framework override (auto-detected if omitted)")
-  .action(async (opts: { repo: string; url?: string; framework?: string }) => {
+  .action(async (opts: { url?: string; framework?: string }) => {
     const res = await initProject({
-      repoRoot: path.resolve(opts.repo),
+      repoRoot: path.resolve(program.opts().repo as string),
       url: opts.url,
       framework: opts.framework,
     });
@@ -45,8 +45,15 @@ program
   });
 
 program
+  .command("studio")
+  .description("start the live studio dashboard on localhost:7331")
+  .option("--port <n>", "port to listen on", "7331")
+  .action((opts: { port: string }) => {
+    startStudio({ repoRoot: path.resolve(program.opts().repo as string), port: parseInt(opts.port, 10) });
+  });
+
+program
   .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
-  .option("--repo <path>", "repo root for source resolution", process.cwd())
   .option("--max-actions <n>", "max actions per pass", "100")
   .option("--dry-run", "report what would be clicked without clicking")
   .option("--crash-test", "throw a deliberate error to verify capture")
@@ -61,7 +68,7 @@ program
       url: string,
       opts: CliOptions
     ) => {
-      const repoRoot = path.resolve(opts.repo);
+      const repoRoot = path.resolve(program.opts().repo as string);
       const findings = await run({
         url,
         repoRoot,
