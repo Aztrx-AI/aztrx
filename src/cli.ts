@@ -1,6 +1,8 @@
 import path from "path";
+import pc from "picocolors";
 import { program } from "commander";
 import { run } from "./core/orchestrator.js";
+import { initProject } from "./core/init.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -22,7 +24,27 @@ interface CliOptions {
 
 program
   .name("aztrx")
-  .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
+  .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro");
+
+program
+  .command("init")
+  .description("scaffold aztrx.config.ts and seed .aztrx/ into .gitignore")
+  .option("--repo <path>", "project root to scaffold into", process.cwd())
+  .option("--url <url>", "dev server URL (default: auto-detect port)")
+  .option("--framework <name>", "framework override (auto-detected if omitted)")
+  .action(async (opts: { repo: string; url?: string; framework?: string }) => {
+    const res = await initProject({
+      repoRoot: path.resolve(opts.repo),
+      url: opts.url,
+      framework: opts.framework,
+    });
+    console.log(pc.green("✓") + ` aztrx.config.ts written (${pc.bold(res.framework)}, ${res.url})`);
+    if (res.gitignoreUpdated) console.log(pc.green("✓") + " .aztrx/ added to .gitignore");
+    console.log("");
+    console.log(pc.dim(`Next:  npx aztrx run ${res.url} --repo .`));
+  });
+
+program
   .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
   .option("--repo <path>", "repo root for source resolution", process.cwd())
   .option("--max-actions <n>", "max actions per pass", "100")
