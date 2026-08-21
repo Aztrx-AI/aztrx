@@ -4,7 +4,7 @@ import type { RecordedAction } from "./types.js";
 import { selectorCascade } from "./recorder.js";
 
 // F6 guard-rail (part 1): never click anything that looks destructive. The
-// full deny-list (config regexps, data-seism-skip) is a later pass.
+// full deny-list (config regexps, data-aztrx-skip) is a later pass.
 export const DESTRUCTIVE = /(delete|remove|logout|sign\s?out|log\s?out|pay|checkout|submit\s?order|purchase|buy|удалить|оплатить|выйти|выход)/i;
 
 export const TEXT_INPUT_TYPES = new Set(["text", "search", "email", "tel", "url", "number", ""]);

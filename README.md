@@ -1,8 +1,8 @@
-# Seism — runtime stress-tester for web apps
+# Aztrx — runtime stress-tester for web apps
 
 Finds the bug, then **proves it with an executable repro**.
 
-Seism drives your app like a hostile user — clicking, typing garbage, racing the
+Aztrx drives your app like a hostile user — clicking, typing garbage, racing the
 UI — catches runtime errors (including the ones a React Error Boundary
 swallows), maps each crash to the exact source line, and compiles a minimal
 Playwright repro you can run to watch the bug happen again.
@@ -42,7 +42,7 @@ node dist/cli.js http://localhost:8901/crash.html --repo fixtures --repro
 ```
 
 Expected: one `● crash` mapped to `crash.html:13:15`, minimized to 1 step, and a
-deterministic `.seism/repro/*.spec.ts` written out.
+deterministic `.aztrx/repro/*.spec.ts` written out.
 
 ## Flags
 
@@ -80,5 +80,5 @@ them (hexagonal, so a cloud sink can replace the CLI later):
 
 ## Output
 
-Repros land in `.seism/repro/<id>.spec.ts`; the baseline of already-known
-fingerprints lives in `.seism/baseline.json`. Both are gitignored.
+Repros land in `.aztrx/repro/<id>.spec.ts`; the baseline of already-known
+fingerprints lives in `.aztrx/baseline.json`. Both are gitignored.

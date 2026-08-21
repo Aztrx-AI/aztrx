@@ -1,9 +1,9 @@
 {
-  "name": "seism",
+  "name": "aztrx",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Seism — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
+  "description": "Aztrx — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "scripts": {
     "build": "tsc",
     "dev": "node dist/cli.js",

@@ -1,6 +1,6 @@
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
-export interface SeismEvents {
+export interface AztrxEvents {
   telemetry: TelemetryErrorPayload;
   action: RecordedAction;
   finding: Finding;
@@ -14,9 +14,9 @@ type Handler<T> = (payload: T) => void;
  * any module (hexagonal, per PRD §2.2).
  */
 export class EventBus {
-  private handlers = new Map<keyof SeismEvents, Set<Function>>();
+  private handlers = new Map<keyof AztrxEvents, Set<Function>>();
 
-  on<K extends keyof SeismEvents>(event: K, handler: Handler<SeismEvents[K]>): () => void {
+  on<K extends keyof AztrxEvents>(event: K, handler: Handler<AztrxEvents[K]>): () => void {
     let set = this.handlers.get(event);
     if (!set) {
       set = new Set();
@@ -28,7 +28,7 @@ export class EventBus {
     };
   }
 
-  emit<K extends keyof SeismEvents>(event: K, payload: SeismEvents[K]): void {
+  emit<K extends keyof AztrxEvents>(event: K, payload: AztrxEvents[K]): void {
     this.handlers.get(event)?.forEach((h) => (h as Handler<unknown>)(payload));
   }
 }

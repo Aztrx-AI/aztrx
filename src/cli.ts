@@ -21,7 +21,7 @@ interface CliOptions {
 }
 
 program
-  .name("seism")
+  .name("aztrx")
   .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
   .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
   .option("--repo <path>", "repo root for source resolution", process.cwd())

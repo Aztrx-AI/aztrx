@@ -120,7 +120,7 @@ export class SignalClassifier {
 }
 
 export async function loadBaseline(repoRoot: string): Promise<string[]> {
-  const p = path.join(repoRoot, ".seism", "baseline.json");
+  const p = path.join(repoRoot, ".aztrx", "baseline.json");
   try {
     const arr = JSON.parse(fs.readFileSync(p, "utf-8"));
     return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [];

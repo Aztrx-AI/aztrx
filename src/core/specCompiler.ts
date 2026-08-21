@@ -17,7 +17,7 @@ export function compileSpec(finding: Finding, actions: RecordedAction[], url: st
 
   out.push(`import { test, expect } from "@playwright/test";`);
   out.push(``);
-  out.push(`// Seism repro — ${finding.id}`);
+  out.push(`// Aztrx repro — ${finding.id}`);
   out.push(`// severity: ${finding.severity}   type: ${finding.type}`);
   if (finding.mappedLocation) {
     out.push(`// source: ${finding.mappedLocation.filePath}:${finding.mappedLocation.line}:${finding.mappedLocation.column}`);
@@ -56,7 +56,7 @@ export function writeSpec(
   actions: RecordedAction[],
   url: string
 ): string {
-  const dir = path.join(repoRoot, ".seism", "repro");
+  const dir = path.join(repoRoot, ".aztrx", "repro");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${finding.id}.spec.ts`);
   fs.writeFileSync(file, compileSpec(finding, actions, url), "utf-8");

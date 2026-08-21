@@ -59,7 +59,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const guardOn = Boolean(options.fuzz || options.repro);
   const allowHosts = allowHostsFrom(url, options.allowHosts ?? []);
 
-  console.log(pc.cyan("\n⚡ Seism v0.1.0 — Runtime Detector"));
+  console.log(pc.cyan("\n⚡ Aztrx v0.1.0 — Runtime Detector"));
   console.log(pc.dim(`Target: ${url}`));
   console.log(pc.dim(`Repo:   ${repoRoot}`));
   if (options.fuzz) console.log(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
@@ -113,7 +113,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (loaded && options.crashTest) {
     await page.evaluate(() => {
       setTimeout(() => {
-        throw new Error("Seism test: Cannot read properties of undefined (reading 'token')");
+        throw new Error("Aztrx test: Cannot read properties of undefined (reading 'token')");
       }, 300);
     });
     await page.waitForTimeout(800);
