@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/*
+ * Aztrx design system — dark, terminal-native. The palette is carried forward
+ * from the CLI report + Local Studio surfaces so the site and the product feel
+ * like one thing. "az" in Aztrx = azure; the accent is the brand.
+ */
+:root {
+  --bg: #0a0c10;
+  --surface: #12151b;
+  --surface-2: #161a21;
+  --border: #262b36;
+  --fg: #e6e8ee;
+  --muted: #9aa1ad;
+  --dim: #6b7280;
+  --azure: #4cc2ff;
+  --azure-bright: #7ad4ff;
+  --red: #e5484d;
+  --amber: #f5a623;
+  --green: #4ade80;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-dim: var(--dim);
+  --color-azure: var(--azure);
+  --color-azure-bright: var(--azure-bright);
+  --color-red: var(--red);
+  --color-amber: var(--amber);
+  --color-green: var(--green);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(76, 194, 255, 0.28);
+  color: #fff;
+}
+
+/* subtle grid behind the hero — a nod to the "runtime surface" being tested */
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(76, 194, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(76, 194, 255, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+
+.term-glow {
+  box-shadow:
+    0 0 0 1px rgba(76, 194, 255, 0.14),
+    0 24px 80px -24px rgba(76, 194, 255, 0.28),
+    0 0 120px -40px rgba(76, 194, 255, 0.4);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.cursor {
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .live-dot, .cursor { animation: none; }
+}
