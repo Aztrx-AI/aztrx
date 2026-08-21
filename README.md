@@ -61,11 +61,22 @@ node dist/cli.js http://localhost:8901/crash.html --repo fixtures --repro
 Expected: one `● crash` mapped to `crash.html:13:15`, minimized to 1 step, and a
 deterministic `.aztrx/repro/*.spec.ts` written out.
 
+## Studio (live dashboard)
+
+```bash
+node dist/cli.js studio --repo /path/to/your-app
+# → http://localhost:7331
+```
+
+Open that URL in one terminal, run `aztrx <url> --repo …` in another, and watch
+findings stream in live over SSE. The dashboard also serves the last run's
+`.aztrx/report.html` (at `/report`) and its repro specs (at `/repro/<id>`).
+
 ## Flags
 
 | Flag | Purpose |
 |---|---|
-| `--repo <path>` | repo root for sourcemap → source resolution |
+| `--repo <path>` | project root for sourcemap resolution / studio watch (global flag) |
 | `--max-actions <n>` | max actions per pass (default 100) |
 | `--fuzz` | chaos fuzzing instead of the deterministic walk (F5) |
 | `--seed <n>` | RNG seed for fuzz (default 42) |
