@@ -1,0 +1,63 @@
+import path from "path";
+import { program } from "commander";
+import { run } from "./core/orchestrator.js";
+
+function collect(value: string, prev: string[]): string[] {
+  prev.push(value);
+  return prev;
+}
+
+interface CliOptions {
+  repo: string;
+  maxActions: string;
+  dryRun?: boolean;
+  crashTest?: boolean;
+  failOn?: boolean;
+  fuzz?: boolean;
+  seed: string;
+  repro?: boolean;
+  reproRuns: string;
+  allowHost?: string[];
+}
+
+program
+  .name("seism")
+  .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
+  .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
+  .option("--repo <path>", "repo root for source resolution", process.cwd())
+  .option("--max-actions <n>", "max actions per pass", "100")
+  .option("--dry-run", "report what would be clicked without clicking")
+  .option("--crash-test", "throw a deliberate error to verify capture")
+  .option("--fail-on", "exit 1 if any crash/error finding is present")
+  .option("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)")
+  .option("--seed <n>", "RNG seed for fuzz", "42")
+  .option("--repro", "minimize + compile + validate each finding (F7-F9)")
+  .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
+  .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
+  .action(
+    async (
+      url: string,
+      opts: CliOptions
+    ) => {
+      const repoRoot = path.resolve(opts.repo);
+      const findings = await run({
+        url,
+        repoRoot,
+        maxActions: parseInt(opts.maxActions, 10),
+        dryRun: opts.dryRun,
+        crashTest: opts.crashTest,
+        fuzz: opts.fuzz,
+        repro: opts.repro,
+        seed: parseInt(opts.seed, 10),
+        allowHosts: opts.allowHost ?? [],
+        reproRuns: parseInt(opts.reproRuns, 10),
+      });
+
+      if (opts.failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+  );
+
+program.parseAsync();

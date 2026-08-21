@@ -1,0 +1,23 @@
+{
+  "name": "seism",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Seism — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
+  "scripts": {
+    "build": "tsc",
+    "dev": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.25",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

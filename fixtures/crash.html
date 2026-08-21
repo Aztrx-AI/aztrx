@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Aztrx smoke fixture</title>
+  </head>
+  <body>
+    <h1>Smoke fixture</h1>
+    <button id="break">Break me</button>
+    <input type="text" placeholder="name" />
+    <button>Safe button</button>
+    <script>
+      document.getElementById("break").addEventListener("click", () => {
+        throw new Error("Cannot read properties of undefined (reading 'items')");
+      });
+    </script>
+  </body>
+</html>
