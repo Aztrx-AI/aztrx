@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Aztrx kitchen fixture</title>
+  </head>
+  <body>
+    <h1>Kitchen sink</h1>
+
+    <!-- select-triggered bug: choosing "team" throws -->
+    <label>Plan
+      <select id="plan">
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+        <option value="team">Team</option>
+      </select>
+    </label>
+
+    <!-- hover-triggered bug -->
+    <button id="hover-bug">Show tooltip</button>
+
+    <!-- keypress-triggered bug -->
+    <input id="search" type="text" placeholder="search" />
+
+    <!-- click-triggered bug (control) -->
+    <button id="break">Break me</button>
+
+    <script>
+      document.getElementById("plan").addEventListener("change", (e) => {
+        if (e.target.value === "team") {
+          throw new Error("Cannot read properties of undefined (reading 'seats')");
+        }
+      });
+
+      document.getElementById("hover-bug").addEventListener("mouseenter", () => {
+        throw new Error("Cannot read properties of undefined (reading 'tooltip')");
+      });
+
+      document.getElementById("search").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === "Escape" || e.key === "Backspace") {
+          throw new Error("Cannot read properties of undefined (reading 'results')");
+        }
+      });
+
+      document.getElementById("break").addEventListener("click", () => {
+        throw new Error("Cannot read properties of undefined (reading 'items')");
+      });
+    </script>
+  </body>
+</html>

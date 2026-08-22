@@ -16,7 +16,14 @@ export interface TelemetryErrorPayload {
   column?: number;
 }
 
-export type ActionType = "click" | "input" | "navigate";
+export type ActionType =
+  | "click"
+  | "input"
+  | "navigate"
+  | "hover"
+  | "keypress"
+  | "select"
+  | "scroll";
 
 export interface RecordedAction {
   type: ActionType;

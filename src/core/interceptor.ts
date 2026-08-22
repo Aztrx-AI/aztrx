@@ -57,6 +57,14 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
     });
   });
 
+  page.on("crash", () => {
+    bus.emit("telemetry", {
+      type: "uncaught_exception",
+      rawMessage: "Renderer process crashed",
+      rawStack: "",
+    });
+  });
+
   page.on("pageerror", (err) => {
     const frame = extractFrame(err.stack ?? "");
     bus.emit("telemetry", {

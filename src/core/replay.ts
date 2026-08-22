@@ -23,14 +23,37 @@ export async function replayActions(page: Page, actions: RecordedAction[]): Prom
       }
       continue;
     }
+    if (a.type === "scroll") {
+      await page.mouse.wheel(0, a.value === "up" ? -600 : 600).catch(() => {});
+      await page.waitForTimeout(30);
+      continue;
+    }
+    if (a.type === "keypress") {
+      const key = a.value ?? "Enter";
+      if (a.selectors[0]) {
+        await page.locator(a.selectors[0]).first().focus().catch(() => {});
+      }
+      await page.keyboard.press(key).catch(() => {});
+      await page.waitForTimeout(30);
+      continue;
+    }
     for (const sel of a.selectors) {
       const loc = page.locator(sel).first();
       const n = await loc.count().catch(() => 0);
       if (n === 0) continue;
-      if (a.type === "input") {
-        await loc.fill(a.value ?? "").catch(() => {});
-      } else {
-        await loc.click({ timeout: 1000 }).catch(() => {});
+      switch (a.type) {
+        case "input":
+          await loc.fill(a.value ?? "").catch(() => {});
+          break;
+        case "hover":
+          await loc.hover().catch(() => {});
+          break;
+        case "select":
+          await loc.selectOption(a.value ?? "").catch(() => {});
+          break;
+        default:
+          await loc.click({ timeout: 1000 }).catch(() => {});
+          break;
       }
       break;
     }

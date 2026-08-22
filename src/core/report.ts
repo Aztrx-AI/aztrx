@@ -35,7 +35,11 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
         : "";
       const steps = f.actionHistory.length
         ? `<details><summary>action history (${f.actionHistory.length})</summary><ol>${f.actionHistory
-            .map((a) => `<li><code>${escapeHtml(a.type)}</code> ${escapeHtml(a.selectors[0] ?? "")}</li>`)
+            .map((a) => {
+              const detail = a.value ? ` <span>${escapeHtml(a.value)}</span>` : "";
+              const sel = a.selectors[0] ? ` ${escapeHtml(a.selectors[0])}` : "";
+              return `<li><code>${escapeHtml(a.type)}${detail}</code>${sel}</li>`;
+            })
             .join("")}</ol></details>`
         : "";
       return `

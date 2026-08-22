@@ -33,15 +33,32 @@ export function compileSpec(finding: Finding, actions: RecordedAction[], url: st
       out.push(`  await page.goto(${js(a.value ?? url)});`);
       continue;
     }
+    if (a.type === "scroll") {
+      out.push(`  await page.mouse.wheel(0, ${a.value === "up" ? -600 : 600});`);
+      continue;
+    }
     const sel = a.selectors[0];
     if (!sel) {
       out.push(`  // (skipped — no reliable selector for this step)`);
       continue;
     }
-    if (a.type === "input") {
-      out.push(`  await page.locator(${js(sel)}).first().fill(${js(a.value ?? "")});`);
-    } else {
-      out.push(`  await page.locator(${js(sel)}).first().click();`);
+    switch (a.type) {
+      case "input":
+        out.push(`  await page.locator(${js(sel)}).first().fill(${js(a.value ?? "")});`);
+        break;
+      case "hover":
+        out.push(`  await page.locator(${js(sel)}).first().hover();`);
+        break;
+      case "select":
+        out.push(`  await page.locator(${js(sel)}).first().selectOption(${js(a.value ?? "")});`);
+        break;
+      case "keypress":
+        out.push(`  await page.locator(${js(sel)}).first().focus();`);
+        out.push(`  await page.keyboard.press(${js(a.value ?? "Enter")});`);
+        break;
+      default:
+        out.push(`  await page.locator(${js(sel)}).first().click();`);
+        break;
     }
   }
 
