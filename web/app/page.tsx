@@ -1,4 +1,5 @@
 import { CopyButton } from "./components/CopyButton";
+import Reveal from "./components/Reveal";
 
 const INSTALL = "npx aztrx run http://localhost:3000";
 
@@ -8,15 +9,6 @@ export default {
   maxActions: 100,
   allowHosts: ["api.yourapp.com"],
 };`;
-
-const TERMINAL = {
-  banner: "⚡ Aztrx v0.1.0 — Runtime Detector",
-  target: "Target: http://localhost:3000",
-  mode: "Mode:   fuzz (seed 42)",
-  crash: "Cannot read properties of undefined (reading 'items')",
-  loc: "src/checkout.ts:41:9",
-  spec: ".aztrx/repro/56f401d85ab4.spec.ts",
-} as const;
 
 const FRAMEWORKS = [
   "Next.js",
@@ -69,6 +61,22 @@ const STEPS = [
   },
 ];
 
+function Logo() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" aria-hidden>
+      <rect x="1" y="1" width="22" height="22" rx="5.5" className="stroke-azure/40" strokeWidth="1.5" />
+      <polyline
+        points="4,13.5 8,13.5 9.5,6.5 12,18.5 14,9 15.5,13.5 20,13.5"
+        className="stroke-azure"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="18.5" r="1.4" className="fill-red" />
+    </svg>
+  );
+}
+
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
     <p className="font-mono text-[12px] uppercase tracking-[0.22em] text-azure">
@@ -77,37 +85,109 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Terminal() {
+function traceData() {
+  const base = 60;
+  const spikeAt = 260;
+  const trace: string[] = [];
+  const spike: string[] = [];
+  for (let x = 0; x <= 800; x += 4) {
+    const p = ((x % 400) + 400) % 400;
+    let y = base + Math.sin(x * 0.3) * 2 + Math.sin(x * 0.07 + 1) * 3.5;
+    const d = p - spikeAt;
+    if (d >= -6 && d < 34) {
+      y = base - Math.sin(((d + 6) / 40) * Math.PI) * 50;
+      spike.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    }
+    trace.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  }
+  return { trace: trace.join(" "), spike: spike.join(" ") };
+}
+
+const TERMINAL_LINES: { node: React.ReactNode; cls?: string }[] = [
+  { node: <span className="font-semibold text-azure">⚡ Aztrx v0.1.0 — Runtime Detector</span> },
+  { node: <span className="text-dim">Target: http://localhost:3000</span> },
+  { node: <span className="text-dim">Mode:   fuzz (seed 42)</span> },
+  { node: " " },
+  {
+    node: (
+      <span>
+        <span className="text-red">● crash</span>
+        <span className="font-semibold">  Cannot read properties of undefined (reading 'items')</span>
+      </span>
+    ),
+    cls: "crash-flash",
+  },
+  { node: <span className="text-dim">   src/checkout.ts:41:9</span> },
+  { node: <span className="text-dim">     38 │   items.forEach((it) =&gt; addToCart(it))</span> },
+  { node: <span className="text-dim">     39 │   renderTotal()</span> },
+  { node: <span className="text-red">   &gt; 41 │   throw new Error(&quot;Cannot read properties of undefined (reading 'items')&quot;)</span> },
+  { node: <span className="text-dim">     42 │ ){"}"}</span> },
+  { node: " " },
+  { node: <span className="text-azure">— Repro pipeline (minimize → compile → validate) —</span> },
+  {
+    node: (
+      <span>
+        <span className="text-green">  ✓ deterministic</span>
+        <span className="text-fg">  Cannot read properties of undefined (reading 'items')</span>
+      </span>
+    ),
+  },
+  { node: <span className="text-dim">  (1/3 steps, 3/3 runs)</span> },
+  { node: <span className="text-dim">        spec: .aztrx/repro/56f401d85ab4.spec.ts</span> },
+  { node: " " },
+  { node: <span className="text-dim">────────────────────────────────────────────</span> },
+  { node: <span className="text-azure">1 unique finding(s)</span> },
+  { node: <span className="text-dim">crash: 1   error: 0   warning: 0</span> },
+  { node: " " },
+  {
+    node: (
+      <span>
+        <span className="text-azure">$ </span>
+        <span className="cursor text-fg">▊</span>
+      </span>
+    ),
+  },
+];
+
+function Monitor() {
+  const { trace, spike } = traceData();
   return (
-    <div className="term-glow overflow-hidden rounded-xl border border-border bg-[#0d1016] text-left">
-      <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-3">
+    <div className="term-glow scanlines relative overflow-hidden rounded-2xl border border-border bg-[#0a0e14] text-left">
+      <div className="flex items-center gap-2 border-b border-border bg-surface/80 px-4 py-3">
         <span className="h-3 w-3 rounded-full bg-red/80" />
         <span className="h-3 w-3 rounded-full bg-amber/80" />
         <span className="h-3 w-3 rounded-full bg-green/80" />
         <span className="ml-3 font-mono text-xs text-dim">aztrx run</span>
+        <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-green">
+          <span className="live-dot h-1.5 w-1.5 rounded-full bg-green" /> live
+        </span>
       </div>
-      <pre className="overflow-x-auto p-5 font-mono text-[13px] leading-[1.7] text-fg">
-        <span className="font-semibold text-azure">{TERMINAL.banner}</span>{"\n"}
-        <span className="text-dim">{TERMINAL.target}</span>{"\n"}
-        <span className="text-dim">{TERMINAL.mode}</span>{"\n\n"}
-        <span className="text-red">● crash</span>
-        <span className="font-semibold">  {TERMINAL.crash}</span>{"\n"}
-        <span className="text-dim">   {TERMINAL.loc}</span>{"\n"}
-        <span className="text-dim">     38 │   items.forEach((it) =&gt; addToCart(it))</span>{"\n"}
-        <span className="text-dim">     39 │   renderTotal()</span>{"\n"}
-        <span className="text-red">   &gt; 41 │   throw new Error(&quot;Cannot read properties of undefined (reading &#39;items&#39;)&quot;)</span>{"\n"}
-        <span className="text-dim">     42 │ ){"}"}</span>{"\n\n"}
-        <span className="text-azure">— Repro pipeline (minimize → compile → validate) —</span>{"\n"}
-        <span className="text-green">  ✓ deterministic</span>
-        <span className="text-fg">  {TERMINAL.crash}</span>
-        <span className="text-dim">  (1/3 steps, 3/3 runs)</span>{"\n"}
-        <span className="text-dim">        spec: {TERMINAL.spec}</span>{"\n\n"}
-        <span className="text-dim">────────────────────────────────────────────</span>{"\n"}
-        <span className="text-azure">1 unique finding(s)</span>{"\n"}
-        <span className="text-dim">crash: 1   error: 0   warning: 0</span>{"\n\n"}
-        <span className="text-azure">$ </span>
-        <span className="cursor text-fg">▊</span>
-      </pre>
+
+      <div className="relative border-b border-border/60 px-1 pt-2">
+        <svg viewBox="0 0 400 120" preserveAspectRatio="none" className="h-28 w-full" aria-hidden>
+          <line x1="0" y1="60" x2="400" y2="60" className="trace-midline" />
+          <g className="trace-scroll">
+            <polyline points={trace} className="trace" />
+            <polyline points={spike} className="trace-spike" />
+          </g>
+          <line x1="396" y1="0" x2="396" y2="120" className="trace-sweep" />
+        </svg>
+        <span className="pointer-events-none absolute right-2.5 top-2 font-mono text-[10px] uppercase tracking-[0.2em] text-dim">
+          signal
+        </span>
+      </div>
+
+      <div className="p-5 font-mono text-[12.5px] leading-[1.75] text-fg">
+        {TERMINAL_LINES.map((l, i) => (
+          <div
+            key={i}
+            className={`term-line whitespace-pre ${l.cls ?? ""}`}
+            style={{ animationDelay: `${i * 70}ms` }}
+          >
+            {l.node}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -118,8 +198,9 @@ export default function Home() {
       {/* ── Nav ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 border-b border-border/70 bg-bg/80 backdrop-blur">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <a href="#" className="flex items-center gap-2 font-mono text-[15px] font-semibold tracking-tight text-fg">
-            <span className="text-azure">⚡</span> aztrx
+          <a href="#" className="flex items-center gap-2.5 text-fg">
+            <Logo />
+            <span className="font-display text-[16px] font-semibold tracking-tight">aztrx</span>
           </a>
           <div className="hidden items-center gap-8 font-mono text-[13px] text-muted md:flex">
             <a href="#how" className="transition-colors hover:text-fg">How it works</a>
@@ -138,10 +219,10 @@ export default function Home() {
 
       {/* ── Hero ────────────────────────────────────────────── */}
       <section className="hero-grid relative overflow-hidden">
-        <div className="mx-auto grid max-w-6xl gap-14 px-6 py-20 md:grid-cols-[1.05fr_1fr] md:items-center md:py-28">
+        <div className="mx-auto grid max-w-6xl gap-14 px-6 py-20 md:grid-cols-[1.02fr_1fr] md:items-center md:py-28">
           <div>
             <Eyebrow>runtime stress-tester · open core</Eyebrow>
-            <h1 className="mt-5 text-balance text-[42px] font-semibold leading-[1.05] tracking-tight text-fg sm:text-6xl">
+            <h1 className="font-display mt-5 text-balance text-[44px] font-bold leading-[1.02] tracking-tight sm:text-6xl">
               Find the crash.
               <br />
               Prove it.{" "}
@@ -168,15 +249,15 @@ export default function Home() {
             </div>
           </div>
 
-          <Terminal />
+          <Monitor />
         </div>
       </section>
 
       {/* ── How it works ────────────────────────────────────── */}
       <section id="how" className="border-t border-border/70">
-        <div className="mx-auto max-w-6xl px-6 py-24">
+        <Reveal className="mx-auto max-w-6xl px-6 py-24">
           <Eyebrow>how it works</Eyebrow>
-          <h2 className="mt-4 max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h2 className="font-display mt-4 max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-4xl">
             Three steps from <span className="text-azure">“it broke”</span> to{" "}
             <span className="text-green">“here's the proof”</span>
           </h2>
@@ -184,7 +265,7 @@ export default function Home() {
             {STEPS.map((s) => (
               <div
                 key={s.n}
-                className="rounded-xl border border-border bg-surface p-6 transition-colors hover:border-azure/40"
+                className="group rounded-xl border border-border bg-surface p-6 transition-colors hover:border-azure/40"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-sm text-dim">{s.n}</span>
@@ -192,19 +273,19 @@ export default function Home() {
                     {s.tag}
                   </span>
                 </div>
-                <h3 className="mt-5 text-lg font-semibold text-fg">{s.title}</h3>
+                <h3 className="font-display mt-5 text-lg font-semibold text-fg">{s.title}</h3>
                 <p className="mt-3 text-[15px] leading-7 text-muted">{s.body}</p>
               </div>
             ))}
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* ── Security invariants ─────────────────────────────── */}
       <section id="security" className="border-t border-border/70 bg-surface/40">
-        <div className="mx-auto max-w-6xl px-6 py-24">
+        <Reveal className="mx-auto max-w-6xl px-6 py-24">
           <Eyebrow>security invariants</Eyebrow>
-          <h2 className="mt-4 max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h2 className="font-display mt-4 max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-4xl">
             Built so you can run it inside your repo without flinching
           </h2>
           <p className="mt-4 max-w-2xl text-muted">
@@ -213,13 +294,10 @@ export default function Home() {
           </p>
           <div className="mt-12 grid gap-6 sm:grid-cols-2">
             {INVARIANTS.map((i) => (
-              <div
-                key={i.title}
-                className="flex gap-4 rounded-xl border border-border bg-bg p-6"
-              >
+              <div key={i.title} className="flex gap-4 rounded-xl border border-border bg-bg p-6">
                 <span className="mt-0.5 font-mono text-azure">✓</span>
                 <div>
-                  <h3 className="font-semibold text-fg">{i.title}</h3>
+                  <h3 className="font-display font-semibold text-fg">{i.title}</h3>
                   <p className="mt-2 text-[15px] leading-7 text-muted">{i.body}</p>
                 </div>
               </div>
@@ -228,14 +306,14 @@ export default function Home() {
           <p className="mt-8 font-mono text-sm text-dim">
             Human commits only. Aztrx never writes to your repo without confirmation.
           </p>
-        </div>
+        </Reveal>
       </section>
 
       {/* ── Quickstart ──────────────────────────────────────── */}
       <section id="quickstart" className="border-t border-border/70">
-        <div className="mx-auto max-w-6xl px-6 py-24">
+        <Reveal className="mx-auto max-w-6xl px-6 py-24">
           <Eyebrow>quickstart</Eyebrow>
-          <h2 className="mt-4 max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h2 className="font-display mt-4 max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-4xl">
             Running in thirty seconds
           </h2>
           <div className="mt-12 grid gap-10 lg:grid-cols-[1.1fr_1fr]">
@@ -260,17 +338,13 @@ export default function Home() {
             </div>
             <div className="space-y-8">
               <div>
-                <h3 className="font-mono text-[13px] uppercase tracking-[0.18em] text-muted">
-                  config
-                </h3>
+                <h3 className="font-mono text-[13px] uppercase tracking-[0.18em] text-muted">config</h3>
                 <pre className="mt-3 overflow-x-auto rounded-xl border border-border bg-surface-2 p-5 font-mono text-[13px] leading-[1.8] text-fg">
                   {CONFIG_SNIPPET}
                 </pre>
               </div>
               <div>
-                <h3 className="font-mono text-[13px] uppercase tracking-[0.18em] text-muted">
-                  works on
-                </h3>
+                <h3 className="font-mono text-[13px] uppercase tracking-[0.18em] text-muted">works on</h3>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {FRAMEWORKS.map((f) => (
                     <span
@@ -284,23 +358,23 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* ── Pricing ─────────────────────────────────────────── */}
       <section id="pricing" className="border-t border-border/70 bg-surface/40">
-        <div className="mx-auto max-w-6xl px-6 py-24">
+        <Reveal className="mx-auto max-w-6xl px-6 py-24">
           <Eyebrow>open core</Eyebrow>
-          <h2 className="mt-4 max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h2 className="font-display mt-4 max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-4xl">
             Free to find bugs. Pay when it fixes them for you.
           </h2>
           <div className="mt-12 grid gap-6 md:grid-cols-2">
             <div className="rounded-xl border border-border bg-bg p-8">
               <div className="flex items-baseline justify-between">
-                <h3 className="text-lg font-semibold">Core</h3>
+                <h3 className="font-display text-lg font-semibold">Core</h3>
                 <span className="font-mono text-sm text-dim">Apache-2.0</span>
               </div>
-              <p className="mt-4 text-4xl font-semibold tracking-tight">
+              <p className="font-display mt-4 text-4xl font-bold tracking-tight">
                 $0<span className="text-lg font-normal text-muted"> / forever</span>
               </p>
               <ul className="mt-6 space-y-3 text-[15px] text-muted">
@@ -328,10 +402,10 @@ export default function Home() {
                 coming soon
               </span>
               <div className="flex items-baseline justify-between">
-                <h3 className="text-lg font-semibold">Pro</h3>
+                <h3 className="font-display text-lg font-semibold">Pro</h3>
                 <span className="font-mono text-sm text-dim">per developer</span>
               </div>
-              <p className="mt-4 text-4xl font-semibold tracking-tight">
+              <p className="font-display mt-4 text-4xl font-bold tracking-tight">
                 $29<span className="text-lg font-normal text-muted"> / mo</span>
               </p>
               <ul className="mt-6 space-y-3 text-[15px] text-muted">
@@ -355,20 +429,21 @@ export default function Home() {
               </button>
             </div>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* ── Footer ──────────────────────────────────────────── */}
       <footer className="border-t border-border/70">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 px-6 py-10 sm:flex-row">
-          <a href="#" className="font-mono text-[15px] font-semibold text-fg">
-            <span className="text-azure">⚡</span> aztrx
+          <a href="#" className="flex items-center gap-2.5 text-fg">
+            <Logo />
+            <span className="font-display text-[15px] font-semibold">aztrx</span>
           </a>
           <div className="flex gap-6 font-mono text-[13px] text-muted">
+            <a href="https://github.com/DanisChaparov/aztrx" className="transition-colors hover:text-fg">GitHub</a>
             <a href="#how" className="transition-colors hover:text-fg">Docs</a>
             <a href="#security" className="transition-colors hover:text-fg">Security</a>
             <a href="#pricing" className="transition-colors hover:text-fg">Pricing</a>
-            <a href="#" className="transition-colors hover:text-fg">GitHub</a>
           </div>
           <p className="font-mono text-[13px] text-dim">© 2026 Aztrx</p>
         </div>

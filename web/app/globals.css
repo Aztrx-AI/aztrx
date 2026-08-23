@@ -1,23 +1,24 @@
 @import "tailwindcss";
 
 /*
- * Aztrx design system — dark, terminal-native. The palette is carried forward
- * from the CLI report + Local Studio surfaces so the site and the product feel
- * like one thing. "az" in Aztrx = azure; the accent is the brand.
+ * Aztrx design system — "the crash seismograph".
+ * A runtime stress-tester is a seismograph for your app: a live trace that
+ * spikes when something breaks. The palette and type carry that instrument
+ * feel — azure signal on a near-black field, with a red crash spike.
  */
 :root {
-  --bg: #0a0c10;
-  --surface: #12151b;
-  --surface-2: #161a21;
-  --border: #262b36;
-  --fg: #e6e8ee;
-  --muted: #9aa1ad;
-  --dim: #6b7280;
+  --bg: #07090d;
+  --surface: #0d1117;
+  --surface-2: #12161e;
+  --border: #232a36;
+  --fg: #e9edf4;
+  --muted: #a6aebb;
+  --dim: #5b6573;
   --azure: #4cc2ff;
-  --azure-bright: #7ad4ff;
-  --red: #e5484d;
+  --azure-bright: #8ad9ff;
+  --red: #ff5a5f;
   --amber: #f5a623;
-  --green: #4ade80;
+  --green: #43e58a;
 }
 
 @theme inline {
@@ -37,6 +38,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
+.font-display {
+  font-family: var(--font-chakra), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -54,40 +60,97 @@ body {
   color: #fff;
 }
 
-/* subtle grid behind the hero — a nod to the "runtime surface" being tested */
+/* faint grid behind the hero */
 .hero-grid {
   background-image:
-    linear-gradient(rgba(76, 194, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(76, 194, 255, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(76, 194, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(76, 194, 255, 0.04) 1px, transparent 1px);
   background-size: 44px 44px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+}
+
+/* subtle scanline texture for the monitor */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.022) 0px,
+    rgba(255, 255, 255, 0.022) 1px,
+    transparent 1px,
+    transparent 3px
+  );
 }
 
 .term-glow {
   box-shadow:
-    0 0 0 1px rgba(76, 194, 255, 0.14),
-    0 24px 80px -24px rgba(76, 194, 255, 0.28),
+    0 0 0 1px rgba(76, 194, 255, 0.12),
+    0 24px 80px -24px rgba(76, 194, 255, 0.3),
     0 0 120px -40px rgba(76, 194, 255, 0.4);
 }
 
+/* ── motion ─────────────────────────────────────────────── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  50% { opacity: 0.3; }
 }
-.live-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
-}
+.live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
 
 @keyframes blink {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-.cursor {
-  animation: blink 1.1s steps(1) infinite;
+.cursor { animation: blink 1.1s steps(1) infinite; }
+
+/* seismograph: scroll one 400-unit period (50% of the 800-wide group) */
+@keyframes scroll-trace {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
+.trace-scroll { animation: scroll-trace 11s linear infinite; }
+.trace {
+  fill: none;
+  stroke: rgba(76, 194, 255, 0.5);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trace-spike {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(255, 90, 95, 0.8));
+}
+.trace-midline { stroke: rgba(76, 194, 255, 0.14); stroke-width: 1; }
+.trace-sweep { stroke: rgba(76, 194, 255, 0.35); stroke-width: 2; }
+
+/* terminal streams in line-by-line */
+@keyframes line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.term-line { animation: line-in 0.4s ease both; }
+
+/* crash line pulses red */
+@keyframes flash-crash {
+  0%, 100% { background: transparent; }
+  8% { background: rgba(255, 90, 95, 0.16); }
+  16% { background: transparent; }
+}
+.crash-flash { animation: line-in 0.4s ease both, flash-crash 3s ease-in-out infinite; }
+
+/* scroll reveal — hidden only when JS is available, so content never blanks */
+.reveal { transition: opacity 0.6s ease, transform 0.6s ease; }
+html.js .reveal { opacity: 0; transform: translateY(18px); }
+html.js .reveal.is-visible { opacity: 1; transform: translateY(0); }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .live-dot, .cursor { animation: none; }
+  .live-dot, .cursor, .trace-scroll, .term-line, .crash-flash { animation: none; }
+  html.js .reveal { opacity: 1; transform: none; transition: none; }
 }
