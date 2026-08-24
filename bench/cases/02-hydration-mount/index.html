@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Dashboard</title></head>
+<body><div class="wrap">
+  <h1>Dashboard</h1><p class="sub">Analytics for your team</p>
+  <div class="card"><h2>Welcome</h2><p id="greeting">Loading…</p></div>
+</div>
+<script>
+  // bootstrap state is missing — this is what hydration expects but never got
+  const user = window.__INITIAL_STATE__.user;
+  document.getElementById("greeting").textContent = "Hi, " + user.name;
+</script>
+</body></html>

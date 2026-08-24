@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Settings — Router</title></head>
+<body><div class="wrap">
+  <h1>Settings</h1><p class="sub">Client-side routing</p>
+  <div class="card"><h2>Navigate</h2>
+    <a href="#/settings">Open settings</a>
+    <p class="muted" id="view">home</p>
+  </div>
+</div>
+<script>
+  window.addEventListener("hashchange", () => {
+    const panel = document.getElementById("settings-panel");
+    panel.parentNode.appendChild(document.createElement("div"));
+  });
+</script>
+</body></html>

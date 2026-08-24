@@ -1,0 +1,9 @@
+{
+  "id": "06-route-null",
+  "name": "Settings — null ref on route change",
+  "archetype": "route-transition",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of null (reading 'parentNode')", "trigger": "click a[href='#/settings']" }
+  ]
+}

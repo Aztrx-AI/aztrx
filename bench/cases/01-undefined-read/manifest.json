@@ -1,0 +1,9 @@
+{
+  "id": "01-undefined-read",
+  "name": "Shop — null cart deref",
+  "archetype": "null-deref",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of undefined (reading 'items')", "trigger": "click #view-cart" }
+  ]
+}

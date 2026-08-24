@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Notifications</title></head>
+<body><div class="wrap">
+  <h1>Notifications</h1><p class="sub">Dismiss a notice</p>
+  <div class="card"><h2>Notice</h2>
+    <div id="notice" class="muted">You have 3 new messages</div>
+    <button id="dismiss">Dismiss</button>
+  </div>
+</div>
+<script>
+  document.getElementById("dismiss").addEventListener("click", () => {
+    const el = document.getElementById("notice");
+    el.parentNode.removeChild(el);   // removed once…
+    el.parentNode.removeChild(el);   // …but still referenced → parentNode is null
+  });
+</script>
+</body></html>

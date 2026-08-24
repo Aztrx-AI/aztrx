@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Pricing — Formatter</title></head>
+<body><div class="wrap">
+  <h1>Pricing</h1><p class="sub">Format a price to two decimals</p>
+  <div class="card"><h2>Price</h2>
+    <input id="price" type="text" placeholder="e.g. 19.99">
+    <p class="muted" id="out">—</p>
+  </div>
+</div>
+<script>
+  document.getElementById("price").addEventListener("input", (e) => {
+    const price = e.target.value;
+    document.getElementById("out").textContent = price.toFixed(2);
+  });
+</script>
+</body></html>

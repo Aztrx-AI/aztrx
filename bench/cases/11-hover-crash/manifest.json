@@ -1,0 +1,9 @@
+{
+  "id": "11-hover-crash",
+  "name": "Products — hover tooltip deref",
+  "archetype": "hover",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of undefined (reading 'tooltip')", "trigger": "hover #product" }
+  ]
+}

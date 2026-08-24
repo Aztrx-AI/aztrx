@@ -1,0 +1,9 @@
+{
+  "id": "09-detached-dom",
+  "name": "Notifications — double-remove",
+  "archetype": "detached-dom",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of null (reading 'removeChild')", "trigger": "click #dismiss" }
+  ]
+}

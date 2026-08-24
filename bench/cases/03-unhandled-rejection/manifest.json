@@ -1,0 +1,9 @@
+{
+  "id": "03-unhandled-rejection",
+  "name": "Store — unhandled fetch rejection",
+  "archetype": "async-race",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "error", "type": "unhandled_rejection", "message": "is not valid JSON", "trigger": "click #load" }
+  ]
+}

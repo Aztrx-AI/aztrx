@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Shop — Checkout</title></head>
+<body><div class="wrap">
+  <h1>Shop</h1><p class="sub">Demo storefront · checkout flow</p>
+  <div class="card"><h2>Your cart</h2>
+    <p class="muted" id="count">0 items</p>
+    <button id="view-cart">View cart</button>
+  </div>
+</div>
+<script>
+  // cart is fetched async and sometimes not ready when the cart is viewed
+  document.getElementById("view-cart").addEventListener("click", () => {
+    const n = window.cart.items.length;
+    document.getElementById("count").textContent = n + " items";
+  });
+</script>
+</body></html>

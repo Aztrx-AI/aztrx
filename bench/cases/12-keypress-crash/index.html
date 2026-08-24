@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Search</title></head>
+<body><div class="wrap">
+  <h1>Search</h1><p class="sub">Type to filter results</p>
+  <div class="card"><h2>Query</h2>
+    <input id="search" type="text" placeholder="search…">
+  </div>
+</div>
+<script>
+  document.getElementById("search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === "Escape" || e.key === "Backspace") {
+      throw new Error("Cannot read properties of undefined (reading 'results')");
+    }
+  });
+</script>
+</body></html>

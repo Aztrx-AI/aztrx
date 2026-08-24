@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Inbox — Pagination</title></head>
+<body><div class="wrap">
+  <h1>Inbox</h1><p class="sub">Messages</p>
+  <div class="card"><h2>Message</h2><p class="muted" id="cur">—</p>
+    <button id="next">Next</button>
+  </div>
+</div>
+<script>
+  const items = [{ name: "A" }, { name: "B" }, { name: "C" }];
+  let idx = 3; // off-by-one: already past the last item
+  document.getElementById("next").addEventListener("click", () => {
+    const label = items[idx].name;
+    idx++;
+    document.getElementById("cur").textContent = label;
+  });
+</script>
+</body></html>

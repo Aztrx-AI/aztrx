@@ -1,0 +1,9 @@
+{
+  "id": "07-json-parse",
+  "name": "Import — unvalidated JSON.parse",
+  "archetype": "json-parse",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "is not valid JSON", "trigger": "click #import" }
+  ]
+}

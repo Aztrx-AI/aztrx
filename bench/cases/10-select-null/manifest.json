@@ -1,0 +1,9 @@
+{
+  "id": "10-select-null",
+  "name": "Billing — select change deref",
+  "archetype": "select-change",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of undefined (reading 'seatCount')", "trigger": "select #plan → 'team'" }
+  ]
+}

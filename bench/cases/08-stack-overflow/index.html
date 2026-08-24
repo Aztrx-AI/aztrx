@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Calc — Factorial</title></head>
+<body><div class="wrap">
+  <h1>Calculator</h1><p class="sub">Factorial</p>
+  <div class="card"><h2>5!</h2>
+    <button id="compute">Compute</button>
+    <p class="muted" id="out">—</p>
+  </div>
+</div>
+<script>
+  function fact(n) { return n * fact(n - 1); } // missing base case
+  document.getElementById("compute").addEventListener("click", () => {
+    document.getElementById("out").textContent = fact(5);
+  });
+</script>
+</body></html>

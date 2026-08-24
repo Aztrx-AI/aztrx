@@ -1,0 +1,9 @@
+{
+  "id": "02-hydration-mount",
+  "name": "Dashboard — missing bootstrap state",
+  "archetype": "hydration-mismatch",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of undefined (reading 'user')", "trigger": "page load" }
+  ]
+}

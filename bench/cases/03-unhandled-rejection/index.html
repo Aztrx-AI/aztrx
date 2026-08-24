@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Store — Cart</title></head>
+<body><div class="wrap">
+  <h1>Store</h1><p class="sub">Cart sync</p>
+  <div class="card"><h2>Cart</h2><p class="muted" id="status">Not loaded</p>
+    <button id="load">Load cart</button>
+  </div>
+</div>
+<script>
+  document.getElementById("load").addEventListener("click", () => {
+    fetch("/api/cart")
+      .then((r) => r.json())
+      .then((d) => { document.getElementById("status").textContent = d.length + " items"; });
+    // no .catch — the API returns non-JSON and the rejection is unhandled
+  });
+</script>
+</body></html>

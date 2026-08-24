@@ -1,0 +1,9 @@
+{
+  "id": "12-keypress-crash",
+  "name": "Search — keydown deref",
+  "archetype": "keypress",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Cannot read properties of undefined (reading 'results')", "trigger": "keydown #search" }
+  ]
+}

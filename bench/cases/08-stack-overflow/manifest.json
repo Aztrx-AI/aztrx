@@ -1,0 +1,9 @@
+{
+  "id": "08-stack-overflow",
+  "name": "Calc — unbounded recursion",
+  "archetype": "stack-overflow",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "Maximum call stack size exceeded", "trigger": "click #compute" }
+  ]
+}

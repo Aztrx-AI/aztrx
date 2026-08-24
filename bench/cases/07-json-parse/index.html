@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Import — JSON</title></head>
+<body><div class="wrap">
+  <h1>Import</h1><p class="sub">Parse a config payload</p>
+  <div class="card"><h2>Payload</h2>
+    <textarea id="payload" rows="2">undefined</textarea>
+    <button id="import">Import</button>
+    <p class="muted" id="out">—</p>
+  </div>
+</div>
+<script>
+  // unvalidated JSON.parse of a payload that isn't valid JSON
+  document.getElementById("import").addEventListener("click", () => {
+    const data = JSON.parse("undefined");
+    document.getElementById("out").textContent = JSON.stringify(data);
+  });
+</script>
+</body></html>

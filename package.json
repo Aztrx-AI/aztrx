@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "node dist/cli.js",
+    "bench": "npm run build && tsx bench/run.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

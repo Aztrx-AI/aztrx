@@ -1,0 +1,9 @@
+{
+  "id": "04-type-coercion",
+  "name": "Pricing — toFixed on string",
+  "archetype": "type-coercion",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "crash", "type": "uncaught_exception", "message": "toFixed is not a function", "trigger": "input #price" }
+  ]
+}
