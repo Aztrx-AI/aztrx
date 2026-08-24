@@ -27,10 +27,18 @@ interface Manifest {
 }
 
 const args = process.argv.slice(2);
+const arg = (name: string, fallback: number): number => {
+  const i = args.indexOf(name);
+  if (i >= 0 && i + 1 < args.length) {
+    const n = Number(args[i + 1]);
+    if (!Number.isNaN(n)) return n;
+  }
+  return fallback;
+};
 const OPT = {
   repro: args.includes("--repro"),
-  seed: Number(args[args.indexOf("--seed") + 1] ?? 42),
-  maxActions: Number(args[args.indexOf("--max-actions") + 1] ?? 80),
+  seed: arg("--seed", 42),
+  maxActions: arg("--max-actions", 80),
 };
 
 function serve(root: string, port: number): Promise<() => void> {
@@ -100,6 +108,14 @@ async function main() {
     }
     const falsePos = findings.filter((f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)));
 
+    const reproVerdicts = found.map(({ finding }) => finding.repro?.verdict).filter((v): v is string => v != null);
+    const repro = {
+      attempted: reproVerdicts.length,
+      deterministic: reproVerdicts.filter((v) => v === "deterministic").length,
+      flaky: reproVerdicts.filter((v) => v === "flaky").length,
+      unreliable: reproVerdicts.filter((v) => v === "unreliable").length,
+    };
+
     rows.push({
       id,
       name: manifest.name,
@@ -109,6 +125,7 @@ async function main() {
       missed: missed.map((b) => b.id),
       falsePositives: falsePos.length,
       falsePosMessages: falsePos.map((f) => f.rawMessage.split("\n")[0].slice(0, 90)),
+      repro,
     });
 
     const ok = missed.length === 0;
@@ -124,14 +141,42 @@ async function main() {
   const found = rows.reduce((s, r) => s + (r.found as number), 0);
   const fp = rows.reduce((s, r) => s + (r.falsePositives as number), 0);
   const rate = seeded ? (found / seeded) * 100 : 0;
+  const reproAttempted = rows.reduce((s, r) => s + ((r.repro as { attempted: number })?.attempted ?? 0), 0);
+  const reproDeterministic = rows.reduce((s, r) => s + ((r.repro as { deterministic: number })?.deterministic ?? 0), 0);
+  const reproFlaky = rows.reduce((s, r) => s + ((r.repro as { flaky: number })?.flaky ?? 0), 0);
+  const reproRate = reproAttempted ? (reproDeterministic / reproAttempted) * 100 : 0;
 
   writeFileSync(
     join(OUT_DIR, "results.json"),
-    JSON.stringify({ totals: { seeded, found, rate: +rate.toFixed(1), falsePositives: fp }, cases: rows }, null, 2)
+    JSON.stringify(
+      {
+        totals: {
+          seeded,
+          found,
+          rate: +rate.toFixed(1),
+          falsePositives: fp,
+          repro: {
+            attempted: reproAttempted,
+            deterministic: reproDeterministic,
+            flaky: reproFlaky,
+            rate: +reproRate.toFixed(1),
+          },
+        },
+        cases: rows,
+      },
+      null,
+      2
+    )
   );
 
   console.log("\n" + "═".repeat(58));
   console.log(pc.bold(`Detection  ${found}/${seeded}  (${rate.toFixed(1)}%)`) + pc.dim(`   ·   ${fp} false positive(s)`));
+  if (OPT.repro && reproAttempted > 0) {
+    console.log(
+      pc.bold(`Repro      ${reproDeterministic}/${reproAttempted} deterministic  (${reproRate.toFixed(1)}%)`) +
+        pc.dim(`   ·   ${reproFlaky} flaky`)
+    );
+  }
   console.log("═".repeat(58));
   for (const r of rows) {
     console.log(

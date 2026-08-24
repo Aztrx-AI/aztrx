@@ -1,6 +1,8 @@
-# Benchmark results — detection
+# Benchmark results — detection + repro
 
 **12 / 12 seeded bugs detected · 100% recall · 0 hallucinations**
+
+**10 / 11 deterministic repros · 90.9% repro rate**
 
 | metric | value |
 | --- | --- |
@@ -8,6 +10,9 @@
 | found | 12 |
 | recall | **100%** |
 | extra findings (unseeded) | 2 (both real, not hallucinations) |
+| repro deterministic | 10 / 11 (90.9%) |
+| repro unreliable | 1 (`json-parse`) |
+| repro not attempted | 1 (`hydration-mount` — mount-time bug, no action history) |
 | engine | `dist/core/orchestrator.ts` `run()` |
 | fuzz | seed 42 · maxActions 80 · `ui: true` |
 
@@ -55,9 +60,12 @@ fault line in the page.
    The engine captures `pageerror`/`unhandledrejection` off the renderer, so the
    runtime behaviour is what matters — but the number is not yet a claim over a
    real-project corpus. That is the next benchmark stage.
-2. **Detection only.** This scores F1–F5 (intercept → record → classify →
-   resolve → fuzz). The repro pipeline (F7 minimize → F8 compile → F9
-   flake-rate validate) is exercised by `--repro` but not scored here yet.
+2. **Repro is scored via `--repro`.** That flag exercises F7 (ddmin minimize) →
+   F8 (compile to a Playwright `.spec.ts`) → F9 (flake-rate validate). 10/11
+   interaction findings replay deterministically. The `json-parse` case is
+   flagged *unreliable* by F9 — a genuine non-determinism signal, not a scorer
+   miss — and the `hydration-mount` bug is mount-time with an empty action
+   history, so no repro is attempted for it.
 3. **The destructive deny-list (F6) is a real, intentional coverage gap.** The
    fuzzer refuses to click controls labelled `pay`/`checkout`/`delete`/`logout`
    etc. (see `domWalker.ts` `DESTRUCTIVE`). A bug behind a "Checkout" button was
@@ -74,7 +82,15 @@ fault line in the page.
 
 ```bash
 npm run bench                 # detection only
+npm run bench -- --repro      # detection + repro scoring
 npm run bench -- --seed 7     # different seed
 ```
 
 The number is deterministic for a given seed (mulberry32 PRNG).
+
+> **Note on flag parsing.** The runner reads `--seed` / `--max-actions` values
+> from the token *after* the flag. An earlier version grabbed `args[indexOf + 1]`
+> even when the flag was absent, so any leading flag (e.g. `--repro`) silently
+> coerced `seed` and `maxActions` to `NaN` — which emptied the fuzzer's action
+> loop and dropped every interaction-triggered bug (detection collapsed to 1/12).
+> Fixed by only reading a neighbour token when the flag is actually present.
