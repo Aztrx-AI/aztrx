@@ -33,7 +33,7 @@ const DEV_TOOLING_NOISE = ["__nextjs_launch-editor"];
 // surface constantly but that aren't deterministic bugs in the app's logic —
 // letting them through would poison the repro pipeline. Suppressed as noise.
 const HYDRATION_NOISE = [
-  "Hydration failed because the initial UI does not match",
+  "Hydration failed",
   "There was an error while hydrating",
   "Text content does not match server-rendered HTML",
   "A tree hydrated but some attributes of the server rendered HTML",
