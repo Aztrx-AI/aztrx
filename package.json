@@ -19,7 +19,9 @@
     "build": "tsc",
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",
+    "server": "tsx server/index.ts",
+    "server:typecheck": "tsc -p server/tsconfig.json",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

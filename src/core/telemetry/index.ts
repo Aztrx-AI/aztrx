@@ -18,7 +18,7 @@ import { createSanitizer } from "./sanitize.js";
 import type { FrameworkMetadata, TelemetryEnvelope, TelemetryTuple } from "./types.js";
 
 const DEFAULT_ENDPOINT =
-  process.env.AZTRX_TELEMETRY_URL || "https://api.aztrx.app/v1/telemetry";
+  process.env.AZTRX_TELEMETRY_URL || "https://api.aztrx.app/api/telemetry";
 const UPLOAD_TIMEOUT_MS = 2000;
 
 /** In-flight uploads, drained by `flushTelemetry()` before the CLI exits. */
@@ -30,6 +30,8 @@ export interface SubmitOptions {
   telemetry: boolean;
   shareData: boolean;
   endpoint?: string;
+  /** API key presented as `x-api-key` (falls back to `AZTRX_API_KEY`). */
+  apiKey?: string;
 }
 
 function readFileIfExists(p: string): string | null {
@@ -77,12 +79,18 @@ function persistDataset(repoRoot: string, tuples: TelemetryTuple[]): string | nu
 }
 
 /** Fire-and-forget upload. Never rejects; bounded by a short abort. */
-export function dispatchTelemetry(envelope: TelemetryEnvelope, endpoint: string): Promise<void> {
+export function dispatchTelemetry(
+  envelope: TelemetryEnvelope,
+  endpoint: string,
+  apiKey?: string
+): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (apiKey) headers["x-api-key"] = apiKey;
   return fetch(endpoint, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(envelope),
     signal: ctrl.signal,
   })
@@ -108,7 +116,8 @@ export function submitTelemetry(findings: Finding[], opts: SubmitOptions): void 
       sentAt: new Date().toISOString(),
       tuples,
     };
-    pendingUploads.push(dispatchTelemetry(envelope, opts.endpoint ?? DEFAULT_ENDPOINT));
+    const apiKey = opts.apiKey ?? process.env.AZTRX_API_KEY;
+    pendingUploads.push(dispatchTelemetry(envelope, opts.endpoint ?? DEFAULT_ENDPOINT, apiKey));
   }
 }
 

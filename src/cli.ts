@@ -11,6 +11,7 @@ import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
 import { writePrComment } from "./core/pr.js";
 import { flushTelemetry } from "./core/telemetry/index.js";
+import { flushCloud } from "./core/cloud/index.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -36,6 +37,9 @@ interface CliOptions {
   prComment?: string | boolean;
   telemetry?: boolean;
   shareData?: boolean;
+  upload?: boolean;
+  apiKey?: string;
+  cloudUrl?: string;
   storageState?: string;
   auth?: string;
 }
@@ -89,6 +93,9 @@ program
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
   .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
+  .option("--upload", "opt-in: stream run results to the Aztrx cloud dashboard (needs --api-key)")
+  .option("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_API_KEY)")
+  .option("--cloud-url <url>", "override the cloud ingest base URL (default https://api.aztrx.app)")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
   .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
   .option("--auth <path>", "alias for --storage-state")
@@ -116,6 +123,9 @@ program
         healFastModel: opts.healFastModel,
         telemetry: opts.telemetry,
         shareData: opts.shareData,
+        upload: opts.upload,
+        apiKey: opts.apiKey,
+        cloudUrl: opts.cloudUrl,
         storageState: opts.storageState ?? opts.auth,
       };
       const failOn = Boolean(opts.failOn);
@@ -155,6 +165,7 @@ program
       // pending `--share-data` dispatch isn't killed mid-flight. Never affects
       // the exit code.
       await flushTelemetry();
+      await flushCloud();
 
       if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
         process.exit(1);

@@ -18,6 +18,7 @@ import { writeReport } from "./report.js";
 import { RunLog } from "./events.js";
 import { heal } from "./heal/index.js";
 import { submitTelemetry } from "./telemetry/index.js";
+import { submitRun } from "./cloud/index.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface RunOptions {
@@ -47,6 +48,12 @@ export interface RunOptions {
   shareData?: boolean;
   /** Override the telemetry endpoint (`AZTRX_TELEMETRY_URL`). */
   telemetryUrl?: string;
+  /** F12: upload the run's findings to the Aztrx cloud dashboard (opt-in). */
+  upload?: boolean;
+  /** API key for cloud + telemetry uploads (`AZTRX_API_KEY`). */
+  apiKey?: string;
+  /** Override the cloud ingest base URL (`AZTRX_CLOUD_URL`). */
+  cloudUrl?: string;
   /** Inject an external bus (the TUI subscribes to it). */
   bus?: EventBus;
   /** When true, suppress console output — the caller renders from bus events. */
@@ -70,6 +77,14 @@ function printFinding(f: Finding, write: (s: string) => void): void {
   }
   if (f.occurrences > 1) write(pc.dim(`   (×${f.occurrences})`));
   write("");
+}
+
+/** Human-readable run mode, surfaced in the cloud dashboard. */
+function runMode(o: RunOptions): string {
+  if (o.fuzz) return `fuzz (seed ${o.seed ?? 42})`;
+  if (o.heal) return "repro → heal";
+  if (o.repro) return "repro";
+  return "deterministic walk";
 }
 
 /**
@@ -351,6 +366,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const reportPath = writeReport(repoRoot, url, findings);
   say(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
 
+  const counts: Record<string, number> = {};
+  for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+
   // F11 — opt-in telemetry. Local-only under `--telemetry`; uploads under
   // `--share-data`. Fire-and-forget, sanitized, and never affects exit codes.
   if (options.telemetry || options.shareData) {
@@ -360,11 +378,23 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       telemetry: Boolean(options.telemetry),
       shareData: Boolean(options.shareData),
       endpoint: options.telemetryUrl,
+      apiKey: options.apiKey,
     });
   }
 
-  const counts: Record<string, number> = {};
-  for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+  // F12 — opt-in cloud sync. Streams the sanitized run results to the ingest
+  // API for the team dashboard; dedup happens server-side by fingerprint.
+  if (options.upload) {
+    submitRun(findings, {
+      repoRoot,
+      url,
+      apiKey: options.apiKey,
+      endpoint: options.cloudUrl,
+      mode: runMode(options),
+      counts,
+    });
+  }
+
   runLog.append({ type: "run_end", counts, ts: Date.now() });
 
   say(pc.dim("────────────────────────────────────────────"));

@@ -9,3 +9,7 @@ bench/frameworks/**/.next/
 bench/frameworks/**/next-env.d.ts
 bench/frameworks/**/AGENTS.md
 bench/frameworks/**/CLAUDE.md
+
+# Cloud ingest server — runtime state + operator key registry
+server/.data/
+server/keys.json

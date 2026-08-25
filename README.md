@@ -128,6 +128,9 @@ jobs:
 | `--pr-comment [path]` | Write a GitHub PR markdown comment with repro + patch (default `.aztrx/pr-comment.md`) |
 | `--telemetry` | Opt-in: collect anonymized `crash → repro → patch` tuples locally (`.aztrx/telemetry/`) |
 | `--share-data` | Opt-in: also upload the sanitized tuples to the telemetry endpoint |
+| `--upload` | Opt-in: stream run results to the Aztrx cloud dashboard (`/api/runs`) |
+| `--api-key <key>` | API key for `--upload` / `--share-data` (defaults to `$AZTRX_API_KEY`) |
+| `--cloud-url <url>` | Override the cloud ingest base URL (default `https://api.aztrx.app`) |
 | `--max-actions <n>` | Max actions per pass (default `100`) |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
 | `--auth <path>` / `--storage-state <path>` | Path to a Playwright storage-state JSON (cookies/localStorage) so authenticated pages replay logged-in |
@@ -160,6 +163,28 @@ to `<host>` (localhost is kept), and scrubs repo-absolute paths and webpack
 namespaces to `<repo>`. The `crash_fingerprint` is already a stack hash. The
 upload is fire-and-forget, bounded by a 2s timeout, and never affects the exit
 code.
+
+## Cloud dashboard
+
+`--upload` streams a completed run to the Aztrx ingest API (`api.aztrx.app`),
+where findings are deduplicated by crash fingerprint across the team's runs and
+surfaced on a per-org dashboard. The same endpoint backs `--share-data`.
+
+```bash
+aztrx run http://localhost:3000 --repro --heal --upload --api-key $AZTRX_API_KEY
+```
+
+The backend is a dependency-free Node HTTP server in [`server/`](server/) — two
+ingest routes (`POST /api/runs`, `POST /api/telemetry`), org + API-key
+validation via `x-api-key`, and a JSON-file dedup store keyed by fingerprint.
+Run it locally:
+
+```bash
+AZTRX_API_KEYS='{"sk_live_123":{"org":"acme","label":"Acme Inc"}}' npm run server
+```
+
+Every uploaded field has already passed the sanitizer; the server treats
+payloads as untrusted and stores them verbatim under `server/.data` (gitignored).
 
 ## Security invariants
 
@@ -202,7 +227,7 @@ per-case table, scoring notes, and caveats live in
 - [x] Real-project benchmark — 13 Next.js App Router targets (100% recall, 100% deterministic repro)
 - [x] B2B ($29/mo) — GitHub Action (`action.yml` + reusable workflow), PR bot markdown comment
 - [x] B2B ($29/mo) — Smart Cloud Router (haiku fast-tier → verify → Sonnet fallback)
-- [ ] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
+- [x] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
 - [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
 
 ## License
