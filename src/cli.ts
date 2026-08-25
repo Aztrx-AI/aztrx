@@ -10,6 +10,7 @@ import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
 import { writePrComment } from "./core/pr.js";
+import { flushTelemetry } from "./core/telemetry/index.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -33,6 +34,8 @@ interface CliOptions {
   healModel?: string;
   healFastModel?: string;
   prComment?: string | boolean;
+  telemetry?: boolean;
+  shareData?: boolean;
   storageState?: string;
   auth?: string;
 }
@@ -84,6 +87,8 @@ program
   .option("--heal-model <model>", "LLM model for healing — the fallback tier (default claude-sonnet-5)")
   .option("--heal-fast-model <model>", "fast/cheap first tier for the smart router (default claude-haiku-4-5)")
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
+  .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
+  .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
   .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
   .option("--auth <path>", "alias for --storage-state")
@@ -109,6 +114,8 @@ program
         heal: opts.heal,
         healModel: opts.healModel,
         healFastModel: opts.healFastModel,
+        telemetry: opts.telemetry,
+        shareData: opts.shareData,
         storageState: opts.storageState ?? opts.auth,
       };
       const failOn = Boolean(opts.failOn);
@@ -143,6 +150,11 @@ program
         writePrComment(repoRoot, url, findings, prPath);
         console.log(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
       }
+
+      // Drain any in-flight telemetry uploads (each bounded) before exit, so a
+      // pending `--share-data` dispatch isn't killed mid-flight. Never affects
+      // the exit code.
+      await flushTelemetry();
 
       if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
         process.exit(1);

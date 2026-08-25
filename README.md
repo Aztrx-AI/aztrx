@@ -126,6 +126,8 @@ jobs:
 | `--heal-model <model>` | Fallback LLM tier for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
 | `--heal-fast-model <model>` | Fast/cheap first tier for the smart router (default `claude-haiku-4-5`; set `AZTRX_FAST_MODEL` to override) |
 | `--pr-comment [path]` | Write a GitHub PR markdown comment with repro + patch (default `.aztrx/pr-comment.md`) |
+| `--telemetry` | Opt-in: collect anonymized `crash → repro → patch` tuples locally (`.aztrx/telemetry/`) |
+| `--share-data` | Opt-in: also upload the sanitized tuples to the telemetry endpoint |
 | `--max-actions <n>` | Max actions per pass (default `100`) |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
 | `--auth <path>` / `--storage-state <path>` | Path to a Playwright storage-state JSON (cookies/localStorage) so authenticated pages replay logged-in |
@@ -142,6 +144,22 @@ the bug still reproduces — or the patch fails a gate — aztrx falls back to t
 capable model (`claude-sonnet-5`) and tries again. Most one-line fixes never pay
 for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` / `AZTRX_MODEL`
 or the `--heal-fast-model` / `--heal-model` flags.
+
+## Telemetry & privacy
+
+Off by default and strictly opt-in. `--telemetry` collects the anonymized tuple
+`[crash_fingerprint, min_repro_spec, verified_patch, framework_metadata,
+model_tier_used]` for each crash/error finding and appends it to a local JSONL
+dataset (`.aztrx/telemetry/dataset.jsonl`) — nothing leaves the machine.
+`--share-data` additionally uploads the same sanitized envelope to the telemetry
+endpoint (`AZTRX_TELEMETRY_URL`, default `api.aztrx.app`).
+
+Before packaging, every field passes a sanitizer that irreversibly strips
+secrets (API keys, tokens, JWTs, private keys, DB credentials), anonymizes URLs
+to `<host>` (localhost is kept), and scrubs repo-absolute paths and webpack
+namespaces to `<repo>`. The `crash_fingerprint` is already a stack hash. The
+upload is fire-and-forget, bounded by a 2s timeout, and never affects the exit
+code.
 
 ## Security invariants
 
@@ -185,7 +203,7 @@ per-case table, scoring notes, and caveats live in
 - [x] B2B ($29/mo) — GitHub Action (`action.yml` + reusable workflow), PR bot markdown comment
 - [x] B2B ($29/mo) — Smart Cloud Router (haiku fast-tier → verify → Sonnet fallback)
 - [ ] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
-- [ ] Data flywheel — opt-in telemetry → proprietary auto-repair model
+- [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
 
 ## License
 

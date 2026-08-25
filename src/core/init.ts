@@ -27,21 +27,31 @@ const DETECT_ORDER: [string, string][] = [
   ["react", "React"],
 ];
 
-function detectFramework(repoRoot: string): string {
+export interface FrameworkMeta {
+  framework: string;
+  version?: string;
+}
+
+/** Detect the framework name plus its installed version range. */
+export function detectFrameworkMeta(repoRoot: string): FrameworkMeta {
   try {
     const raw = fs.readFileSync(path.join(repoRoot, "package.json"), "utf-8");
     const pkg = JSON.parse(raw) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
-    const deps = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]);
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
     for (const [dep, name] of DETECT_ORDER) {
-      if (deps.has(dep)) return name;
+      if (deps[dep]) return { framework: name, version: deps[dep] };
     }
   } catch {
     // no package.json — fall through to "unknown"
   }
-  return "unknown";
+  return { framework: "unknown" };
+}
+
+function detectFramework(repoRoot: string): string {
+  return detectFrameworkMeta(repoRoot).framework;
 }
 
 function defaultPort(framework: string): number {

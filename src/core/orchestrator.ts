@@ -17,6 +17,7 @@ import { validate } from "./validator.js";
 import { writeReport } from "./report.js";
 import { RunLog } from "./events.js";
 import { heal } from "./heal/index.js";
+import { submitTelemetry } from "./telemetry/index.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface RunOptions {
@@ -40,6 +41,12 @@ export interface RunOptions {
   healModel?: string;
   /** Fast/cheap first tier for the Smart Cloud Router (`AZTRX_FAST_MODEL`). */
   healFastModel?: string;
+  /** F11: collect + persist anonymized telemetry locally (opt-in). */
+  telemetry?: boolean;
+  /** F11: additionally upload the sanitized tuple to the telemetry endpoint. */
+  shareData?: boolean;
+  /** Override the telemetry endpoint (`AZTRX_TELEMETRY_URL`). */
+  telemetryUrl?: string;
   /** Inject an external bus (the TUI subscribes to it). */
   bus?: EventBus;
   /** When true, suppress console output — the caller renders from bus events. */
@@ -343,6 +350,18 @@ export async function run(options: RunOptions): Promise<Finding[]> {
 
   const reportPath = writeReport(repoRoot, url, findings);
   say(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
+
+  // F11 — opt-in telemetry. Local-only under `--telemetry`; uploads under
+  // `--share-data`. Fire-and-forget, sanitized, and never affects exit codes.
+  if (options.telemetry || options.shareData) {
+    submitTelemetry(findings, {
+      repoRoot,
+      url,
+      telemetry: Boolean(options.telemetry),
+      shareData: Boolean(options.shareData),
+      endpoint: options.telemetryUrl,
+    });
+  }
 
   const counts: Record<string, number> = {};
   for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;
