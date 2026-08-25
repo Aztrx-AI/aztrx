@@ -1,10 +1,20 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { Finding } from "./types.js";
+import type { Finding, ReproVerdict } from "./types.js";
 
 export type RunEvent =
   | { type: "run_start"; url: string; ts: number }
   | { type: "finding"; finding: Finding }
+  | {
+      type: "repro";
+      fingerprint: string;
+      verdict: ReproVerdict;
+      runs: number;
+      reproductions: number;
+      steps: number;
+      totalSteps: number;
+      specPath: string;
+    }
   | { type: "run_end"; counts: Record<string, number>; ts: number };
 
 /**

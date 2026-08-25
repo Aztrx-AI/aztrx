@@ -1,7 +1,12 @@
+#!/usr/bin/env node
 import path from "path";
 import pc from "picocolors";
 import { program } from "commander";
 import { run } from "./core/orchestrator.js";
+import type { RunOptions } from "./core/orchestrator.js";
+import { EventBus } from "./core/eventBus.js";
+import { renderTui } from "./ui/app.js";
+import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
 
@@ -20,6 +25,8 @@ interface CliOptions {
   repro?: boolean;
   reproRuns: string;
   allowHost?: string[];
+  plain?: boolean;
+  ui?: boolean;
 }
 
 program
@@ -63,13 +70,15 @@ program
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
+  .option("--plain", "disable the live terminal UI, print plain logs (default when piped)")
+  .option("--ui", "force the live terminal UI even when stdout is not a TTY")
   .action(
     async (
       url: string,
       opts: CliOptions
     ) => {
       const repoRoot = path.resolve(program.opts().repo as string);
-      const findings = await run({
+      const runOpts: RunOptions = {
         url,
         repoRoot,
         maxActions: parseInt(opts.maxActions, 10),
@@ -80,9 +89,32 @@ program
         seed: parseInt(opts.seed, 10),
         allowHosts: opts.allowHost ?? [],
         reproRuns: parseInt(opts.reproRuns, 10),
-      });
+      };
+      const failOn = Boolean(opts.failOn);
+      const useUi = !opts.plain && (process.stdout.isTTY === true || opts.ui === true);
 
-      if (opts.failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
+      let findings: Finding[] = [];
+      if (useUi) {
+        const bus = new EventBus();
+        const runPromise = run({ ...runOpts, bus, ui: true });
+        await renderTui({
+          bus,
+          done: runPromise,
+          targetUrl: url,
+          repoRoot,
+          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : "deterministic walk",
+        });
+        try {
+          findings = await runPromise;
+        } catch (e) {
+          console.error(pc.red("Aztrx run failed:"), (e as Error).message);
+          process.exit(1);
+        }
+      } else {
+        findings = await run(runOpts);
+      }
+
+      if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
         process.exit(1);
       }
       process.exit(0);

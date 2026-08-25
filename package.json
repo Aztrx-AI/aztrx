@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": { "aztrx": "dist/cli.js" },
   "description": "Aztrx — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "scripts": {
     "build": "tsc",
@@ -13,11 +14,14 @@
   "dependencies": {
     "@jridgewell/trace-mapping": "^0.3.25",
     "commander": "^12.1.0",
+    "ink": "^5.2.0",
     "picocolors": "^1.1.1",
-    "playwright": "^1.49.0"
+    "playwright": "^1.49.0",
+    "react": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

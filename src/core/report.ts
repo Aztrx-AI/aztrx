@@ -1,28 +1,26 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Finding } from "./types.js";
+import { BASE_CSS, SEVERITY_COLOR, seismograph } from "./ui.js";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 const SEV_ORDER = ["crash", "error", "warning", "noise"] as const;
-const SEV_COLOR: Record<string, string> = {
-  crash: "#e5484d",
-  error: "#e5484d",
-  warning: "#f5a623",
-  noise: "#8b8d98",
-};
 
 /**
  * F-report — standalone offline HTML report. Self-contained (inline CSS, no
- * CDN), renders every finding with its source snippet, severity, repro verdict
- * and action history. This is the first "app-shaped" surface of the product.
+ * CDN), rendered in the shared "crash seismograph" identity: one red spike per
+ * crash, severity chips, and colored repro verdicts.
  */
 export function renderReport(targetUrl: string, findings: Finding[]): string {
   const sorted = [...findings].sort(
     (a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity)
   );
+
+  const counts: Record<string, number> = { crash: 0, error: 0, warning: 0 };
+  for (const f of sorted) if (counts[f.severity] !== undefined) counts[f.severity]++;
 
   const cards = sorted
     .map((f) => {
@@ -45,7 +43,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
       return `
     <article class="finding">
       <header>
-        <span class="sev" style="--sev:${SEV_COLOR[f.severity]}">${escapeHtml(f.severity)}</span>
+        <span class="sev" style="--sev:${SEVERITY_COLOR[f.severity]}">${escapeHtml(f.severity)}</span>
         <h2>${escapeHtml(f.rawMessage.split("\n")[0])}</h2>
       </header>
       ${loc ? `<div class="loc">${loc}</div>` : ""}
@@ -63,35 +61,23 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>aztrx report</title>
-<style>
-  :root { color-scheme: light dark; --bg:#0f1115; --fg:#e6e8ee; --dim:#8b8d98; --card:#171a21; --border:#262b36; --accent:#4cc2ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:900px; margin:0 auto; padding:32px 24px 64px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  .meta { color:var(--dim); font-size:13px; margin-bottom:24px; }
-  .finding { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
-  .finding header { display:flex; align-items:baseline; gap:10px; }
-  .sev { font:600 11px/1 ui-monospace,monospace; text-transform:uppercase; letter-spacing:.06em; color:var(--sev); border:1px solid var(--sev); border-radius:999px; padding:3px 8px; }
-  h2 { font-size:15px; margin:0; }
-  .loc { color:var(--dim); font:13px ui-monospace,monospace; margin-top:8px; }
-  .snippet { background:#0a0c10; border:1px solid var(--border); border-radius:8px; padding:12px; overflow-x:auto; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:#d7dae2; margin:12px 0 0; }
-  .occ { color:var(--dim); font-size:12px; margin-top:8px; }
-  .repro { display:inline-block; font-size:12px; margin-top:12px; padding:4px 10px; border-radius:6px; }
-  .repro.deterministic { color:#4ade80; background:rgba(74,222,128,.08); }
-  .repro.flaky { color:#f5a623; background:rgba(245,166,35,.08); }
-  .repro.unreliable { color:#e5484d; background:rgba(229,72,77,.08); }
-  code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-  details { margin-top:12px; color:var(--dim); font-size:13px; }
-  details ol { margin:8px 0 0; padding-left:20px; }
-  .empty { color:var(--dim); }
-</style>
+<style>${BASE_CSS}</style>
 </head>
 <body>
 <main>
-  <h1>aztrx report</h1>
-  <div class="meta">${escapeHtml(targetUrl)}</div>
-  ${sorted.length ? cards : `<p class="empty">No findings.</p>`}
+  <div class="hero">
+    ${seismograph(counts.crash ?? 0)}
+    <div class="brand-row">
+      <h1><span class="brand">aztrx</span> <span class="brand-sub">report</span></h1>
+    </div>
+    <div class="target">${escapeHtml(targetUrl)}</div>
+  </div>
+  <div class="bar">
+    <span class="count">crash <b class="crash">${counts.crash ?? 0}</b></span>
+    <span class="count">error <b class="error">${counts.error ?? 0}</b></span>
+    <span class="count">warning <b class="warning">${counts.warning ?? 0}</b></span>
+  </div>
+  ${sorted.length ? cards : `<p class="empty">No findings — the app survived this pass.</p>`}
 </main>
 </body>
 </html>`;

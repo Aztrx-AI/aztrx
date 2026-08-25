@@ -2,6 +2,7 @@ import * as path from "path";
 import { chromium } from "playwright";
 import pc from "picocolors";
 import { EventBus } from "./eventBus.js";
+import type { RunPhase } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
 import { SignalClassifier, loadBaseline } from "./classifier.js";
 import { ActionRecorder } from "./recorder.js";
@@ -28,6 +29,10 @@ export interface RunOptions {
   seed?: number;
   allowHosts?: string[];
   reproRuns?: number;
+  /** Inject an external bus (the TUI subscribes to it). */
+  bus?: EventBus;
+  /** When true, suppress console output — the caller renders from bus events. */
+  ui?: boolean;
 }
 
 const SEVERITY_MARK = {
@@ -37,39 +42,50 @@ const SEVERITY_MARK = {
   noise: pc.dim("○ noise "),
 } as const;
 
-function printFinding(f: Finding): void {
-  console.log(SEVERITY_MARK[f.severity] + pc.bold(f.rawMessage));
+function printFinding(f: Finding, write: (s: string) => void): void {
+  write(SEVERITY_MARK[f.severity] + pc.bold(f.rawMessage));
   if (f.mappedLocation) {
-    console.log(
+    write(
       pc.dim(`   ${f.mappedLocation.filePath}:${f.mappedLocation.line}:${f.mappedLocation.column}`)
     );
-    console.log(pc.dim(f.mappedLocation.codeContext));
+    write(pc.dim(f.mappedLocation.codeContext));
   }
-  if (f.occurrences > 1) console.log(pc.dim(`   (×${f.occurrences})`));
-  console.log("");
+  if (f.occurrences > 1) write(pc.dim(`   (×${f.occurrences})`));
+  write("");
 }
 
 /**
  * The run's finite state machine: launch → (guard) → intercept → act (walk or
  * fuzz) → classify → map → report → repro (minimize/compile/validate). Modules
  * communicate only through the EventBus; the orchestrator is the single place
- * that wires them together.
+ * that wires them together. In `ui` mode it emits structured events (phase,
+ * action, finding, repro, route, noise) and stays silent on stdout, so a
+ * terminal renderer (Ink) can draw the live panel instead of log lines.
  */
 export async function run(options: RunOptions): Promise<Finding[]> {
   const { url, repoRoot } = options;
   const maxActions = options.maxActions ?? 100;
   const guardOn = Boolean(options.fuzz || options.repro);
   const allowHosts = allowHostsFrom(url, options.allowHosts ?? []);
+  const ui = options.ui === true;
+  const bus = options.bus ?? new EventBus();
 
-  console.log(pc.cyan("\n⚡ Aztrx v0.1.0 — Runtime Detector"));
-  console.log(pc.dim(`Target: ${url}`));
-  console.log(pc.dim(`Repo:   ${repoRoot}`));
-  if (options.fuzz) console.log(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
-  if (options.repro) console.log(pc.dim(`Mode:   repro (${options.reproRuns ?? 3} runs)`));
-  if (guardOn) console.log(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
-  console.log("");
+  const say = (...parts: string[]) => {
+    if (!ui) console.log(parts.join(" "));
+  };
+  const emitPhase = (phase: RunPhase, detail?: string) =>
+    bus.emit("phase", { phase, detail, ts: Date.now() });
 
-  const bus = new EventBus();
+  say(pc.cyan("\n⚡ Aztrx v0.1.0 — Runtime Detector"));
+  say(pc.dim(`Target: ${url}`));
+  say(pc.dim(`Repo:   ${repoRoot}`));
+  if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
+  if (options.repro) say(pc.dim(`Mode:   repro (${options.reproRuns ?? 3} runs)`));
+  if (guardOn) say(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
+  say("");
+
+  emitPhase("launch", url);
+
   const classifier = new SignalClassifier(await loadBaseline(repoRoot));
   const recorder = new ActionRecorder();
   const runLog = new RunLog(repoRoot);
@@ -81,7 +97,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     const finding = classifier.classify(payload);
     if (!finding) return;
     finding.actionHistory = recorder.snapshot();
-    if (finding.severity === "noise") return;
+    if (finding.severity === "noise") {
+      bus.emit("noise", { ts: Date.now() });
+      return;
+    }
     runLog.append({ type: "finding", finding });
 
     if (payload.url && payload.line) {
@@ -97,7 +116,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         isOwnCode: resolved.resolvedFrom !== "unresolved",
       };
     }
-    printFinding(finding);
+    bus.emit("finding", finding);
+    printFinding(finding, say);
   });
 
   const browser = await chromium.launch({ headless: true });
@@ -106,14 +126,17 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (guardOn) {
     await attachNetworkGuard(page, {
       allowHosts,
-      onBlock: (u) => console.log(pc.dim(`  [guard] blocked ${u}`)),
+      onBlock: (u) => say(pc.dim(`  [guard] blocked ${u}`)),
     });
   }
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) bus.emit("route", { url: frame.url(), ts: Date.now() });
+  });
 
   let loaded = true;
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((e) => {
     loaded = false;
-    console.log(pc.red("Failed to load target: ") + pc.dim(e.message));
+    say(pc.red("Failed to load target: ") + pc.dim(e.message));
   });
 
   if (loaded && options.crashTest) {
@@ -126,10 +149,11 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   }
 
   if (loaded) {
+    emitPhase(options.fuzz ? "fuzz" : "walk");
     const acted = options.fuzz
       ? await fuzz(page, bus, { seed: options.seed, maxActions, dryRun: options.dryRun })
       : await walkDom(page, bus, { maxActions, dryRun: options.dryRun });
-    console.log(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${acted} action(s).\n`));
+    say(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${acted} action(s).\n`));
   }
 
   await page.waitForTimeout(500);
@@ -147,9 +171,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       const targets = findings.filter(
         (f) => (f.severity === "crash" || f.severity === "error") && f.actionHistory.length > 0
       );
-      if (targets.length) {
-        console.log(pc.cyan("— Repro pipeline (minimize → compile → validate) —"));
-      }
+      if (targets.length) say(pc.cyan("— Repro pipeline (minimize → compile → validate) —"));
+      emitPhase("repro");
       for (const f of targets) {
         const minimal = await minimize(engine, f.actionHistory, { url, fingerprint: f.fingerprint });
         const specPath = writeSpec(repoRoot, f, minimal, url);
@@ -163,16 +186,36 @@ export async function run(options: RunOptions): Promise<Finding[]> {
           reproductions: v.reproductions,
         };
 
+        bus.emit("repro", {
+          finding: f,
+          verdict: v.verdict,
+          runs: v.runs,
+          reproductions: v.reproductions,
+          steps: minimal.length,
+          totalSteps: f.actionHistory.length,
+          specPath: path.relative(repoRoot, specPath),
+        });
+        runLog.append({
+          type: "repro",
+          fingerprint: f.fingerprint,
+          verdict: v.verdict,
+          runs: v.runs,
+          reproductions: v.reproductions,
+          steps: minimal.length,
+          totalSteps: f.actionHistory.length,
+          specPath: path.relative(repoRoot, specPath),
+        });
+
         const mark =
           v.verdict === "deterministic"
             ? pc.green("  ✓ deterministic")
             : v.verdict === "flaky"
               ? pc.yellow("  ◐ flaky")
               : pc.red("  ✗ unreliable");
-        console.log(
+        say(
           `${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}  (${minimal.length}/${f.actionHistory.length} steps, ${v.reproductions}/${v.runs} runs)`
         );
-        console.log(pc.dim(`        spec: ${path.relative(repoRoot, specPath)}`));
+        say(pc.dim(`        spec: ${path.relative(repoRoot, specPath)}`));
       }
     } finally {
       await engine.close();
@@ -180,16 +223,18 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   }
 
   const reportPath = writeReport(repoRoot, url, findings);
-  console.log(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
+  say(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
 
   const counts: Record<string, number> = {};
   for (const f of findings) counts[f.severity] = (counts[f.severity] ?? 0) + 1;
   runLog.append({ type: "run_end", counts, ts: Date.now() });
 
-  console.log(pc.dim("────────────────────────────────────────────"));
-  console.log(pc.cyan(`${findings.length} unique finding(s)`));
-  console.log(
+  say(pc.dim("────────────────────────────────────────────"));
+  say(pc.cyan(`${findings.length} unique finding(s)`));
+  say(
     pc.dim(`crash: ${counts.crash ?? 0}   error: ${counts.error ?? 0}   warning: ${counts.warning ?? 0}`)
   );
+
+  emitPhase("done");
   return findings;
 }

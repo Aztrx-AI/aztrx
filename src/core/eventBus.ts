@@ -1,9 +1,37 @@
-import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
+import type { Finding, RecordedAction, ReproVerdict, TelemetryErrorPayload } from "./types.js";
+
+export type RunPhase = "launch" | "walk" | "fuzz" | "repro" | "done";
+
+export interface PhaseEvent {
+  phase: RunPhase;
+  detail?: string;
+  ts: number;
+}
+
+export interface RouteEvent {
+  url: string;
+  ts: number;
+}
+
+export interface ReproEvent {
+  finding: Finding;
+  verdict: ReproVerdict;
+  runs: number;
+  reproductions: number;
+  steps: number;
+  totalSteps: number;
+  /** Repo-relative path to the compiled Playwright spec. */
+  specPath: string;
+}
 
 export interface AztrxEvents {
   telemetry: TelemetryErrorPayload;
   action: RecordedAction;
   finding: Finding;
+  repro: ReproEvent;
+  phase: PhaseEvent;
+  route: RouteEvent;
+  noise: { ts: number };
 }
 
 type Handler<T> = (payload: T) => void;

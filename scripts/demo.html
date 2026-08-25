@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aztrx demo</title>
+<style>
+  :root {
+    --bg: #07090d;
+    --surface: #0d1117;
+    --border: #1b2230;
+    --fg: #e9edf4;
+    --muted: #a6aebb;
+    --dim: #5b6573;
+    --azure: #4cc2ff;
+    --azure-bright: #8ad9ff;
+    --red: #ff5a5f;
+    --amber: #f5a623;
+    --green: #43e58a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #04060a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace;
+  }
+  .win {
+    width: 724px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px rgba(76,194,255,.08), 0 24px 80px -24px rgba(76,194,255,.25);
+    overflow: hidden;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .title { margin-left: 10px; color: var(--dim); font-size: 12px; letter-spacing: .02em; }
+  .term {
+    padding: 16px 20px 20px;
+    font-size: 13.5px;
+    line-height: 1.75;
+    min-height: 372px;
+    color: var(--fg);
+    background-image: linear-gradient(rgba(76,194,255,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(76,194,255,.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .ln { white-space: pre-wrap; }
+  .p { color: var(--azure); }
+  .cmd { color: var(--fg); font-weight: 600; }
+  .cur { color: var(--azure); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+  .head { color: var(--azure); font-weight: 700; }
+  .meta { color: var(--dim); }
+  .div { color: var(--dim); }
+  .phase { color: var(--azure); }
+  .rate { color: var(--azure-bright); font-weight: 700; }
+  .num { color: var(--fg); }
+  .route { color: var(--muted); }
+  .find-label { color: var(--muted); font-weight: 700; }
+  .crash, .err { color: var(--red); }
+  .warn { color: var(--amber); }
+  .msg { color: var(--fg); }
+  .loc { color: var(--dim); }
+  .badge { color: var(--green); }
+  .noise { color: var(--dim); }
+  .done { color: var(--green); }
+</style>
+</head>
+<body>
+  <div class="win">
+    <div class="bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="title">aztrx — runtime stress-tester</span>
+    </div>
+    <div class="term" id="term"></div>
+  </div>
+
+<script>
+  const term = document.getElementById("term");
+  const CMD = "aztrx run http://localhost:3000 --repro --fuzz --seed 42";
+
+  const T_CMD = 1.15;
+  const T_PHASE = 1.95;
+  const T_ROUTE = 2.18;
+  const T_CRASH = 2.55;
+  const T_CRASH_LOC = 2.72;
+  const T_CRASH_BADGE = 2.94;
+  const T_ERROR = 3.16;
+  const T_WARN = 3.42;
+  const T_NOISE = 3.66;
+  const T_DONE = 3.98;
+  const T_END = 4.7;
+
+  const ln = (h) => '<div class="ln">' + h + '</div>';
+
+  function rate(t) {
+    return Math.max(6, 12.4 + 3.2 * Math.sin(t * 6.5) + 1.4 * Math.sin(t * 2.7)).toFixed(1);
+  }
+  function ramp(t) {
+    return Math.min(1, Math.max(0, (t - T_PHASE) / (T_DONE - T_PHASE)));
+  }
+  function actions(t) { return Math.round(6 + ramp(t) * 137); }
+  function clicks(t) { return Math.round(4 + ramp(t) * 94); }
+
+  function render(t) {
+    const out = [];
+    const typed = Math.min(CMD.length, Math.floor((t / T_CMD) * CMD.length));
+    out.push(ln('<span class="p">$ </span><span class="cmd">' + CMD.slice(0, typed) + '</span>' + (typed < CMD.length ? '<span class="cur">▋</span>' : '')));
+
+    if (t >= T_CMD + 0.08) {
+      out.push(ln('<span class="head">⚡ Aztrx</span> <span class="meta">— Runtime Detector</span>'));
+      out.push(ln('<span class="meta">  target  http://localhost:3000</span>'));
+      out.push(ln('<span class="meta">  mode    fuzz (seed 42) · repro (5 runs)</span>'));
+      out.push(ln('<span class="meta">  net     deny-by-default → allow localhost:3000</span>'));
+      out.push(ln('<span class="div">──────────────────────────────────────────────</span>'));
+    }
+
+    if (t >= T_PHASE) {
+      if (t < T_DONE) {
+        out.push(ln('<span class="phase">◉ fuzzing (chaos)…</span>  <span class="rate">' + rate(t) + '</span> <span class="meta">ops/s ·</span> <span class="num">' + actions(t) + '</span> <span class="meta">actions ·</span> <span class="num">' + clicks(t) + '</span> <span class="meta">clicks</span>'));
+      } else {
+        out.push(ln('<span class="done">✓ done</span>  <span class="meta">3 findings · 1 deterministic repro</span>'));
+      }
+    }
+    if (t >= T_ROUTE && t < T_DONE) {
+      out.push(ln('<span class="meta">  route   </span><span class="route">/checkout</span><span class="meta"> · 3 route(s)</span>'));
+    }
+
+    if (t >= T_CRASH) {
+      out.push(ln('<span class="find-label">findings (3)</span>'));
+      out.push(ln('<span class="crash">● crash</span>  <span class="msg">Cannot read properties of undefined (reading \'token\')</span>'));
+      if (t >= T_CRASH_LOC) out.push(ln('<span class="loc">          app/src/checkout.tsx:42:18</span>'));
+      if (t >= T_CRASH_BADGE) out.push(ln('<span class="loc">          </span><span class="badge">[deterministic 5/5]</span> <span class="loc">spec .aztrx/repro/520f.spec.ts · 8/15 steps</span>'));
+      if (t >= T_ERROR) out.push(ln('<span class="err">● error</span>  <span class="msg">Unhandled rejection: Failed to fetch /api/cart</span>'));
+      if (t >= T_WARN) out.push(ln('<span class="warn">○ warning</span>  <span class="msg">HTTP 500 /api/cart (retry-able)</span>'));
+      if (t >= T_NOISE) out.push(ln('<span class="noise">  ▸ 37 noise event(s) suppressed</span>'));
+    }
+
+    if (t >= T_DONE) out.push(ln('<span class="p">$ </span><span class="cur">▋</span>'));
+    term.innerHTML = out.join('');
+  }
+
+  window.__seek = render;
+
+  let t0 = performance.now();
+  function tick(now) {
+    const t = (now - t0) / 1000;
+    if (t >= T_END) { t0 = now; render(0); requestAnimationFrame(tick); return; }
+    render(t);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

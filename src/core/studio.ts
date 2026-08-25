@@ -2,18 +2,12 @@ import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
 import pc from "picocolors";
+import { BASE_CSS, SEVERITY_COLOR, seismograph } from "./ui.js";
 
 export interface StudioOptions {
   repoRoot: string;
   port?: number;
 }
-
-const SEV_COLOR: Record<string, string> = {
-  crash: "#e5484d",
-  error: "#e5484d",
-  warning: "#f5a623",
-  noise: "#8b8d98",
-};
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -74,6 +68,107 @@ function sseHandler(req: http.IncomingMessage, res: http.ServerResponse, eventsF
   });
 }
 
+function dashboardScript(): string {
+  return `const list = document.getElementById("list");
+const target = document.getElementById("target");
+const foot = document.getElementById("foot");
+const spikes = document.getElementById("spikes");
+const counts = { crash: 0, error: 0, warning: 0 };
+const sevColor = ${JSON.stringify(SEVERITY_COLOR)};
+const byFingerprint = new Map();
+const pendingRepro = new Map();
+let first = true;
+
+function setCount(k, v) {
+  counts[k] = v;
+  const b = document.getElementById("c-" + k);
+  if (b) b.textContent = String(v);
+}
+
+function addSpike() {
+  if (!spikes) return;
+  const n = spikes.children.length + 1;
+  const x = 80 + (((n - 1) % 8) + 0.5) / 8 * 640;
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", "M " + x.toFixed(1) + " 32 L " + x.toFixed(1) + " 12");
+  p.setAttribute("stroke", "#ff5a5f");
+  p.setAttribute("stroke-width", "2");
+  p.setAttribute("stroke-linecap", "round");
+  p.setAttribute("fill", "none");
+  p.setAttribute("style", "filter:drop-shadow(0 0 4px #ff5a5f)");
+  spikes.appendChild(p);
+}
+
+function applyRepro(fp, r) {
+  const card = byFingerprint.get(fp);
+  if (!card) { pendingRepro.set(fp, r); return; }
+  let el = card.querySelector(".repro");
+  if (!el) {
+    el = document.createElement("div");
+    card.appendChild(el);
+  }
+  el.className = "repro " + r.verdict;
+  el.textContent = r.verdict + " · " + r.reproductions + "/" + r.runs + " runs · spec " + r.specPath;
+}
+
+function addFinding(f) {
+  if (counts[f.severity] !== undefined) setCount(f.severity, counts[f.severity] + 1);
+  if (f.severity === "crash") addSpike();
+
+  const card = document.createElement("article");
+  card.className = "finding";
+  card.style.setProperty("--sev", sevColor[f.severity] || "#4cc2ff");
+
+  const header = document.createElement("header");
+  const chip = document.createElement("span");
+  chip.className = "sev";
+  chip.textContent = f.severity;
+  const h2 = document.createElement("h2");
+  h2.textContent = f.rawMessage.split("\\n")[0];
+  header.appendChild(chip);
+  header.appendChild(h2);
+  card.appendChild(header);
+
+  if (f.mappedLocation) {
+    const loc = document.createElement("div");
+    loc.className = "loc";
+    loc.textContent = f.mappedLocation.filePath + ":" + f.mappedLocation.line + ":" + f.mappedLocation.column;
+    card.appendChild(loc);
+  }
+
+  byFingerprint.set(f.fingerprint, card);
+  if (pendingRepro.has(f.fingerprint)) {
+    applyRepro(f.fingerprint, pendingRepro.get(f.fingerprint));
+    pendingRepro.delete(f.fingerprint);
+  }
+
+  if (first) { list.innerHTML = ""; first = false; }
+  list.insertBefore(card, list.firstChild);
+}
+
+const es = new EventSource("/events");
+es.onmessage = (e) => {
+  const evt = JSON.parse(e.data);
+  if (evt.type === "run_start") {
+    target.textContent = evt.url;
+    list.innerHTML = "";
+    foot.textContent = "";
+    byFingerprint.clear();
+    pendingRepro.clear();
+    first = true;
+    setCount("crash", 0); setCount("error", 0); setCount("warning", 0);
+    while (spikes && spikes.firstChild) spikes.removeChild(spikes.firstChild);
+  } else if (evt.type === "finding") {
+    addFinding(evt.finding);
+  } else if (evt.type === "repro") {
+    applyRepro(evt.fingerprint, evt);
+  } else if (evt.type === "run_end") {
+    const c = evt.counts || {};
+    foot.textContent = "run complete — " + (c.crash || 0) + " crash · " + (c.error || 0) + " error · " + (c.warning || 0) + " warning";
+  }
+};`;
+}
+
 function dashboardHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -81,79 +176,28 @@ function dashboardHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aztrx Studio</title>
-<style>
-  :root { color-scheme: dark; --bg:#0f1115; --fg:#e6e8ee; --dim:#8b8d98; --card:#171a21; --border:#262b36; --accent:#4cc2ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:860px; margin:0 auto; padding:32px 24px 64px; }
-  header { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-  h1 { font-size:20px; margin:0; }
-  h1 .dot { color:var(--accent); }
-  .target { color:var(--dim); font-size:13px; }
-  .bar { display:flex; gap:10px; margin:20px 0; }
-  .count { font:600 13px/1 ui-monospace,monospace; border:1px solid var(--border); border-radius:8px; padding:6px 12px; color:var(--dim); }
-  .count b { color:var(--fg); }
-  .finding { background:var(--card); border:1px solid var(--border); border-left:3px solid var(--sev,#4cc2ff); border-radius:8px; padding:12px 16px; margin-bottom:12px; }
-  .finding header { display:flex; align-items:baseline; gap:10px; }
-  .sev { font:600 11px/1 ui-monospace,monospace; text-transform:uppercase; letter-spacing:.06em; color:var(--sev); border:1px solid var(--sev); border-radius:999px; padding:2px 8px; }
-  h2 { font-size:15px; margin:0; }
-  .loc { color:var(--dim); font:13px ui-monospace,monospace; margin-top:6px; }
-  .empty { color:var(--dim); }
-  .foot { color:var(--dim); font-size:13px; margin-top:20px; }
-  a { color:var(--accent); }
-</style>
+<style>${BASE_CSS}</style>
 </head>
 <body>
 <main>
-  <header>
-    <h1><span class="dot">●</span> Aztrx Studio</h1>
-    <span class="target" id="target">waiting for a run…</span>
-  </header>
+  <div class="hero">
+    ${seismograph(0)}
+    <div class="brand-row">
+      <h1><span class="brand">aztrx</span> <span class="brand-sub">studio</span></h1>
+    </div>
+    <div class="target" id="target">waiting for a run…</div>
+    <div class="live"><span class="live-dot"></span> streaming .aztrx/events.jsonl</div>
+  </div>
   <div class="bar">
-    <span class="count">crash <b id="c-crash">0</b></span>
-    <span class="count">error <b id="c-error">0</b></span>
-    <span class="count">warning <b id="c-warning">0</b></span>
+    <span class="count">crash <b class="crash" id="c-crash">0</b></span>
+    <span class="count">error <b class="error" id="c-error">0</b></span>
+    <span class="count">warning <b class="warning" id="c-warning">0</b></span>
   </div>
   <div id="list"><p class="empty">Run <code>aztrx &lt;url&gt; --repo .</code> to stream findings here live.</p></div>
+  <p class="foot" id="foot"></p>
   <p class="foot">Full report: <a href="/report">.aztrx/report.html</a></p>
 </main>
-<script>
-  const list = document.getElementById("list");
-  const target = document.getElementById("target");
-  const counts = { crash: 0, error: 0, warning: 0 };
-  const sevColor = ${JSON.stringify(SEV_COLOR)};
-  let first = true;
-
-  const es = new EventSource("/events");
-  es.onmessage = (e) => {
-    const evt = JSON.parse(e.data);
-    if (evt.type === "run_start") {
-      target.textContent = evt.url;
-      list.innerHTML = "";
-      first = true;
-      counts.crash = counts.error = counts.warning = 0;
-    } else if (evt.type === "finding") {
-      const f = evt.finding;
-      if (counts[f.severity] !== undefined) counts[f.severity]++;
-      for (const k in counts) document.getElementById("c-" + k).textContent = counts[k];
-      const el = document.createElement("article");
-      el.className = "finding";
-      el.style.setProperty("--sev", sevColor[f.severity] || "#4cc2ff");
-      const h = document.createElement("header");
-      h.innerHTML = \`<span class="sev">\${f.severity}</span><h2></h2>\`;
-      h.querySelector("h2").textContent = f.rawMessage.split("\\n")[0];
-      el.appendChild(h);
-      if (f.mappedLocation) {
-        const loc = document.createElement("div");
-        loc.className = "loc";
-        loc.textContent = \`\${f.mappedLocation.filePath}:\${f.mappedLocation.line}:\${f.mappedLocation.column}\`;
-        el.appendChild(loc);
-      }
-      if (first) { list.innerHTML = ""; first = false; }
-      list.insertBefore(el, list.firstChild);
-    }
-  };
-</script>
+<script>${dashboardScript()}</script>
 </body>
 </html>`;
 }
