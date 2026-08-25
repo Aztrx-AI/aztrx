@@ -86,3 +86,41 @@ export async function diffWorktree(worktreeDir: string, repoRelativePath: string
     return "";
   }
 }
+
+/** Run `tsc --noEmit` against the patched worktree — the full type check that
+ * follows the AST syntax gate. Best-effort: passes (skips) when the repo has no
+ * TypeScript or the worktree has no tsconfig, so non-TS projects aren't blocked.
+ * The worktree has no node_modules; a symlink to the root's is created first and
+ * removed with the worktree on cleanup. */
+export async function typecheckWorktree(
+  worktreeDir: string,
+  repoRoot: string
+): Promise<{ ok: boolean; ran: boolean; output: string }> {
+  const tscBin = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+  const hasTsconfig = fs.existsSync(path.join(worktreeDir, "tsconfig.json"));
+  if (!fs.existsSync(tscBin) || !hasTsconfig) {
+    return { ok: true, ran: false, output: "" };
+  }
+
+  const rootNodeModules = path.join(repoRoot, "node_modules");
+  const wtNodeModules = path.join(worktreeDir, "node_modules");
+  if (!fs.existsSync(wtNodeModules)) {
+    try {
+      fs.symlinkSync(rootNodeModules, wtNodeModules, process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      /* symlink failed — tsc reports its own resolution errors below */
+    }
+  }
+
+  try {
+    const { stdout } = await execFileP(
+      process.execPath,
+      [tscBin, "--noEmit", "-p", worktreeDir],
+      { cwd: worktreeDir, maxBuffer: 10 * 1024 * 1024 }
+    );
+    return { ok: true, ran: true, output: stdout.trim() };
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    return { ok: false, ran: true, output: ((err.stdout ?? "") + (err.stderr ?? "")).trim() };
+  }
+}

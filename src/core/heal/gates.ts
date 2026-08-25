@@ -13,6 +13,15 @@ import type { GateResult, GateViolation } from "./types.js";
 const JS_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
 const MARKUP_EXT = new Set([".html", ".htm", ".vue", ".svelte", ".astro"]);
 
+function scriptKindFor(ext: string): ts.ScriptKind {
+  switch (ext) {
+    case ".tsx": return ts.ScriptKind.TSX;
+    case ".jsx": return ts.ScriptKind.JSX;
+    case ".ts": case ".mts": case ".cts": return ts.ScriptKind.TS;
+    default: return ts.ScriptKind.JS;
+  }
+}
+
 const FORBIDDEN_CALLS = new Set([
   "exec",
   "execSync",
@@ -100,12 +109,19 @@ function scanForbidden(source: ts.SourceFile, violations: GateViolation[]): void
   ts.forEachChild(source, visit);
 }
 
-function auditScript(original: string, patched: string, label: string): GateResult {
+function auditScript(original: string, patched: string, label: string, kind: ts.ScriptKind): GateResult {
   const violations: GateViolation[] = [];
   const fileName = `${label}.js`;
 
-  const origSrc = ts.createSourceFile(fileName, original, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const patchSrc = ts.createSourceFile(fileName, patched, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const origSrc = ts.createSourceFile(fileName, original, ts.ScriptTarget.Latest, true, kind);
+  const patchSrc = ts.createSourceFile(fileName, patched, ts.ScriptTarget.Latest, true, kind);
+
+  // Gate 0: the patched file must still parse — the compile fast-fail that runs
+  // before any Playwright verification (cheap, dependency-free).
+  const parseDiags = (patchSrc as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  for (const d of parseDiags) {
+    violations.push({ rule: "syntax-error", detail: ts.flattenDiagnosticMessageText(d.messageText, " ") });
+  }
 
   // Gate 1: no new imports / dependencies.
   const before = collectImports(origSrc);
@@ -135,7 +151,7 @@ export function auditPatch(original: string, patched: string, filePath: string):
   const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
 
   if (JS_EXT.has(ext)) {
-    return auditScript(original, patched, "file");
+    return auditScript(original, patched, "file", scriptKindFor(ext));
   }
 
   if (MARKUP_EXT.has(ext)) {
@@ -144,7 +160,7 @@ export function auditPatch(original: string, patched: string, filePath: string):
     const violations: GateViolation[] = [];
     const n = Math.max(origBlocks.length, patchBlocks.length);
     for (let i = 0; i < n; i++) {
-      const r = auditScript(origBlocks[i] ?? "", patchBlocks[i] ?? "", `script${i + 1}`);
+      const r = auditScript(origBlocks[i] ?? "", patchBlocks[i] ?? "", `script${i + 1}`, ts.ScriptKind.JS);
       violations.push(...r.violations);
     }
     // If the patch introduced a <script> that wasn't there, patchBlocks grew;

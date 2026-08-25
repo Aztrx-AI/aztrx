@@ -4,6 +4,7 @@ export type HealStatus =
   | "healed" // patch applied in sandbox and verified (bug no longer reproduces)
   | "unfixed" // patch applied but the bug still reproduces
   | "rejected" // AST safety gates rejected the patch
+  | "compile-failed" // tsc --noEmit rejected the patch
   | "apply-failed" // hunks did not match exactly (or were ambiguous)
   | "skipped" // no healable target (no own-code location / no deterministic repro)
   | "no-llm"; // no LLM configured and no injected patch generator

@@ -20,7 +20,7 @@ import * as path from "path";
 import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
 import { generatePatch } from "./llm.js";
-import { applyHunks, createWorktree, diffWorktree, writeWorktreeFile } from "./sandbox.js";
+import { applyHunks, createWorktree, diffWorktree, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
 import { verifyFix } from "./verify.js";
 import type { Finding } from "../types.js";
 import type { HealContext, HealOptions, HealResult, Patch } from "./types.js";
@@ -161,6 +161,19 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
     const writeErr = writeWorktreeFile(wt.dir, filePath, applied.patched);
     if (writeErr) {
       return { ...base, status: "apply-failed", hunks, explanation: patch.explanation, error: writeErr };
+    }
+
+    // 3b. Compile fast-fail — reject a patch that doesn't typecheck before paying
+    // for the Playwright verification loop.
+    const compile = await typecheckWorktree(wt.dir, opts.repoRoot);
+    if (!compile.ok) {
+      return {
+        ...base,
+        status: "compile-failed",
+        hunks,
+        explanation: patch.explanation,
+        error: compile.output.slice(0, 400) || "tsc --noEmit failed",
+      };
     }
 
     // 4. Verify — the bug must stop reproducing.
