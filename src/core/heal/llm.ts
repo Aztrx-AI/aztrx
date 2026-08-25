@@ -11,7 +11,31 @@ import { redact } from "./redact.js";
 import type { HealContext, Patch, PatchHunk } from "./types.js";
 
 const DEFAULT_MODEL = process.env.AZTRX_MODEL || "claude-sonnet-5";
+/** Cheap/fast first tier for the Smart Cloud Router. The idea: most one-line
+ * fixes are trivial, so try the small model before paying for the big one. */
+const FAST_MODEL = process.env.AZTRX_FAST_MODEL || "claude-haiku-4-5-20251001";
 const API_URL = "https://api.anthropic.com/v1/messages";
+
+export interface ModelTier {
+  model: string;
+  label: "fast" | "sonnet";
+}
+
+/**
+ * The Smart Cloud Router's tier plan: fast/cheap first, then the capable model
+ * as the fallback. Collapses to a single tier when the two resolve to the same
+ * model (e.g. `AZTRX_FAST_MODEL=claude-sonnet-5`). Consumers loop over this in
+ * order and stop at the first `healed` result.
+ */
+export function modelTiers(fallbackModel?: string): ModelTier[] {
+  const fast = process.env.AZTRX_FAST_MODEL || FAST_MODEL;
+  const sonnet = fallbackModel || DEFAULT_MODEL;
+  if (fast === sonnet) return [{ model: sonnet, label: "sonnet" }];
+  return [
+    { model: fast, label: "fast" },
+    { model: sonnet, label: "sonnet" },
+  ];
+}
 
 const SYSTEM = `You are a meticulous bug-fixing engineer. You are given a single source file and a runtime error that occurs in it. Produce a MINIMAL fix as a Search & Replace diff.
 

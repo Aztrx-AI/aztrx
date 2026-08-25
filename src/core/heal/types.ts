@@ -53,7 +53,10 @@ export interface HealOptions {
   actions: RecordedAction[];
   fingerprint: string;
   allowHosts: string[];
+  /** Fallback model (the last tier tried). Defaults to `claude-sonnet-5`. */
   model?: string;
+  /** Fast/cheap first tier. Defaults to `claude-haiku-4-5` (`AZTRX_FAST_MODEL`). */
+  fastModel?: string;
   /** Inject a patch generator for testing/demo (bypasses the network LLM). */
   patchFn?: (ctx: HealContext) => Promise<Patch>;
   /** Inject an app server for the patched code. Default: static file server. */
@@ -72,4 +75,8 @@ export interface HealResult {
   /** Path to the saved unified-diff patch artifact (.aztrx/heal/…, gitignored). */
   patchPath?: string;
   error?: string;
+  /** Model that produced the returned patch (the winning tier). */
+  model?: string;
+  /** All tiers attempted, in order, for observability in the PR bot. */
+  tiers?: string[];
 }

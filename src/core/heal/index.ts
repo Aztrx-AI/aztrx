@@ -19,11 +19,12 @@ import * as fs from "fs";
 import * as path from "path";
 import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
-import { generatePatch } from "./llm.js";
+import { generatePatch, modelTiers } from "./llm.js";
+import type { ModelTier } from "./llm.js";
 import { applyHunks, createWorktree, diffWorktree, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
 import { verifyFix } from "./verify.js";
 import type { Finding } from "../types.js";
-import type { HealContext, HealOptions, HealResult, Patch } from "./types.js";
+import type { HealContext, HealOptions, HealResult, Patch, VerifyResult } from "./types.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -126,78 +127,155 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   const red = redact(original);
   const ctx: HealContext = { finding, filePath, fileContent: original, redactedContent: red.text };
 
-  // 2. Generate.
-  let patch: Patch;
-  try {
-    patch = await generatePatch(ctx, { model: opts.model, patchFn: opts.patchFn });
-  } catch (e) {
-    return { ...base, status: "no-llm", error: (e as Error).message };
-  }
-
-  if (patch.hunks.length === 0) {
-    return { ...base, status: "rejected", explanation: patch.explanation, error: "model produced no edits" };
-  }
-
-  // Unredact the diff back onto the raw bytes before anything is applied.
-  const hunks = patch.hunks.map((h) => ({
-    search: unredact(h.search, red.map),
-    replace: unredact(h.replace, red.map),
-  }));
-
-  // Apply in memory (exact-match), then gate the resulting file.
-  const applied = applyHunks(original, hunks);
-  if (!applied.ok) {
-    return { ...base, status: "apply-failed", hunks, explanation: patch.explanation, error: applied.errors.join("; ") };
-  }
-
-  const gate = auditPatch(original, applied.patched, filePath);
-  if (!gate.ok) {
-    return { ...base, status: "rejected", hunks, explanation: patch.explanation, violations: gate.violations };
-  }
-
-  // 3. Sandbox — apply in a detached worktree.
-  const wt = await createWorktree(opts.repoRoot, finding.id);
-  try {
-    const writeErr = writeWorktreeFile(wt.dir, filePath, applied.patched);
-    if (writeErr) {
-      return { ...base, status: "apply-failed", hunks, explanation: patch.explanation, error: writeErr };
-    }
-
-    // 3b. Compile fast-fail — reject a patch that doesn't typecheck before paying
-    // for the Playwright verification loop.
-    const compile = await typecheckWorktree(wt.dir, opts.repoRoot);
-    if (!compile.ok) {
-      return {
-        ...base,
-        status: "compile-failed",
-        hunks,
-        explanation: patch.explanation,
-        error: compile.output.slice(0, 400) || "tsc --noEmit failed",
-      };
-    }
-
-    // 4. Verify — the bug must stop reproducing.
-    const serve = opts.serve ?? ((dir, fp) => staticServe(dir, fp));
-    const v = await verifyFix({
-      url: opts.url,
-      actions: opts.actions,
-      fingerprint: opts.fingerprint,
-      runs: opts.verifyRuns ?? 3,
-      serve: () => serve(wt.dir, filePath),
-    });
-
-    // 5. Hand off a reviewable patch.
-    const patchPath = await saveArtifact(opts.repoRoot, finding, patch, gate.ok, v, wt.dir, filePath);
-
+  // No transport configured (and no injected generator) → nothing to try. A
+  // higher model tier can't fix a missing key, so bail before paying anything.
+  if (!opts.patchFn && !process.env.ANTHROPIC_API_KEY) {
     return {
       ...base,
-      status: v.fixed ? "healed" : "unfixed",
-      explanation: patch.explanation,
-      hunks,
-      violations: gate.violations,
-      verification: v,
-      patchPath,
+      status: "no-llm",
+      error: "heal: ANTHROPIC_API_KEY is not set (and no patchFn was injected)",
     };
+  }
+
+  // The Smart Cloud Router tier plan: fast/cheap first, Sonnet as the fallback.
+  // An injected patchFn collapses to a single tier (there is no model to route).
+  const tiers: ModelTier[] = opts.patchFn
+    ? [{ model: opts.model ?? "claude-sonnet-5", label: "sonnet" }]
+    : modelTiers(opts.model);
+
+  const wt = await createWorktree(opts.repoRoot, finding.id);
+  // The winning (or last) patch + verification, held back for the final save.
+  let savedPatch: Patch | null = null;
+  let savedVerification: VerifyResult | null = null;
+  let savedGateOk = false;
+  let last: HealResult = base;
+
+  try {
+    for (const tier of tiers) {
+      // 2. Generate (this tier).
+      let patch: Patch;
+      try {
+        patch = await generatePatch(ctx, { model: tier.model, patchFn: opts.patchFn });
+      } catch (e) {
+        // A transport/config failure isn't a model-quality failure — a pricier
+        // tier won't fix a dead endpoint or a missing key, so stop here.
+        last = { ...base, status: "no-llm", error: (e as Error).message, model: tier.model };
+        break;
+      }
+
+      if (patch.hunks.length === 0) {
+        last = {
+          ...base,
+          status: "rejected",
+          explanation: patch.explanation,
+          error: "model produced no edits",
+          model: tier.model,
+        };
+        continue; // a higher tier may still produce a real edit
+      }
+
+      // Unredact the diff back onto the raw bytes before anything is applied.
+      const hunks = patch.hunks.map((h) => ({
+        search: unredact(h.search, red.map),
+        replace: unredact(h.replace, red.map),
+      }));
+
+      // Apply in memory (exact-match), then gate the resulting file.
+      const applied = applyHunks(original, hunks);
+      if (!applied.ok) {
+        last = {
+          ...base,
+          status: "apply-failed",
+          hunks,
+          explanation: patch.explanation,
+          error: applied.errors.join("; "),
+          model: tier.model,
+        };
+        continue;
+      }
+
+      const gate = auditPatch(original, applied.patched, filePath);
+      if (!gate.ok) {
+        last = {
+          ...base,
+          status: "rejected",
+          hunks,
+          explanation: patch.explanation,
+          violations: gate.violations,
+          model: tier.model,
+        };
+        continue;
+      }
+
+      // 3. Sandbox — apply in a detached worktree.
+      const writeErr = writeWorktreeFile(wt.dir, filePath, applied.patched);
+      if (writeErr) {
+        last = {
+          ...base,
+          status: "apply-failed",
+          hunks,
+          explanation: patch.explanation,
+          error: writeErr,
+          model: tier.model,
+        };
+        continue;
+      }
+
+      // 3b. Compile fast-fail — reject a patch that doesn't typecheck before
+      // paying for the Playwright verification loop.
+      const compile = await typecheckWorktree(wt.dir, opts.repoRoot);
+      if (!compile.ok) {
+        last = {
+          ...base,
+          status: "compile-failed",
+          hunks,
+          explanation: patch.explanation,
+          error: compile.output.slice(0, 400) || "tsc --noEmit failed",
+          model: tier.model,
+        };
+        continue;
+      }
+
+      // 4. Verify — the bug must stop reproducing.
+      const serve = opts.serve ?? ((dir, fp) => staticServe(dir, fp));
+      const v = await verifyFix({
+        url: opts.url,
+        actions: opts.actions,
+        fingerprint: opts.fingerprint,
+        runs: opts.verifyRuns ?? 3,
+        serve: () => serve(wt.dir, filePath),
+      });
+
+      savedPatch = patch;
+      savedVerification = v;
+      savedGateOk = gate.ok;
+
+      last = {
+        ...base,
+        status: v.fixed ? "healed" : "unfixed",
+        explanation: patch.explanation,
+        hunks,
+        violations: gate.violations,
+        verification: v,
+        model: tier.model,
+      };
+      if (v.fixed) break;
+    }
+
+    // 5. Hand off a reviewable patch (the winning — or last — attempt only).
+    if (savedPatch && savedVerification) {
+      last.patchPath = await saveArtifact(
+        opts.repoRoot,
+        finding,
+        savedPatch,
+        savedGateOk,
+        savedVerification,
+        wt.dir,
+        filePath
+      );
+    }
+
+    return { ...last, tiers: tiers.map((t) => t.model) };
   } finally {
     await wt.cleanup();
   }
