@@ -1,0 +1,140 @@
+name: "Aztrx — find the crash, prove it, propose the fix"
+description: >-
+  Runs aztrx against a running dev server on a pull request, posts a markdown
+  comment with the deterministic Playwright repro and the gated patch, and fails
+  the check when a crash/error is found.
+
+branding:
+  icon: "zap"
+  color: "red"
+
+inputs:
+  url:
+    description: "URL of the running app to stress-test (e.g. http://localhost:3000)."
+    required: true
+  token:
+    description: "GitHub token with `pull-requests: write` scope, used to post the comment."
+    required: true
+  args:
+    description: "Extra aztrx run flags (see `aztrx run --help`)."
+    default: "--fail-on --repro --heal"
+    required: false
+  working-directory:
+    description: "Directory containing the app (where aztrx runs)."
+    default: "."
+    required: false
+  install:
+    description: "Command to install dependencies. Set 'false' to skip."
+    default: "npm ci"
+    required: false
+  aztrx:
+    description: "Command used to invoke aztrx. Override to point at a git ref before the npm release."
+    default: "npx --yes aztrx@latest"
+    required: false
+  start-command:
+    description: "Command to boot the dev server in the background (e.g. 'npm run dev')."
+    default: ""
+    required: false
+  wait-for:
+    description: "URL to poll until the app responds (defaults to `url`)."
+    default: ""
+    required: false
+  anthropic-api-key:
+    description: "Anthropic API key for closed-loop healing. Optional — without it `--heal` skips gracefully."
+    default: ""
+    required: false
+  pr-number:
+    description: "PR number to comment on (defaults to the event's pull_request number)."
+    default: ""
+    required: false
+
+outputs:
+  comment-path:
+    description: "Path to the generated markdown comment."
+    value: ${{ steps.run.outputs.comment_path }}
+  exit-code:
+    description: "aztrx exit code (1 = crash/error found)."
+    value: ${{ steps.run.outputs.exit_code }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install dependencies
+      if: inputs.install != 'false'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.install }}
+
+    # Pin the browser to aztrx's own Playwright version so driver and browser
+    # never drift apart (a mismatch makes `chromium.launch()` fail).
+    - name: Install Chromium
+      shell: bash
+      run: npx --yes playwright@1.49.0 install --with-deps chromium
+
+    - name: Start dev server
+      if: inputs.start-command != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        nohup ${{ inputs.start-command }} > /tmp/aztrx-dev.log 2>&1 &
+        echo "aztrx_dev_pid=$!" >> "$GITHUB_ENV"
+
+    - name: Wait for app
+      shell: bash
+      run: |
+        url="${{ inputs.wait-for || inputs.url }}"
+        for i in $(seq 1 60); do
+          if curl -sS -o /dev/null "$url"; then
+            echo "ready: $url"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "::error::app did not become reachable at $url within 120s"
+        exit 1
+
+    - name: Run aztrx
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        set +e
+        ${{ inputs.aztrx }} run "${{ inputs.url }}" ${{ inputs.args }} --pr-comment .aztrx/pr-comment.md
+        code=$?
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        echo "comment_path=${{ inputs.working-directory }}/.aztrx/pr-comment.md" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Post PR comment
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        pr="${{ inputs.pr-number || github.event.pull_request.number }}"
+        if [ -z "$pr" ]; then
+          echo "::warning::no PR number resolved; skipping comment"
+          exit 0
+        fi
+        if [ -f .aztrx/pr-comment.md ]; then
+          gh pr comment "$pr" --body-file .aztrx/pr-comment.md
+        else
+          echo "::warning::no comment generated"
+        fi
+
+    - name: Surface gate
+      shell: bash
+      run: |
+        code="${{ steps.run.outputs.exit_code }}"
+        if [ "$code" != "0" ]; then
+          echo "aztrx detected crash/error findings — failing the check (exit $code)"
+          exit 1
+        fi
+        echo "aztrx clean — no crash/error findings"

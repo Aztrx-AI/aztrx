@@ -1,0 +1,75 @@
+# Aztrx PR check — reusable workflow.
+#
+# This is the "reusable workflow" form of the action: a consumer calls it from
+# their own repo and passes the app URL. Drop this in your repo and call it:
+#
+#   # .github/workflows/ci.yml  (in YOUR app repo)
+#   on:
+#     pull_request:
+#   jobs:
+#     aztrx:
+#       uses: DanisChaparov/aztrx/.github/workflows/aztrx-pr.yml@main
+#       with:
+#         url: http://localhost:3000
+#         start-command: npm run dev
+#       secrets:
+#         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+#
+# You can also use the composite action directly (see action.yml at the repo
+# root) if you prefer to wire it inline into an existing workflow.
+
+name: aztrx-pr
+
+on:
+  workflow_call:
+    inputs:
+      url:
+        description: "URL of the running app to stress-test."
+        required: true
+        type: string
+      working-directory:
+        description: "Directory containing the app."
+        required: false
+        type: string
+        default: "."
+      start-command:
+        description: "Command to boot the dev server in the background (optional)."
+        required: false
+        type: string
+        default: ""
+      args:
+        description: "Extra aztrx run flags."
+        required: false
+        type: string
+        default: "--fail-on --repro --heal"
+      install:
+        description: "Dependency install command ('false' to skip)."
+        required: false
+        type: string
+        default: "npm ci"
+    secrets:
+      anthropic-api-key:
+        description: "Anthropic API key for closed-loop healing (optional)."
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  aztrx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Aztrx
+        uses: DanisChaparov/aztrx@main
+        with:
+          url: ${{ inputs.url }}
+          token: ${{ github.token }}
+          working-directory: ${{ inputs.working-directory }}
+          start-command: ${{ inputs.start-command }}
+          args: ${{ inputs.args }}
+          install: ${{ inputs.install }}
+          anthropic-api-key: ${{ secrets.anthropic-api-key }}
