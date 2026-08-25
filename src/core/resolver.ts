@@ -44,6 +44,16 @@ function stripQuery(url: string): string {
   return url.split("?")[0];
 }
 
+/** True only for a real, readable regular file — directories and unreadable
+ * paths return false so readers never hit `EISDIR` / permission errors. */
+function isFile(p: string): boolean {
+  try {
+    return fs.existsSync(p) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** Turns a sourcemap `source` value into candidate absolute paths to probe. */
 function sourceCandidates(source: string, repoRoot: string): string[] {
   const cleaned = source
@@ -59,7 +69,7 @@ function sourceCandidates(source: string, repoRoot: string): string[] {
 
 function locateFile(candidates: string[]): string | null {
   for (const c of candidates) {
-    if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
+    if (isFile(c)) return c;
   }
   return null;
 }
@@ -80,7 +90,7 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
     line: frame.line,
     column: frame.column,
     codeSnippet: extractSnippet(directPath, frame.line),
-    resolvedFrom: fs.existsSync(directPath) ? "direct" : "unresolved",
+    resolvedFrom: isFile(directPath) ? "direct" : "unresolved",
   };
 }
 
@@ -126,7 +136,7 @@ async function trySourceMap(frame: RawFrame, repoRoot: string): Promise<MappedEr
 }
 
 export function extractSnippet(filePath: string, targetLine: number, window = 4): string {
-  if (!fs.existsSync(filePath)) return `<file not accessible locally: ${filePath}>`;
+  if (!isFile(filePath)) return `<file not accessible locally: ${filePath}>`;
   const lines = fs.readFileSync(filePath, "utf-8").split("\n");
   const start = Math.max(0, targetLine - window - 1);
   const end = Math.min(lines.length, targetLine + window);
