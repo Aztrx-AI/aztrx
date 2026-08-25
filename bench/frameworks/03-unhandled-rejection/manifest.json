@@ -6,8 +6,8 @@
   "seeded": [
     {
       "id": "bug-1",
-      "severity": "error",
-      "type": "unhandled_rejection",
+      "severity": "crash",
+      "type": "uncaught_exception",
       "message": "Cart fetch failed",
       "trigger": "mount"
     }

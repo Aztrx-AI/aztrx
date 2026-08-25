@@ -1,0 +1,10 @@
+{
+  "name": "bench-next-13-server-action",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  }
+}

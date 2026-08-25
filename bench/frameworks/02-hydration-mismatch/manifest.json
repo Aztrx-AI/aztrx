@@ -1,15 +1,22 @@
 {
   "id": "02-hydration-mismatch",
-  "name": "Dashboard — hydration text mismatch (Next.js App Router)",
-  "archetype": "hydration-mismatch",
+  "name": "Dashboard — hydration mismatch triaged, null deref found (Next.js App Router)",
+  "archetype": "hydration-triage",
   "framework": "next-app-router",
   "seeded": [
     {
       "id": "bug-1",
-      "severity": "error",
-      "type": "console_error",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'email'",
+      "trigger": "click #show-profile"
+    }
+  ],
+  "suppressed": [
+    {
+      "id": "triage-1",
       "message": "Hydration failed",
-      "trigger": "render"
+      "reason": "hydration mismatch triaged as noise"
     }
   ]
 }

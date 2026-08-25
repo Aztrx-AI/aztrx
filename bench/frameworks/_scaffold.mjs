@@ -111,13 +111,14 @@ export default function Page() {
   },
   {
     id: "02-hydration-mismatch",
-    name: "Dashboard — hydration text mismatch (Next.js App Router)",
-    archetype: "hydration-mismatch",
+    name: "Dashboard — hydration mismatch triaged, null deref found (Next.js App Router)",
+    archetype: "hydration-triage",
     page: `"use client";
 
 export default function Page() {
-  // Rendered on the server and again on the client with different values, so
-  // React's hydration check flags the text mismatch.
+  // Hydration mismatch: server and client render different values. Aztrx must
+  // TRIAGE this as boundary noise (tracked, never surfaced as a finding) while
+  // still catching the real interaction bug below.
   const token = Math.random();
 
   return (
@@ -125,13 +126,30 @@ export default function Page() {
       <h1>Dashboard</h1>
       <p id="token">session token: {token}</p>
       <button id="refresh">Refresh</button>
+
+      <hr style={{ margin: "16px 0" }} />
+
+      <h2>Profile</h2>
+      <button
+        id="show-profile"
+        onClick={() => {
+          // profile stays null until loaded; the handler over-asserts.
+          const profile = null as unknown as { email: string };
+          void profile.email;
+        }}
+      >
+        Show profile
+      </button>
     </main>
   );
 }
 `,
     manifest: {
       seeded: [
-        { id: "bug-1", severity: "error", type: "console_error", message: "Hydration failed", trigger: "render" },
+        { id: "bug-1", severity: "crash", type: "uncaught_exception", message: "reading 'email'", trigger: "click #show-profile" },
+      ],
+      suppressed: [
+        { id: "triage-1", message: "Hydration failed", reason: "hydration mismatch triaged as noise" },
       ],
     },
   },
@@ -168,7 +186,7 @@ export default function Page() {
     },
     manifest: {
       seeded: [
-        { id: "bug-1", severity: "error", type: "unhandled_rejection", message: "Cart fetch failed", trigger: "mount" },
+        { id: "bug-1", severity: "crash", type: "uncaught_exception", message: "Cart fetch failed", trigger: "mount" },
       ],
     },
   },
@@ -456,6 +474,52 @@ export default function Page() {
       ],
     },
   },
+  {
+    id: "13-server-action",
+    name: "Checkout — Server Action failure (Next.js App Router)",
+    archetype: "server-action",
+    page: `"use client";
+import { useState } from "react";
+import { placeOrder } from "./actions";
+
+export default function Page() {
+  const [status, setStatus] = useState("idle");
+
+  return (
+    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
+      <h1>Checkout</h1>
+      <p style={{ color: "#888" }}>Server Action demo · submit order</p>
+      <p id="status">{status}</p>
+      <button
+        id="place-order"
+        onClick={async () => {
+          await placeOrder(); // rejects — no catch, unhandled
+          setStatus("placed");
+        }}
+      >
+        Place order
+      </button>
+    </main>
+  );
+}
+`,
+    files: {
+      "app/actions.ts": `"use server";
+
+export async function placeOrder() {
+  // Server Action that always fails. The client invokes it in a click handler
+  // and lets the rejection go unhandled — the boundary Aztrx must catch as an
+  // "error" (escalated unhandled rejection), not a "warning".
+  throw new Error("Order submit failed: quota exceeded");
+}
+`,
+    },
+    manifest: {
+      seeded: [
+        { id: "bug-1", severity: "error", type: "unhandled_rejection", message: "quota exceeded", trigger: "click #place-order" },
+      ],
+    },
+  },
 ];
 
 for (const c of CASES) {
@@ -479,4 +543,4 @@ for (const c of CASES) {
   );
   console.log("wrote", c.id);
 }
-console.log("done: 12 apps");
+console.log("done: 13 apps");

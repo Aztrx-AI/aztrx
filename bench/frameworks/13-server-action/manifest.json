@@ -1,0 +1,15 @@
+{
+  "id": "13-server-action",
+  "name": "Checkout — Server Action failure (Next.js App Router)",
+  "archetype": "server-action",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "error",
+      "type": "unhandled_rejection",
+      "message": "quota exceeded",
+      "trigger": "click #place-order"
+    }
+  ]
+}

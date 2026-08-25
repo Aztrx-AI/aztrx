@@ -27,12 +27,21 @@ interface SeededBug {
   message: string;
   trigger: string;
 }
+/** A boundary signal Aztrx must TRIAGE (suppress as noise), not surface. The
+ * scorer asserts it does NOT appear in `findings` — if one leaks through, the
+ * triage is broken. */
+interface SuppressedBug {
+  id: string;
+  message: string;
+  reason: string;
+}
 interface Manifest {
   id: string;
   name: string;
   archetype: string;
   framework: string;
   seeded: SeededBug[];
+  suppressed?: SuppressedBug[];
 }
 
 // Findings produced by Next's dev error overlay (not by the app under test) —
@@ -155,15 +164,26 @@ async function main() {
 
     const found: Array<{ bug: SeededBug; finding: Finding }> = [];
     const missed: SeededBug[] = [];
+    const severityMismatches: Array<{ id: string; expected: string; actual: string }> = [];
     for (const bug of manifest.seeded) {
       const f = findings.find((x) => match(x.rawMessage, bug.message));
-      if (f) found.push({ bug, finding: f });
-      else missed.push(bug);
+      if (f) {
+        found.push({ bug, finding: f });
+        if (f.severity !== bug.severity) {
+          severityMismatches.push({ id: bug.id, expected: bug.severity, actual: f.severity });
+        }
+      } else {
+        missed.push(bug);
+      }
     }
     const falsePos = findings.filter(
       (f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)) && !isNoise(f.rawMessage)
     );
     const noise = findings.filter((f) => isNoise(f.rawMessage));
+    // Triage assertion: a suppressed signal must NOT surface as a finding.
+    const suppressedLeaks = (manifest.suppressed ?? []).filter((s) =>
+      findings.some((f) => match(f.rawMessage, s.message))
+    );
 
     const reproVerdicts = found.map(({ finding }) => finding.repro?.verdict).filter((v): v is string => v != null);
     const repro = {
@@ -180,14 +200,17 @@ async function main() {
       seeded: manifest.seeded.length,
       found: found.length,
       missed: missed.map((b) => b.id),
+      severityMismatches,
       falsePositives: falsePos.length,
       falsePosMessages: falsePos.map((f) => f.rawMessage.split("\n")[0].slice(0, 100)),
       devNoise: noise.length,
       devNoiseMessages: noise.map((f) => f.rawMessage.split("\n")[0].slice(0, 100)),
+      suppressed: (manifest.suppressed ?? []).map((s) => s.id),
+      suppressedLeaks: suppressedLeaks.map((s) => s.id),
       repro,
     });
 
-    const ok = missed.length === 0;
+    const ok = missed.length === 0 && suppressedLeaks.length === 0;
     const reproSeg = OPT.repro
       ? `  · repro ${repro.deterministic}/${repro.attempted} deterministic` +
         (repro.flaky ? `, ${repro.flaky} flaky` : "") +
@@ -195,6 +218,8 @@ async function main() {
       : "";
     console.log(
       `   ${ok ? pc.green("✓") : pc.red("✗")} detected ${found.length}/${manifest.seeded.length}` +
+        (suppressedLeaks.length ? pc.red(`  · ${suppressedLeaks.length} triage-leak`) : "") +
+        (severityMismatches.length ? pc.yellow(`  · ${severityMismatches.length} severity-mismatch`) : "") +
         (falsePos.length ? pc.yellow(`  · ${falsePos.length} extra`) : "") +
         (noise.length ? pc.dim(`  · ${noise.length} dev-noise`) : "") +
         (OPT.repro ? pc.cyan(reproSeg) : "")
@@ -206,6 +231,9 @@ async function main() {
   const fp = rows.reduce((s, r) => s + (r.falsePositives as number), 0);
   const noise = rows.reduce((s, r) => s + (r.devNoise as number), 0);
   const rate = seeded ? (found / seeded) * 100 : 0;
+  const suppressed = rows.reduce((s, r) => s + ((r.suppressed as string[])?.length ?? 0), 0);
+  const leaked = rows.reduce((s, r) => s + ((r.suppressedLeaks as string[])?.length ?? 0), 0);
+  const severityBad = rows.reduce((s, r) => s + ((r.severityMismatches as unknown[])?.length ?? 0), 0);
   const reproAttempted = rows.reduce((s, r) => s + ((r.repro as { attempted: number })?.attempted ?? 0), 0);
   const reproDeterministic = rows.reduce((s, r) => s + ((r.repro as { deterministic: number })?.deterministic ?? 0), 0);
   const reproFlaky = rows.reduce((s, r) => s + ((r.repro as { flaky: number })?.flaky ?? 0), 0);
@@ -221,6 +249,7 @@ async function main() {
           rate: +rate.toFixed(1),
           falsePositives: fp,
           devNoise: noise,
+          triage: { suppressed, leaked, severityMismatches: severityBad },
           repro: { attempted: reproAttempted, deterministic: reproDeterministic, flaky: reproFlaky, rate: +reproRate.toFixed(1) },
         },
         cases: rows,
@@ -231,7 +260,7 @@ async function main() {
   );
 
   console.log("\n" + "═".repeat(64));
-  console.log(pc.bold(`Detection  ${found}/${seeded}  (${rate.toFixed(1)}%)`) + pc.dim(`   ·   ${fp} false positive(s) · ${noise} dev-noise`));
+  console.log(pc.bold(`Detection  ${found}/${seeded}  (${rate.toFixed(1)}%)`) + pc.dim(`   ·   ${fp} false positive(s) · ${noise} dev-noise · ${leaked} triage-leak`));
   if (OPT.repro && reproAttempted > 0) {
     console.log(
       pc.bold(`Repro      ${reproDeterministic}/${reproAttempted} deterministic  (${reproRate.toFixed(1)}%)`) +
@@ -240,11 +269,15 @@ async function main() {
   }
   console.log("═".repeat(64));
   for (const r of rows) {
+    const bad = (r.missed as string[]).length || (r.suppressedLeaks as string[]).length;
     console.log(
-      `  ${(r.missed as string[]).length ? pc.red("✗") : pc.green("✓")} ${(r.id as string).padEnd(24)} ${r.found}/${r.seeded}` +
+      `  ${bad ? pc.red("✗") : pc.green("✓")} ${(r.id as string).padEnd(24)} ${r.found}/${r.seeded}` +
         (r.falsePositives ? pc.yellow(`   +${r.falsePositives} fp`) : "")
     );
     for (const m of r.missed as string[]) console.log(pc.red(`      missed  ${m}`));
+    for (const m of r.suppressedLeaks as string[]) console.log(pc.red(`      triage-leak  ${m}`));
+    for (const m of r.severityMismatches as Array<{ id: string; expected: string; actual: string }>)
+      console.log(pc.yellow(`      severity  ${m.id}: ${m.expected}≠${m.actual}`));
     for (const m of r.falsePosMessages as string[]) console.log(pc.dim(`      extra   ${m}`));
   }
   console.log("");
