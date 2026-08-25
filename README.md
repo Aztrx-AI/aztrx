@@ -43,6 +43,7 @@ aztrx run http://localhost:3000                 # deterministic walk
 aztrx run http://localhost:3000 --fuzz          # seeded chaos (replayable)
 aztrx run http://localhost:3000 --repro         # minimize → compile → validate
 aztrx run http://localhost:3000 --repro --heal  # + propose a gated, verified patch (needs ANTHROPIC_API_KEY)
+aztrx run http://localhost:3000 --repro --heal --pr-comment  # + write a GitHub PR markdown comment
 aztrx run http://localhost:3000 --fuzz --repro --fail-on   # CI gate: exit 1 on a crash
 ```
 
@@ -76,6 +77,43 @@ Run it to watch the bug break again — deterministically.
 - **`aztrx studio`** — live dashboard on `localhost:7331`, streaming findings as they land.
 - **Ink TUI** — a live terminal panel (effective ops/sec, route status, `[deterministic 5/5]` badges, collapsed noise). Auto-on in a TTY; `--plain` for CI logs.
 
+## GitHub Action
+
+Ship a runtime gate on every PR. The action boots your dev server, runs
+`aztrx run --fail-on --repro --heal`, posts a markdown comment with the
+deterministic Playwright repro and the gated patch, and fails the check when a
+crash/error is found. Two ways to wire it:
+
+```yaml
+# .github/workflows/ci.yml  — composite action, inline
+on: pull_request
+jobs:
+  aztrx:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DanisChaparov/aztrx@main
+        with:
+          url: http://localhost:3000
+          start-command: npm run dev          # optional — boot the app in the background
+          token: ${{ github.token }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — enables --heal
+```
+
+```yaml
+# .github/workflows/ci.yml  — reusable workflow form
+on: pull_request
+jobs:
+  aztrx:
+    uses: DanisChaparov/aztrx/.github/workflows/aztrx-pr.yml@main
+    with:
+      url: http://localhost:3000
+      start-command: npm run dev
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
 ## Flags
 
 | Flag | What it does |
@@ -85,7 +123,9 @@ Run it to watch the bug break again — deterministically.
 | `--repro` | Minimize + compile + validate every finding (ddmin → spec → flake-rate) |
 | `--repro-runs <n>` | Replay iterations for the flake-rate gate (default `3`) |
 | `--heal` | Closed-loop healing: redact → generate → gate → sandbox → verify (implies `--repro`) |
-| `--heal-model <model>` | LLM model for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
+| `--heal-model <model>` | Fallback LLM tier for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
+| `--heal-fast-model <model>` | Fast/cheap first tier for the smart router (default `claude-haiku-4-5`; set `AZTRX_FAST_MODEL` to override) |
+| `--pr-comment [path]` | Write a GitHub PR markdown comment with repro + patch (default `.aztrx/pr-comment.md`) |
 | `--max-actions <n>` | Max actions per pass (default `100`) |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
 | `--auth <path>` / `--storage-state <path>` | Path to a Playwright storage-state JSON (cookies/localStorage) so authenticated pages replay logged-in |
@@ -93,6 +133,15 @@ Run it to watch the bug break again — deterministically.
 | `--dry-run` | Report what *would* be clicked, without clicking |
 | `--crash-test` | Throw a deliberate error to verify capture |
 | `--plain` / `--ui` | Force logs / force the live panel regardless of TTY |
+
+## Smart Cloud Router
+
+`--heal` is backed by a two-tier router. The fast/cheap model (`claude-haiku-4-5`)
+generates first; its patch is gated, compiled, and replayed against the repro. If
+the bug still reproduces — or the patch fails a gate — aztrx falls back to the
+capable model (`claude-sonnet-5`) and tries again. Most one-line fixes never pay
+for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` / `AZTRX_MODEL`
+or the `--heal-fast-model` / `--heal-model` flags.
 
 ## Security invariants
 
@@ -102,19 +151,19 @@ Run it to watch the bug break again — deterministically.
 
 ## Open benchmark
 
-The detector is scored against a 12-target corpus of **real Next.js App Router
+The detector is scored against a 13-target corpus of **real Next.js App Router
 apps** — one seeded runtime bug per app across the archetype matrix (null deref,
-async race, JSON parse, stack overflow, route transition, and more). Each target
+async race, JSON parse, stack overflow, Server Action, route transition, and more). Each target
 is a self-contained `next dev` app with a `manifest.json`; the scorer boots the
 server, drives the real `run()`, and matches findings to the manifest.
 
 | metric | value |
 | --- | --- |
-| seeded bugs | 12 |
-| detection recall | **100%** (12 / 12) |
-| deterministic repros | **100%** (10 / 10) |
-| repro not attempted | 2 (mount-time bugs, no action history) |
-| unseeded findings | 3 — one root cause (`/api/cart` → 500) seen through 3 signal paths |
+| seeded bugs | 13 |
+| detection recall | **100%** (13 / 13) |
+| deterministic repros | **100%** (12 / 12) |
+| repro not attempted | 1 (mount-time bug, no action history) |
+| unseeded findings | 5 — two root causes (`/api/cart` → 500, Server Action → 500) |
 
 ```bash
 cd bench/frameworks
@@ -132,8 +181,10 @@ per-case table, scoring notes, and caveats live in
 - [x] Closed-loop healing — redact → generate → gate → sandbox → verify (F10)
 - [ ] Open-source launch — npm publish, `npx aztrx run`, hero screencast
 - [x] Hardening — `--auth`/`--storage-state`, tsc compile fast-fail, React 19/Next.js 15 triage
-- [x] Real-project benchmark — 12 Next.js App Router targets (100% recall, 100% deterministic repro)
-- [ ] B2B ($29/mo) — GitHub Action, smart cloud router, cloud dashboard
+- [x] Real-project benchmark — 13 Next.js App Router targets (100% recall, 100% deterministic repro)
+- [x] B2B ($29/mo) — GitHub Action (`action.yml` + reusable workflow), PR bot markdown comment
+- [x] B2B ($29/mo) — Smart Cloud Router (haiku fast-tier → verify → Sonnet fallback)
+- [ ] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
 - [ ] Data flywheel — opt-in telemetry → proprietary auto-repair model
 
 ## License
