@@ -1,5 +1,12 @@
 # Aztrx benchmark
 
+> **The real-project corpus is the primary benchmark now.** See
+> [`bench/frameworks/`](frameworks/) — 12 Next.js App Router targets scored by
+> `bench/frameworks/run.ts`, with results in
+> [`bench/frameworks/RESULTS.md`](frameworks/RESULTS.md). The vanilla corpus
+> described below (`bench/cases/`) remains as the framework-agnostic archetype
+> baseline.
+
 A reproducibility harness that scores the runtime detector against a corpus of
 self-contained apps, each with one seeded runtime crash.
 

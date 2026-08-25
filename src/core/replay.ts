@@ -77,23 +77,38 @@ export class ReplayEngine {
   }
 
   async run(url: string, actions: RecordedAction[], targetFingerprint: string): Promise<ReplayResult> {
-    const browser = await this.getBrowser();
-    const page = await browser.newPage();
-    try {
-      const bus = new EventBus();
-      const fingerprints = new Set<string>();
-      bus.on("telemetry", (p) => fingerprints.add(fingerprintOf(p)));
-      attachInterceptor(page, bus);
-      if (this.opts.attachGuard) await this.opts.attachGuard(page);
+    // The browser is reused across replays for speed, but after enough page
+    // loads a renderer can crash. Relaunch once and retry so a single crash
+    // doesn't take down the whole repro pipeline.
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let page: Page | null = null;
+      try {
+        const browser = await this.getBrowser();
+        page = await browser.newPage();
+        const bus = new EventBus();
+        const fingerprints = new Set<string>();
+        bus.on("telemetry", (p) => fingerprints.add(fingerprintOf(p)));
+        attachInterceptor(page, bus);
+        if (this.opts.attachGuard) await this.opts.attachGuard(page);
 
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-      await replayActions(page, actions);
-      await page.waitForTimeout(300);
+        await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
+        // Settle for hydration before replaying — the detection pass waits on the
+        // `load` event plus a settle window, and a replay that clicks before React
+        // attaches its handlers won't reproduce the crash (false "unreliable").
+        await page.waitForTimeout(2000);
+        await replayActions(page, actions);
+        await page.waitForTimeout(300);
 
-      return { reproduced: fingerprints.has(targetFingerprint) };
-    } finally {
-      await page.close().catch(() => {});
+        return { reproduced: fingerprints.has(targetFingerprint) };
+      } catch (e) {
+        lastError = e;
+        await this.close(); // drop the (possibly crashed) browser and retry fresh
+      } finally {
+        await page?.close().catch(() => {});
+      }
     }
+    throw lastError;
   }
 
   async close(): Promise<void> {

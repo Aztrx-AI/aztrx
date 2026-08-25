@@ -1,0 +1,15 @@
+{
+  "id": "05-array-bounds",
+  "name": "Feed — off-by-one pagination (Next.js App Router)",
+  "archetype": "array-bounds",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'name'",
+      "trigger": "click #next"
+    }
+  ]
+}

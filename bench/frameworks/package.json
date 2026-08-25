@@ -1,0 +1,22 @@
+{
+  "name": "aztrx-framework-bench",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Shared dependency root for the 12 real Next.js/Vite benchmark target apps. Each app under this directory resolves next/react/react-dom by walking up to this node_modules.",
+  "scripts": {
+    "bench": "tsx run.ts",
+    "bench:repro": "tsx run.ts --repro"
+  },
+  "dependencies": {
+    "next": "16.3.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tsx": "^4.19.0",
+    "typescript": "^5"
+  }
+}

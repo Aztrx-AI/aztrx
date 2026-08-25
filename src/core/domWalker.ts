@@ -36,16 +36,26 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
     const enabled = await handle.isEnabled().catch(() => false);
     if (!visible || !enabled) continue;
 
-    const tag = await handle.evaluate((el) => el.tagName.toLowerCase());
-    const label = await handle.evaluate((el) => {
-      const t =
-        (el as HTMLElement).innerText ||
-        el.getAttribute("aria-label") ||
-        el.getAttribute("value") ||
-        el.getAttribute("placeholder") ||
-        "";
-      return t.trim();
-    });
+    let tag: string;
+    try {
+      tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+    } catch {
+      continue; // element unreadable mid-query — skip
+    }
+    let label = "";
+    try {
+      label = await handle.evaluate((el) => {
+        const t =
+          (el as HTMLElement).innerText ||
+          el.getAttribute("aria-label") ||
+          el.getAttribute("value") ||
+          el.getAttribute("placeholder") ||
+          "";
+        return t.trim();
+      });
+    } catch {
+      label = ""; // degraded — no label to filter on
+    }
 
     if (DESTRUCTIVE.test(label)) continue;
 

@@ -1,0 +1,15 @@
+{
+  "id": "12-keypress-crash",
+  "name": "Search — keydown deref (Next.js App Router)",
+  "archetype": "keypress",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'execute'",
+      "trigger": "keypress #search"
+    }
+  ]
+}

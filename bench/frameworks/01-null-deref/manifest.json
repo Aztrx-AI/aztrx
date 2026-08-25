@@ -1,0 +1,15 @@
+{
+  "id": "01-null-deref",
+  "name": "Shop — null cart deref (Next.js App Router)",
+  "archetype": "null-deref",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'items'",
+      "trigger": "click #view-cart"
+    }
+  ]
+}

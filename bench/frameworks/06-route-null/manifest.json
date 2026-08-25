@@ -1,0 +1,15 @@
+{
+  "id": "06-route-null",
+  "name": "Account — null deref after navigation (Next.js App Router)",
+  "archetype": "route-transition",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'token'",
+      "trigger": "click #go-detail then click #show-token"
+    }
+  ]
+}

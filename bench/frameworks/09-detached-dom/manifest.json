@@ -1,0 +1,15 @@
+{
+  "id": "09-detached-dom",
+  "name": "List — double-remove (Next.js App Router)",
+  "archetype": "detached-dom",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "reading 'appendChild'",
+      "trigger": "click #dismiss"
+    }
+  ]
+}

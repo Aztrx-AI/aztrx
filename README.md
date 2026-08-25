@@ -101,38 +101,37 @@ Run it to watch the bug break again — deterministically.
 
 ## Open benchmark
 
-The detector is scored against a 12-target corpus of runtime bug archetypes —
-null deref, async race, JSON parse, stack overflow, route transition, and more.
-Every target is a fixture with a seeded bug plus a manifest declaring what the
-scorer expects to find.
+The detector is scored against a 12-target corpus of **real Next.js App Router
+apps** — one seeded runtime bug per app across the archetype matrix (null deref,
+async race, JSON parse, stack overflow, route transition, and more). Each target
+is a self-contained `next dev` app with a `manifest.json`; the scorer boots the
+server, drives the real `run()`, and matches findings to the manifest.
 
 | metric | value |
 | --- | --- |
 | seeded bugs | 12 |
 | detection recall | **100%** (12 / 12) |
-| precision | clean — the 2 unseeded findings are real faults, not hallucinations |
-| deterministic repros | **90.9%** (10 / 11) |
-| repro not attempted | 1 (mount-time bug, no action history) |
+| deterministic repros | **100%** (10 / 10) |
+| repro not attempted | 2 (mount-time bugs, no action history) |
+| unseeded findings | 3 — one root cause (`/api/cart` → 500) seen through 3 signal paths |
 
 ```bash
-npm run bench              # detection
-npm run bench -- --repro   # detection + repro scoring
+cd bench/frameworks
+npm install                  # once — installs next/react for the target apps
+npm run bench                # detection
+npm run bench:repro          # detection + repro scoring
 ```
 
 The numbers are deterministic for a given `--seed` (mulberry32 PRNG). Full
 per-case table, scoring notes, and caveats live in
-[`bench/RESULTS.md`](bench/RESULTS.md).
-
-> **Scope.** This corpus pins the *archetype* matrix in framework-agnostic
-> vanilla HTML. It is not yet a claim over real Next.js/Vite projects — that is
-> the next benchmark stage.
+[`bench/frameworks/RESULTS.md`](bench/frameworks/RESULTS.md).
 
 ## Roadmap
 
 - [x] Closed-loop healing — redact → generate → gate → sandbox → verify (F10)
 - [ ] Open-source launch — npm publish, `npx aztrx run`, hero screencast
 - [ ] Hardening — `--auth`/`--storage-state`, tsc/eslint gate, React 19/Next.js 15 triage
-- [ ] Real-project benchmark — 12 Next.js/Vite targets (current corpus is vanilla archetypes)
+- [x] Real-project benchmark — 12 Next.js App Router targets (100% recall, 100% deterministic repro)
 - [ ] B2B ($29/mo) — GitHub Action, smart cloud router, cloud dashboard
 - [ ] Data flywheel — opt-in telemetry → proprietary auto-repair model
 

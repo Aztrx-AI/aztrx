@@ -140,10 +140,19 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   });
 
   let loaded = true;
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((e) => {
+  await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch((e) => {
     loaded = false;
     say(pc.red("Failed to load target: ") + pc.dim(e.message));
   });
+
+  if (loaded) {
+    // Settle: wait for hydration and mount-time effects (async fetches,
+    // unhandled rejections, React warnings) to fire before we act. A page whose
+    // only bugs are mount-time would otherwise be closed before they happen —
+    // and a page with no interactive elements fuzzes zero actions, so it relies
+    // on this window.
+    await page.waitForTimeout(2000);
+  }
 
   if (loaded && options.crashTest) {
     await page.evaluate(() => {
@@ -180,48 +189,74 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       if (targets.length) say(pc.cyan("— Repro pipeline (minimize → compile → validate) —"));
       emitPhase("repro");
       for (const f of targets) {
-        const minimal = await minimize(engine, f.actionHistory, { url, fingerprint: f.fingerprint });
-        const specPath = writeSpec(repoRoot, f, minimal, url);
-        const v = await validate(engine, url, f, minimal, options.reproRuns ?? 3);
-        f.repro = {
-          actions: minimal,
-          specPath,
-          verdict: v.verdict,
-          rate: v.rate,
-          runs: v.runs,
-          reproductions: v.reproductions,
-        };
+        try {
+          const minimal = await minimize(engine, f.actionHistory, { url, fingerprint: f.fingerprint });
+          const specPath = writeSpec(repoRoot, f, minimal, url);
+          const v = await validate(engine, url, f, minimal, options.reproRuns ?? 3);
+          f.repro = {
+            actions: minimal,
+            specPath,
+            verdict: v.verdict,
+            rate: v.rate,
+            runs: v.runs,
+            reproductions: v.reproductions,
+          };
 
-        bus.emit("repro", {
-          finding: f,
-          verdict: v.verdict,
-          runs: v.runs,
-          reproductions: v.reproductions,
-          steps: minimal.length,
-          totalSteps: f.actionHistory.length,
-          specPath: path.relative(repoRoot, specPath),
-        });
-        runLog.append({
-          type: "repro",
-          fingerprint: f.fingerprint,
-          verdict: v.verdict,
-          runs: v.runs,
-          reproductions: v.reproductions,
-          steps: minimal.length,
-          totalSteps: f.actionHistory.length,
-          specPath: path.relative(repoRoot, specPath),
-        });
+          bus.emit("repro", {
+            finding: f,
+            verdict: v.verdict,
+            runs: v.runs,
+            reproductions: v.reproductions,
+            steps: minimal.length,
+            totalSteps: f.actionHistory.length,
+            specPath: path.relative(repoRoot, specPath),
+          });
+          runLog.append({
+            type: "repro",
+            fingerprint: f.fingerprint,
+            verdict: v.verdict,
+            runs: v.runs,
+            reproductions: v.reproductions,
+            steps: minimal.length,
+            totalSteps: f.actionHistory.length,
+            specPath: path.relative(repoRoot, specPath),
+          });
 
-        const mark =
-          v.verdict === "deterministic"
-            ? pc.green("  ✓ deterministic")
-            : v.verdict === "flaky"
-              ? pc.yellow("  ◐ flaky")
-              : pc.red("  ✗ unreliable");
-        say(
-          `${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}  (${minimal.length}/${f.actionHistory.length} steps, ${v.reproductions}/${v.runs} runs)`
-        );
-        say(pc.dim(`        spec: ${path.relative(repoRoot, specPath)}`));
+          const mark =
+            v.verdict === "deterministic"
+              ? pc.green("  ✓ deterministic")
+              : v.verdict === "flaky"
+                ? pc.yellow("  ◐ flaky")
+                : pc.red("  ✗ unreliable");
+          say(
+            `${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}  (${minimal.length}/${f.actionHistory.length} steps, ${v.reproductions}/${v.runs} runs)`
+          );
+          say(pc.dim(`        spec: ${path.relative(repoRoot, specPath)}`));
+        } catch (e) {
+          // One finding's repro failing must not abort the whole run — record it
+          // as unreliable and move on to the next target.
+          f.repro = { actions: [], specPath: "", verdict: "unreliable", rate: 0, runs: 0, reproductions: 0 };
+          bus.emit("repro", {
+            finding: f,
+            verdict: "unreliable",
+            runs: 0,
+            reproductions: 0,
+            steps: 0,
+            totalSteps: f.actionHistory.length,
+            specPath: "",
+          });
+          runLog.append({
+            type: "repro",
+            fingerprint: f.fingerprint,
+            verdict: "unreliable",
+            runs: 0,
+            reproductions: 0,
+            steps: 0,
+            totalSteps: f.actionHistory.length,
+            specPath: "",
+          });
+          say(pc.red(`  ✗ repro failed: ${(e as Error).message.split("\n")[0]}`));
+        }
       }
     } finally {
       await engine.close();

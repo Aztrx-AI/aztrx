@@ -1,0 +1,15 @@
+{
+  "id": "03-unhandled-rejection",
+  "name": "Shop — unhandled cart fetch rejection (Next.js App Router)",
+  "archetype": "async-race",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "error",
+      "type": "unhandled_rejection",
+      "message": "Cart fetch failed",
+      "trigger": "mount"
+    }
+  ]
+}

@@ -23,6 +23,11 @@ const NOISE_FRAGMENTS = [
   "react_devtools_backend",
 ];
 
+// Dev-tooling artifacts that are not the app under test — the Next.js dev
+// overlay's "launch editor" source-resolver request, etc. Suppressed regardless
+// of signal type so they neither count as findings nor enter the repro pipeline.
+const DEV_TOOLING_NOISE = ["__nextjs_launch-editor"];
+
 function normalize(message: string): string {
   return message
     .replace(/\b\d+\b/g, "<N>")
@@ -62,6 +67,7 @@ export function fingerprintOf(payload: TelemetryErrorPayload): string {
 }
 
 function classifySeverity(payload: TelemetryErrorPayload, isOwnCode: boolean): Severity {
+  if (DEV_TOOLING_NOISE.some((n) => payload.rawMessage.includes(n))) return "noise";
   switch (payload.type) {
     case "uncaught_exception":
       return isOwnCode ? "crash" : "error";

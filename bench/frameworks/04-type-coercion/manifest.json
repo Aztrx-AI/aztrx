@@ -1,0 +1,15 @@
+{
+  "id": "04-type-coercion",
+  "name": "Pricing — toFixed on a string (Next.js App Router)",
+  "archetype": "type-coercion",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "toFixed is not a function",
+      "trigger": "click #format"
+    }
+  ]
+}

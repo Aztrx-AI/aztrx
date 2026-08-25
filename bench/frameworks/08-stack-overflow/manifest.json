@@ -1,0 +1,15 @@
+{
+  "id": "08-stack-overflow",
+  "name": "Tabs — unbounded recursion (Next.js App Router)",
+  "archetype": "stack-overflow",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "Maximum call stack size exceeded",
+      "trigger": "click #expand"
+    }
+  ]
+}

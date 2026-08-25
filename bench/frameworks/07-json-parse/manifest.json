@@ -1,0 +1,15 @@
+{
+  "id": "07-json-parse",
+  "name": "Settings — unvalidated JSON.parse (Next.js App Router)",
+  "archetype": "json-parse",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "crash",
+      "type": "uncaught_exception",
+      "message": "is not valid JSON",
+      "trigger": "click #parse"
+    }
+  ]
+}

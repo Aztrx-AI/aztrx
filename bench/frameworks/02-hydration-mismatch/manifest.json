@@ -1,0 +1,15 @@
+{
+  "id": "02-hydration-mismatch",
+  "name": "Dashboard — hydration text mismatch (Next.js App Router)",
+  "archetype": "hydration-mismatch",
+  "framework": "next-app-router",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "severity": "error",
+      "type": "console_error",
+      "message": "Hydration failed",
+      "trigger": "render"
+    }
+  ]
+}
