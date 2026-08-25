@@ -16,6 +16,7 @@ import { writeSpec } from "./specCompiler.js";
 import { validate } from "./validator.js";
 import { writeReport } from "./report.js";
 import { RunLog } from "./events.js";
+import { heal } from "./heal/index.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface RunOptions {
@@ -29,6 +30,11 @@ export interface RunOptions {
   seed?: number;
   allowHosts?: string[];
   reproRuns?: number;
+  /** F10: attempt closed-loop healing for crash/error findings. Needs
+   * `ANTHROPIC_API_KEY` (or an injected patchFn) and `repro: true`. */
+  heal?: boolean;
+  /** LLM model override for healing. */
+  healModel?: string;
   /** Inject an external bus (the TUI subscribes to it). */
   bus?: EventBus;
   /** When true, suppress console output — the caller renders from bus events. */
@@ -219,6 +225,64 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       }
     } finally {
       await engine.close();
+    }
+  }
+
+  // F10 — closed-loop healing. For each crash/error finding with an own-code
+  // source location and a deterministic repro, generate a patch, gate it, apply
+  // it in a sandboxed worktree, and verify the bug stops reproducing. Opt-in;
+  // the patch is only ever handed to a human for review, never committed.
+  if (options.heal) {
+    const healTargets = findings.filter(
+      (f) =>
+        (f.severity === "crash" || f.severity === "error") &&
+        f.mappedLocation?.isOwnCode &&
+        f.repro &&
+        f.repro.verdict !== "unreliable"
+    );
+    if (healTargets.length) {
+      say(pc.cyan("— Closed-loop healing (redact → generate → gate → sandbox → verify) —"));
+      emitPhase("heal");
+      for (const f of healTargets) {
+        say(pc.dim(`  healing: ${f.rawMessage.split("\n")[0].slice(0, 60)}`));
+        try {
+          const result = await heal(f, {
+            repoRoot,
+            url,
+            actions: f.repro!.actions,
+            fingerprint: f.fingerprint,
+            allowHosts: [...allowHosts],
+            model: options.healModel,
+          });
+          bus.emit("heal", {
+            finding: f,
+            status: result.status,
+            patchPath: result.patchPath,
+            error: result.error,
+          });
+          runLog.append({
+            type: "heal",
+            fingerprint: f.fingerprint,
+            status: result.status,
+            patchPath: result.patchPath,
+            error: result.error,
+          });
+
+          const mark =
+            result.status === "healed"
+              ? pc.green("  ✓ healed")
+              : result.status === "unfixed"
+                ? pc.yellow("  ◐ unfixed")
+                : pc.red(`  ✗ ${result.status}`);
+          say(`${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}`);
+          if (result.patchPath) say(pc.dim(`        patch: ${path.relative(repoRoot, result.patchPath)}`));
+          if (result.error) say(pc.dim(`        ${result.error}`));
+        } catch (e) {
+          bus.emit("heal", { finding: f, status: "skipped", error: (e as Error).message });
+          runLog.append({ type: "heal", fingerprint: f.fingerprint, status: "skipped", error: (e as Error).message });
+          say(pc.dim(`  ✗ heal error: ${(e as Error).message}`));
+        }
+      }
     }
   }
 

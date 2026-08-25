@@ -1,0 +1,88 @@
+/**
+ * F10 gate #3 — isolated Git worktree sandbox. A patch is never applied to the
+ * user's working tree: it lands in a detached `git worktree`, is verified there,
+ * and the only artifact that escapes is a `.patch` file for a human to review
+ * and apply. Aztrx never commits — humans do.
+ */
+
+import { execFile } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import type { PatchHunk } from "./types.js";
+
+const execFileP = promisify(execFile);
+
+export interface Worktree {
+  dir: string;
+  cleanup: () => Promise<void>;
+}
+
+export interface ApplyResult {
+  ok: boolean;
+  patched: string;
+  applied: number;
+  errors: string[];
+}
+
+const preview = (s: string): string => JSON.stringify(s.length > 60 ? s.slice(0, 57) + "…" : s);
+
+/** Create a detached worktree at HEAD in a temp dir (outside the repo). */
+export async function createWorktree(repoRoot: string, label: string): Promise<Worktree> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `aztrx-heal-${label}-`));
+  await execFileP("git", ["-C", repoRoot, "worktree", "add", "--detach", dir, "HEAD"]);
+  return {
+    dir,
+    cleanup: async () => {
+      await execFileP("git", ["-C", repoRoot, "worktree", "remove", "--force", dir]).catch(() => {});
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+/** Apply Search & Replace hunks to an in-memory file. Each `search` must match
+ * exactly once; ambiguous or missing matches fail the whole apply (no partial
+ * writes). Pure — the caller decides where the result lands. */
+export function applyHunks(content: string, hunks: PatchHunk[]): ApplyResult {
+  const errors: string[] = [];
+  for (const h of hunks) {
+    const first = content.indexOf(h.search);
+    if (first === -1) {
+      errors.push(`search not found: ${preview(h.search)}`);
+      continue;
+    }
+    if (content.indexOf(h.search, first + h.search.length) !== -1) {
+      errors.push(`search ambiguous (matches multiple times): ${preview(h.search)}`);
+    }
+  }
+  if (errors.length) return { ok: false, patched: content, applied: 0, errors };
+
+  let patched = content;
+  for (const h of hunks) {
+    patched = patched.replace(h.search, h.replace);
+  }
+  return { ok: true, patched, applied: hunks.length, errors: [] };
+}
+
+/** Write the patched file into the worktree, refusing to escape it. */
+export function writeWorktreeFile(worktreeDir: string, repoRelativePath: string, content: string): string | null {
+  const root = path.resolve(worktreeDir);
+  const target = path.resolve(root, repoRelativePath);
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    return `refusing to write outside worktree: ${repoRelativePath}`;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content, "utf-8");
+  return null;
+}
+
+/** Produce a unified diff of the patched file against HEAD in the worktree. */
+export async function diffWorktree(worktreeDir: string, repoRelativePath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileP("git", ["-C", worktreeDir, "diff", "--", repoRelativePath]);
+    return stdout;
+  } catch {
+    return "";
+  }
+}

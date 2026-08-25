@@ -21,6 +21,7 @@ const PHASE_LABEL: Record<RunPhase, { text: string; color: string }> = {
   walk: { text: "◉ walking the DOM…", color: C.azure },
   fuzz: { text: "◉ fuzzing (chaos)…", color: C.azure },
   repro: { text: "◉ minimize → compile → validate…", color: C.azure },
+  heal: { text: "◉ healing (redact → generate → gate → sandbox → verify)…", color: C.azure },
   done: { text: "✓ done", color: C.green },
 };
 

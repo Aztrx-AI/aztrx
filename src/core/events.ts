@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Finding, ReproVerdict } from "./types.js";
+import type { HealStatus } from "./heal/types.js";
 
 export type RunEvent =
   | { type: "run_start"; url: string; ts: number }
@@ -15,6 +16,7 @@ export type RunEvent =
       totalSteps: number;
       specPath: string;
     }
+  | { type: "heal"; fingerprint: string; status: HealStatus; patchPath?: string; error?: string }
   | { type: "run_end"; counts: Record<string, number>; ts: number };
 
 /**

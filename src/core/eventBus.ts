@@ -1,6 +1,7 @@
 import type { Finding, RecordedAction, ReproVerdict, TelemetryErrorPayload } from "./types.js";
+import type { HealStatus } from "./heal/types.js";
 
-export type RunPhase = "launch" | "walk" | "fuzz" | "repro" | "done";
+export type RunPhase = "launch" | "walk" | "fuzz" | "repro" | "heal" | "done";
 
 export interface PhaseEvent {
   phase: RunPhase;
@@ -24,11 +25,19 @@ export interface ReproEvent {
   specPath: string;
 }
 
+export interface HealEvent {
+  finding: Finding;
+  status: HealStatus;
+  patchPath?: string;
+  error?: string;
+}
+
 export interface AztrxEvents {
   telemetry: TelemetryErrorPayload;
   action: RecordedAction;
   finding: Finding;
   repro: ReproEvent;
+  heal: HealEvent;
   phase: PhaseEvent;
   route: RouteEvent;
   noise: { ts: number };
