@@ -27,6 +27,9 @@ interface CliOptions {
   allowHost?: string[];
   plain?: boolean;
   ui?: boolean;
+  repo?: string;
+  heal?: boolean;
+  healModel?: string;
 }
 
 program
@@ -60,7 +63,10 @@ program
   });
 
 program
+  .command("run", { isDefault: true })
+  .description("inspect a running app and prove its bugs with an executable repro")
   .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
+  .option("--repo <path>", "project root to inspect/watch (default: cwd)")
   .option("--max-actions <n>", "max actions per pass", "100")
   .option("--dry-run", "report what would be clicked without clicking")
   .option("--crash-test", "throw a deliberate error to verify capture")
@@ -69,6 +75,8 @@ program
   .option("--seed <n>", "RNG seed for fuzz", "42")
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
+  .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
+  .option("--heal-model <model>", "LLM model for healing (default claude-sonnet-5)")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
   .option("--plain", "disable the live terminal UI, print plain logs (default when piped)")
   .option("--ui", "force the live terminal UI even when stdout is not a TTY")
@@ -77,7 +85,7 @@ program
       url: string,
       opts: CliOptions
     ) => {
-      const repoRoot = path.resolve(program.opts().repo as string);
+      const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
       const runOpts: RunOptions = {
         url,
         repoRoot,
@@ -85,10 +93,12 @@ program
         dryRun: opts.dryRun,
         crashTest: opts.crashTest,
         fuzz: opts.fuzz,
-        repro: opts.repro,
+        repro: opts.repro || opts.heal,
         seed: parseInt(opts.seed, 10),
         allowHosts: opts.allowHost ?? [],
         reproRuns: parseInt(opts.reproRuns, 10),
+        heal: opts.heal,
+        healModel: opts.healModel,
       };
       const failOn = Boolean(opts.failOn);
       const useUi = !opts.plain && (process.stdout.isTTY === true || opts.ui === true);
@@ -102,7 +112,7 @@ program
           done: runPromise,
           targetUrl: url,
           repoRoot,
-          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : "deterministic walk",
+          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : opts.heal ? "repro → heal" : opts.repro ? "repro" : "deterministic walk",
         });
         try {
           findings = await runPromise;

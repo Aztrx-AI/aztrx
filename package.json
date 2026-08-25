@@ -1,15 +1,26 @@
 {
   "name": "aztrx",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "Aztrx — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
+  "license": "Apache-2.0",
+  "author": "Danis Chaparov <d.chaparov@gmail.com>",
   "type": "module",
   "bin": { "aztrx": "dist/cli.js" },
-  "description": "Aztrx — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
+  "main": "dist/core/orchestrator.js",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "keywords": ["testing", "playwright", "stress-test", "fuzzing", "web-app", "debugging", "repro", "qa", "e2e"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DanisChaparov/aztrx.git"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -17,12 +28,12 @@
     "ink": "^5.2.0",
     "picocolors": "^1.1.1",
     "playwright": "^1.49.0",
-    "react": "^18.3.1"
+    "react": "^18.3.1",
+    "typescript": "^5.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "tsx": "^4.19.0"
   }
 }

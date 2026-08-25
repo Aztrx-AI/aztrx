@@ -17,12 +17,22 @@ A runtime stress-tester for web apps. Aztrx drives your app like a hostile user,
 ## Install
 
 ```bash
+npm i -g aztrx                          # global, once published
+npx aztrx@latest run http://localhost:3000   # no install at all
+```
+
+From source until the npm release lands:
+
+```bash
 git clone https://github.com/DanisChaparov/aztrx
 cd aztrx
 npm install
 npm run build
 npm link        # puts `aztrx` on your PATH
 ```
+
+Aztrx drives Chromium through Playwright — the first run downloads the browser
+automatically (`npx playwright install chromium` to force it).
 
 ## Quickstart
 
@@ -32,6 +42,7 @@ aztrx init                                      # scaffold config, gitignore .az
 aztrx run http://localhost:3000                 # deterministic walk
 aztrx run http://localhost:3000 --fuzz          # seeded chaos (replayable)
 aztrx run http://localhost:3000 --repro         # minimize → compile → validate
+aztrx run http://localhost:3000 --repro --heal  # + propose a gated, verified patch (needs ANTHROPIC_API_KEY)
 aztrx run http://localhost:3000 --fuzz --repro --fail-on   # CI gate: exit 1 on a crash
 ```
 
@@ -73,6 +84,8 @@ Run it to watch the bug break again — deterministically.
 | `--seed <n>` | RNG seed for `--fuzz` (replayable, default `42`) |
 | `--repro` | Minimize + compile + validate every finding (ddmin → spec → flake-rate) |
 | `--repro-runs <n>` | Replay iterations for the flake-rate gate (default `3`) |
+| `--heal` | Closed-loop healing: redact → generate → gate → sandbox → verify (implies `--repro`) |
+| `--heal-model <model>` | LLM model for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
 | `--max-actions <n>` | Max actions per pass (default `100`) |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
 | `--fail-on` | Exit `1` if any crash/error finding is present — the CI gate |
@@ -86,10 +99,42 @@ Run it to watch the bug break again — deterministically.
 - **Destructive-action deny-list** — never clicks delete / pay / logout.
 - **`.aztrx/` is gitignored** on `init` — your repro specs and reports stay out of your history.
 
+## Open benchmark
+
+The detector is scored against a 12-target corpus of runtime bug archetypes —
+null deref, async race, JSON parse, stack overflow, route transition, and more.
+Every target is a fixture with a seeded bug plus a manifest declaring what the
+scorer expects to find.
+
+| metric | value |
+| --- | --- |
+| seeded bugs | 12 |
+| detection recall | **100%** (12 / 12) |
+| precision | clean — the 2 unseeded findings are real faults, not hallucinations |
+| deterministic repros | **90.9%** (10 / 11) |
+| repro not attempted | 1 (mount-time bug, no action history) |
+
+```bash
+npm run bench              # detection
+npm run bench -- --repro   # detection + repro scoring
+```
+
+The numbers are deterministic for a given `--seed` (mulberry32 PRNG). Full
+per-case table, scoring notes, and caveats live in
+[`bench/RESULTS.md`](bench/RESULTS.md).
+
+> **Scope.** This corpus pins the *archetype* matrix in framework-agnostic
+> vanilla HTML. It is not yet a claim over real Next.js/Vite projects — that is
+> the next benchmark stage.
+
 ## Roadmap
 
-- [ ] Cloud dashboard (`api.aztrx.app`) — team run history
-- [ ] Closed-loop healing — propose and apply the fix in a sandbox
+- [x] Closed-loop healing — redact → generate → gate → sandbox → verify (F10)
+- [ ] Open-source launch — npm publish, `npx aztrx run`, hero screencast
+- [ ] Hardening — `--auth`/`--storage-state`, tsc/eslint gate, React 19/Next.js 15 triage
+- [ ] Real-project benchmark — 12 Next.js/Vite targets (current corpus is vanilla archetypes)
+- [ ] B2B ($29/mo) — GitHub Action, smart cloud router, cloud dashboard
+- [ ] Data flywheel — opt-in telemetry → proprietary auto-repair model
 
 ## License
 
