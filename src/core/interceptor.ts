@@ -27,6 +27,13 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
     if (msg.type() !== "error") return;
     const text = msg.text();
 
+    // The init script routes `unhandledrejection` through console.error with a
+    // fixed prefix; recover the true signal type so Server Action failures and
+    // other promise rejections classify as "error", not "warning".
+    const type = text.startsWith("Unhandled Promise Rejection:")
+      ? "unhandled_rejection"
+      : "console_error";
+
     let source = text;
     for (const arg of msg.args()) {
       try {
@@ -48,7 +55,7 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
       ({ url: loc.url, line: loc.lineNumber, column: loc.columnNumber, message: text.split("\n")[0].slice(0, 200) });
 
     bus.emit("telemetry", {
-      type: "console_error",
+      type,
       rawMessage: frame.message,
       rawStack: source,
       url: frame.url,

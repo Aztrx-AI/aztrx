@@ -88,6 +88,7 @@ Run it to watch the bug break again — deterministically.
 | `--heal-model <model>` | LLM model for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
 | `--max-actions <n>` | Max actions per pass (default `100`) |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
+| `--auth <path>` / `--storage-state <path>` | Path to a Playwright storage-state JSON (cookies/localStorage) so authenticated pages replay logged-in |
 | `--fail-on` | Exit `1` if any crash/error finding is present — the CI gate |
 | `--dry-run` | Report what *would* be clicked, without clicking |
 | `--crash-test` | Throw a deliberate error to verify capture |
@@ -130,7 +131,7 @@ per-case table, scoring notes, and caveats live in
 
 - [x] Closed-loop healing — redact → generate → gate → sandbox → verify (F10)
 - [ ] Open-source launch — npm publish, `npx aztrx run`, hero screencast
-- [ ] Hardening — `--auth`/`--storage-state`, tsc/eslint gate, React 19/Next.js 15 triage
+- [x] Hardening — `--auth`/`--storage-state`, tsc compile fast-fail, React 19/Next.js 15 triage
 - [x] Real-project benchmark — 12 Next.js App Router targets (100% recall, 100% deterministic repro)
 - [ ] B2B ($29/mo) — GitHub Action, smart cloud router, cloud dashboard
 - [ ] Data flywheel — opt-in telemetry → proprietary auto-repair model

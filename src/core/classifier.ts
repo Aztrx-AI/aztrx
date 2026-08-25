@@ -28,6 +28,19 @@ const NOISE_FRAGMENTS = [
 // of signal type so they neither count as findings nor enter the repro pipeline.
 const DEV_TOOLING_NOISE = ["__nextjs_launch-editor"];
 
+// React 18/19 hydration mismatches (Next.js 15 App Router included). These are
+// boundary-level divergences between server and client render that stress runs
+// surface constantly but that aren't deterministic bugs in the app's logic —
+// letting them through would poison the repro pipeline. Suppressed as noise.
+const HYDRATION_NOISE = [
+  "Hydration failed because the initial UI does not match",
+  "There was an error while hydrating",
+  "Text content does not match server-rendered HTML",
+  "A tree hydrated but some attributes of the server rendered HTML",
+  "An error occurred during hydration",
+  "Hydration completed but contained mismatches",
+];
+
 function normalize(message: string): string {
   return message
     .replace(/\b\d+\b/g, "<N>")
@@ -68,6 +81,7 @@ export function fingerprintOf(payload: TelemetryErrorPayload): string {
 
 function classifySeverity(payload: TelemetryErrorPayload, isOwnCode: boolean): Severity {
   if (DEV_TOOLING_NOISE.some((n) => payload.rawMessage.includes(n))) return "noise";
+  if (HYDRATION_NOISE.some((n) => payload.rawMessage.includes(n))) return "noise";
   switch (payload.type) {
     case "uncaught_exception":
       return isOwnCode ? "crash" : "error";
