@@ -30,6 +30,8 @@ interface CliOptions {
   repo?: string;
   heal?: boolean;
   healModel?: string;
+  storageState?: string;
+  auth?: string;
 }
 
 program
@@ -78,6 +80,8 @@ program
   .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
   .option("--heal-model <model>", "LLM model for healing (default claude-sonnet-5)")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
+  .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
+  .option("--auth <path>", "alias for --storage-state")
   .option("--plain", "disable the live terminal UI, print plain logs (default when piped)")
   .option("--ui", "force the live terminal UI even when stdout is not a TTY")
   .action(
@@ -99,6 +103,7 @@ program
         reproRuns: parseInt(opts.reproRuns, 10),
         heal: opts.heal,
         healModel: opts.healModel,
+        storageState: opts.storageState ?? opts.auth,
       };
       const failOn = Boolean(opts.failOn);
       const useUi = !opts.plain && (process.stdout.isTTY === true || opts.ui === true);

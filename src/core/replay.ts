@@ -1,4 +1,4 @@
-import type { Browser, Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import { EventBus } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
@@ -7,6 +7,8 @@ import type { RecordedAction } from "./types.js";
 
 export interface ReplayEngineOptions {
   attachGuard?: (page: Page) => Promise<void>;
+  /** Playwright storage-state JSON (path or object) for authenticated replays. */
+  storageState?: string;
 }
 
 export interface ReplayResult {
@@ -82,10 +84,14 @@ export class ReplayEngine {
     // doesn't take down the whole repro pipeline.
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
+      let context: BrowserContext | null = null;
       let page: Page | null = null;
       try {
         const browser = await this.getBrowser();
-        page = await browser.newPage();
+        context = await browser.newContext(
+          this.opts.storageState ? { storageState: this.opts.storageState } : {}
+        );
+        page = await context.newPage();
         const bus = new EventBus();
         const fingerprints = new Set<string>();
         bus.on("telemetry", (p) => fingerprints.add(fingerprintOf(p)));
@@ -106,6 +112,7 @@ export class ReplayEngine {
         await this.close(); // drop the (possibly crashed) browser and retry fresh
       } finally {
         await page?.close().catch(() => {});
+        await context?.close().catch(() => {});
       }
     }
     throw lastError;

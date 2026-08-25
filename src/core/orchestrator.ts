@@ -30,6 +30,9 @@ export interface RunOptions {
   seed?: number;
   allowHosts?: string[];
   reproRuns?: number;
+  /** Path to a Playwright storage-state JSON (cookies + localStorage) so the
+   * session starts authenticated. Produced by `playwright codegen --save-storage`. */
+  storageState?: string;
   /** F10: attempt closed-loop healing for crash/error findings. Needs
    * `ANTHROPIC_API_KEY` (or an injected patchFn) and `repro: true`. */
   heal?: boolean;
@@ -88,6 +91,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
   if (options.repro) say(pc.dim(`Mode:   repro (${options.reproRuns ?? 3} runs)`));
   if (guardOn) say(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
+  if (options.storageState) say(pc.dim(`Auth:   ${options.storageState}`));
   say("");
 
   emitPhase("launch", url);
@@ -127,7 +131,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   });
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const context = await browser.newContext(
+    options.storageState ? { storageState: options.storageState } : {}
+  );
+  const page = await context.newPage();
   attachInterceptor(page, bus);
   if (guardOn) {
     await attachNetworkGuard(page, {
@@ -181,6 +188,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (options.repro) {
     const engine = new ReplayEngine({
       attachGuard: async (p) => attachNetworkGuard(p, { allowHosts }),
+      storageState: options.storageState,
     });
     try {
       const targets = findings.filter(
