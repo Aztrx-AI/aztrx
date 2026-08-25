@@ -9,6 +9,7 @@ import { renderTui } from "./ui/app.js";
 import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
+import { writePrComment } from "./core/pr.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -30,6 +31,8 @@ interface CliOptions {
   repo?: string;
   heal?: boolean;
   healModel?: string;
+  healFastModel?: string;
+  prComment?: string | boolean;
   storageState?: string;
   auth?: string;
 }
@@ -78,7 +81,9 @@ program
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
   .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
-  .option("--heal-model <model>", "LLM model for healing (default claude-sonnet-5)")
+  .option("--heal-model <model>", "LLM model for healing — the fallback tier (default claude-sonnet-5)")
+  .option("--heal-fast-model <model>", "fast/cheap first tier for the smart router (default claude-haiku-4-5)")
+  .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
   .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
   .option("--auth <path>", "alias for --storage-state")
@@ -103,6 +108,7 @@ program
         reproRuns: parseInt(opts.reproRuns, 10),
         heal: opts.heal,
         healModel: opts.healModel,
+        healFastModel: opts.healFastModel,
         storageState: opts.storageState ?? opts.auth,
       };
       const failOn = Boolean(opts.failOn);
@@ -127,6 +133,15 @@ program
         }
       } else {
         findings = await run(runOpts);
+      }
+
+      if (opts.prComment) {
+        const prPath =
+          typeof opts.prComment === "string"
+            ? opts.prComment
+            : path.join(repoRoot, ".aztrx", "pr-comment.md");
+        writePrComment(repoRoot, url, findings, prPath);
+        console.log(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
       }
 
       if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {

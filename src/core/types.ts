@@ -64,4 +64,6 @@ export interface Finding {
   mappedLocation?: MappedLocation;
   actionHistory: RecordedAction[];
   repro?: ReproReport;
+  /** F10 closed-loop healing result, attached when `--heal` ran for this finding. */
+  heal?: import("./heal/types.js").HealResult;
 }

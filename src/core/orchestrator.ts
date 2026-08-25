@@ -36,8 +36,10 @@ export interface RunOptions {
   /** F10: attempt closed-loop healing for crash/error findings. Needs
    * `ANTHROPIC_API_KEY` (or an injected patchFn) and `repro: true`. */
   heal?: boolean;
-  /** LLM model override for healing. */
+  /** LLM model override for healing (the fallback tier). */
   healModel?: string;
+  /** Fast/cheap first tier for the Smart Cloud Router (`AZTRX_FAST_MODEL`). */
+  healFastModel?: string;
   /** Inject an external bus (the TUI subscribes to it). */
   bus?: EventBus;
   /** When true, suppress console output — the caller renders from bus events. */
@@ -296,7 +298,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
             fingerprint: f.fingerprint,
             allowHosts: [...allowHosts],
             model: options.healModel,
+            fastModel: options.healFastModel,
           });
+          f.heal = result;
           bus.emit("heal", {
             finding: f,
             status: result.status,
@@ -321,6 +325,14 @@ export async function run(options: RunOptions): Promise<Finding[]> {
           if (result.patchPath) say(pc.dim(`        patch: ${path.relative(repoRoot, result.patchPath)}`));
           if (result.error) say(pc.dim(`        ${result.error}`));
         } catch (e) {
+          f.heal = {
+            status: "skipped",
+            findingId: f.id,
+            filePath: f.mappedLocation?.filePath ?? "",
+            hunks: [],
+            violations: [],
+            error: (e as Error).message,
+          };
           bus.emit("heal", { finding: f, status: "skipped", error: (e as Error).message });
           runLog.append({ type: "heal", fingerprint: f.fingerprint, status: "skipped", error: (e as Error).message });
           say(pc.dim(`  ✗ heal error: ${(e as Error).message}`));
