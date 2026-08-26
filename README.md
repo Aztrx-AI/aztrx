@@ -152,17 +152,20 @@ Aztrx is a decoupled, event-driven pipeline — modules talk only through an
                    [ Playwright spec (.spec.ts) ] ──▶ [ flake-rate validator ]
 ```
 
-| Module | Role |
-| --- | --- |
-| `interceptor.ts` | Captures raw runtime errors and CDP console/network events |
-| `recorder.ts` | Rolling action buffer with deterministic selector cascades |
-| `classifier.ts` | Hashes call sites + messages into deduplicated crash fingerprints |
-| `resolver.ts` | Maps minified frames to source files, lines, and snippets via sourcemaps |
-| `minimizer.ts` | ddmin delta-debugging — eliminates irrelevant actions |
-| `specCompiler.ts` | Emits standalone, clean Playwright test scripts |
-| `validator.ts` | Multi-pass replays → `deterministic` / `flaky` / `unreliable` |
-| `heal/` | Redact → generate → AST gate → sandbox → `tsc` → verify (F10) |
-| `networkGuard.ts` | Deny-by-default network policy (F6) |
+| Stage | Module | Role |
+| --- | --- | --- |
+| F1 | `interceptor.ts` | CDP interceptor — captures raw runtime errors and console/network events |
+| F2 | `recorder.ts` | Ring buffer of the last 25 actions; selector cascade `data-testid → text → CSS path` |
+| F3 | `classifier.ts` | Fingerprints + dedups findings, assigns severity; suppresses `.aztrx/baseline.json` (input) |
+| F4 | `resolver.ts` | Maps minified frames to source files, lines, and snippets via sourcemaps |
+| F5 | `fuzzer.ts` + `domWalker.ts` | Seeded chaos fuzzer; `domWalker` (F5-lite) discovers interactive elements |
+| F6 | `networkGuard.ts` + `domWalker.ts` | Deny-by-default network policy + destructive-action deny-list |
+| F7 | `minimizer.ts` | ddmin delta-debugging — eliminates irrelevant actions |
+| F8 | `specCompiler.ts` | Emits standalone, clean Playwright `.spec.ts` repro |
+| F9 | `validator.ts` | Multi-pass replays → `deterministic` / `flaky` / `unreliable` |
+| F10 | `heal/` | Closed-loop healing — redact → generate → AST gate → sandbox → `tsc` → verify |
+| F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuple collection (data flywheel) |
+| F12 | `cloud/` | Opt-in cloud sync — streams sanitized findings to the ingest dashboard |
 
 ---
 
@@ -280,7 +283,8 @@ npm run build
 
 # smoke fixture (throws on the "Break me" button)
 node fixtures/serve.mjs &
-node dist/cli.js run http://localhost:8901 --fuzz --repro
+node dist/cli.js http://localhost:8901/crash.html --repo fixtures --repro
+# → one ● crash mapped to crash.html:13:15, minimized to 1 step
 ```
 
 ## License
