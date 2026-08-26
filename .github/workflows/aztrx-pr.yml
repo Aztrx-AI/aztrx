@@ -38,7 +38,7 @@ on:
         type: string
         default: ""
       args:
-        description: "Extra aztrx run flags."
+        description: "Extra aztrx-cli run flags."
         required: false
         type: string
         default: "--fail-on --repro --heal"

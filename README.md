@@ -25,26 +25,27 @@ Aztrx drives your web app like a hostile user — clicking, entering boundary da
 Run against any running local dev server — no install, no repo clone:
 
 ```bash
-npx aztrx run http://localhost:3000              # deterministic walk
-npx aztrx run http://localhost:3000 --fuzz       # seeded chaos (replayable)
-npx aztrx run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
+npx aztrx-cli run http://localhost:3000              # deterministic walk
+npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
+npx aztrx-cli run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
 ```
 
-Install it globally once it's published:
+Install it globally:
 
 ```bash
-npm i -g aztrx
-aztrx run http://localhost:3000 --repro
+npm i -g aztrx-cli
+aztrx-cli run http://localhost:3000 --repro
 ```
 
-> **Not on npm yet?** Install from source (contributors):
-> ```bash
-> git clone https://github.com/DanisChaparov/aztrx
-> cd aztrx
-> npm install
-> npm run build
-> npm link        # puts `aztrx` on your PATH
-> ```
+Or install from source (contributors):
+
+```bash
+git clone https://github.com/DanisChaparov/aztrx
+cd aztrx
+npm install
+npm run build
+npm link        # puts `aztrx-cli` on your PATH
+```
 
 Aztrx drives Chromium through Playwright — the first run downloads the browser
 automatically (`npx playwright install chromium` to force it).
@@ -58,7 +59,7 @@ automatically (`npx playwright install chromium` to force it).
 Scaffold `aztrx.config.ts`, detect the framework + dev port, and seed `.aztrx/` into `.gitignore`:
 
 ```bash
-npx aztrx init
+npx aztrx-cli init
 ```
 
 ### 2. Autonomous healing (`--heal`)
@@ -67,7 +68,7 @@ Locate the crash, hand the redacted context to an LLM, run a TypeScript check an
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
-npx aztrx run http://localhost:3000 --fuzz --repro --heal
+npx aztrx-cli run http://localhost:3000 --fuzz --repro --heal
 ```
 
 ### 3. Live studio dashboard
@@ -75,7 +76,7 @@ npx aztrx run http://localhost:3000 --fuzz --repro --heal
 Inspect real-time telemetry events and triage findings in the built-in web UI:
 
 ```bash
-npx aztrx studio
+npx aztrx-cli studio
 # → listening at http://localhost:7331
 ```
 
@@ -84,7 +85,7 @@ npx aztrx studio
 Stream sanitized, deduplicated crash fingerprints and metrics to your team's ingest server:
 
 ```bash
-npx aztrx run http://localhost:3000 --upload --api-key <YOUR_API_KEY> --cloud-url http://localhost:8787
+npx aztrx-cli run http://localhost:3000 --upload --api-key <YOUR_API_KEY> --cloud-url http://localhost:8787
 ```
 
 ### 5. GitHub Action
@@ -132,7 +133,7 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 │   └── 458f6bf71977.spec.ts     # minimal, executable Playwright repro
 ├── heal/
 │   └── fix.patch                # gated, compiler-checked fix
-├── events.jsonl                 # run log, streamed by `aztrx studio`
+├── events.jsonl                 # run log, streamed by `aztrx-cli studio`
 ├── telemetry/dataset.jsonl      # opt-in anonymized tuple dataset
 └── pr-comment.md                # GitHub PR markdown (with --pr-comment)
 ```
@@ -172,7 +173,7 @@ Aztrx is a decoupled, event-driven pipeline — modules talk only through an
 ## Continuous Integration (GitHub Action)
 
 Runtime gate on every PR. The action boots your dev server, runs
-`aztrx run --fail-on --repro --heal`, posts a markdown comment with the
+`aztrx-cli run --fail-on --repro --heal`, posts a markdown comment with the
 deterministic repro + gated patch, and fails the check on a crash/error.
 
 ```yaml
@@ -264,7 +265,7 @@ Full per-case table and scoring notes live in
 ## Roadmap
 
 - [x] Closed-loop healing — redact → generate → gate → sandbox → verify (F10)
-- [ ] Open-source launch — npm publish, `npx aztrx run`, hero screencast
+- [ ] Open-source launch — npm publish, `npx aztrx-cli run`, hero screencast
 - [x] Hardening — `--auth`/`--storage-state`, tsc compile fast-fail, React 19/Next.js 15 triage
 - [x] Real-project benchmark — 13 Next.js App Router targets (100% recall, 100% deterministic repro)
 - [x] B2B ($29/mo) — GitHub Action (`action.yml` + reusable workflow), PR bot markdown comment

@@ -16,11 +16,11 @@ inputs:
     description: "GitHub token with `pull-requests: write` scope, used to post the comment."
     required: true
   args:
-    description: "Extra aztrx run flags (see `aztrx run --help`)."
+    description: "Extra aztrx-cli run flags (see `aztrx-cli run --help`)."
     default: "--fail-on --repro --heal"
     required: false
   working-directory:
-    description: "Directory containing the app (where aztrx runs)."
+    description: "Directory containing the app (where aztrx-cli runs)."
     default: "."
     required: false
   install:
@@ -28,8 +28,8 @@ inputs:
     default: "npm ci"
     required: false
   aztrx:
-    description: "Command used to invoke aztrx. Override to point at a git ref before the npm release."
-    default: "npx --yes aztrx@latest"
+    description: "Command used to invoke aztrx-cli. Override to pin a version or a git ref."
+    default: "npx --yes aztrx-cli@latest"
     required: false
   start-command:
     description: "Command to boot the dev server in the background (e.g. 'npm run dev')."
@@ -53,7 +53,7 @@ outputs:
     description: "Path to the generated markdown comment."
     value: ${{ steps.run.outputs.comment_path }}
   exit-code:
-    description: "aztrx exit code (1 = crash/error found)."
+    description: "aztrx-cli exit code (1 = crash/error found)."
     value: ${{ steps.run.outputs.exit_code }}
 
 runs:

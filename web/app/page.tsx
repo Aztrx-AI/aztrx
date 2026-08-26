@@ -1,7 +1,7 @@
 import { CopyButton } from "./components/CopyButton";
 import Reveal from "./components/Reveal";
 
-const INSTALL = "npx aztrx run http://localhost:3000";
+const INSTALL = "npx aztrx-cli run http://localhost:3000";
 
 const CONFIG_SNIPPET = `// aztrx.config.ts
 export default {
@@ -157,7 +157,7 @@ function Monitor() {
         <span className="h-3 w-3 rounded-full bg-red/80" />
         <span className="h-3 w-3 rounded-full bg-amber/80" />
         <span className="h-3 w-3 rounded-full bg-green/80" />
-        <span className="ml-3 font-mono text-xs text-dim">aztrx run</span>
+        <span className="ml-3 font-mono text-xs text-dim">aztrx-cli run</span>
         <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-green">
           <span className="live-dot h-1.5 w-1.5 rounded-full bg-green" /> live
         </span>
@@ -212,7 +212,7 @@ export default function Home() {
             href="#install"
             className="rounded-md border border-azure/40 bg-azure/10 px-3.5 py-1.5 font-mono text-[13px] text-azure transition-colors hover:bg-azure/20"
           >
-            npx aztrx
+            npx aztrx-cli
           </a>
         </nav>
       </header>
@@ -326,13 +326,13 @@ export default function Home() {
               </div>
               <pre className="overflow-x-auto p-5 font-mono text-[13px] leading-[1.8] text-fg">
                 <span className="text-dim"># scaffold config + detect framework</span>{"\n"}
-                <span className="text-azure">$</span> npx aztrx init{"\n"}
+                <span className="text-azure">$</span> npx aztrx-cli init{"\n"}
                 <span className="text-dim"># detect + map errors (deterministic walk)</span>{"\n"}
-                <span className="text-azure">$</span> npx aztrx run http://localhost:3000{"\n"}
+                <span className="text-azure">$</span> npx aztrx-cli run http://localhost:3000{"\n"}
                 <span className="text-dim"># chaos fuzz + minimal deterministic repro</span>{"\n"}
-                <span className="text-azure">$</span> npx aztrx run http://localhost:3000 --fuzz --repro{"\n"}
+                <span className="text-azure">$</span> npx aztrx-cli run http://localhost:3000 --fuzz --repro{"\n"}
                 <span className="text-dim"># live dashboard streaming findings</span>{"\n"}
-                <span className="text-azure">$</span> npx aztrx studio{"\n\n"}
+                <span className="text-azure">$</span> npx aztrx-cli studio{"\n\n"}
                 <span className="text-green">→</span> <span className="text-dim">report: .aztrx/report.html</span>
               </pre>
             </div>

@@ -45,7 +45,7 @@ interface CliOptions {
 }
 
 program
-  .name("aztrx")
+  .name("aztrx-cli")
   .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
   .option("--repo <path>", "project root to inspect/watch (default: cwd)", process.cwd());
 
@@ -63,7 +63,7 @@ program
     console.log(pc.green("✓") + ` aztrx.config.ts written (${pc.bold(res.framework)}, ${res.url})`);
     if (res.gitignoreUpdated) console.log(pc.green("✓") + " .aztrx/ added to .gitignore");
     console.log("");
-    console.log(pc.dim(`Next:  npx aztrx run ${res.url} --repo .`));
+    console.log(pc.dim(`Next:  npx aztrx-cli run ${res.url} --repo .`));
   });
 
 program
