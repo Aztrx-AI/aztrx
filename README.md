@@ -1,8 +1,11 @@
 # ⚡ Aztrx
 
-**Find the crash. Prove it. Ship the fix.**
+> **Autonomous runtime stress-tester, deterministic bug minimizer, and self-healing engine for web applications.**
 
-A runtime stress-tester for web apps. Aztrx drives your app like a hostile user, catches the errors your React Error Boundary swallows, maps them back to source lines, and compiles a deterministic Playwright repro so you can watch the bug break again — not read about it in a log line.
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg?style=flat-square)](https://nodejs.org)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+
+Aztrx drives your web app like a hostile user — clicking, entering boundary data, and racing asynchronous UI states. When a runtime crash occurs (even one swallowed by a React Error Boundary), Aztrx intercepts it via the Chrome DevTools Protocol, maps it back to the exact source line, shrinks the interaction trace to the bare minimum with **ddmin**, and emits an executable, standalone **Playwright test** that proves the bug — not a log line.
 
 ![aztrx demo](media/demo.gif)
 
@@ -10,82 +13,167 @@ A runtime stress-tester for web apps. Aztrx drives your app like a hostile user,
 
 ## Why Aztrx
 
-- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx pulls the real throw-site stack straight off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
+- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
+- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
 
-## Install
+---
+
+## Quickstart
+
+Run against any running local dev server — no install, no repo clone:
 
 ```bash
-npm i -g aztrx                          # global, once published
-npx aztrx@latest run http://localhost:3000   # no install at all
+npx aztrx run http://localhost:3000              # deterministic walk
+npx aztrx run http://localhost:3000 --fuzz       # seeded chaos (replayable)
+npx aztrx run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
 ```
 
-From source until the npm release lands:
+Install it globally once it's published:
 
 ```bash
-git clone https://github.com/DanisChaparov/aztrx
-cd aztrx
-npm install
-npm run build
-npm link        # puts `aztrx` on your PATH
+npm i -g aztrx
+aztrx run http://localhost:3000 --repro
 ```
+
+> **Not on npm yet?** Install from source (contributors):
+> ```bash
+> git clone https://github.com/DanisChaparov/aztrx
+> cd aztrx
+> npm install
+> npm run build
+> npm link        # puts `aztrx` on your PATH
+> ```
 
 Aztrx drives Chromium through Playwright — the first run downloads the browser
 automatically (`npx playwright install chromium` to force it).
 
-## Quickstart
+---
+
+## Features & Workflows
+
+### 1. Initialize configuration
+
+Scaffold `aztrx.config.ts`, detect the framework + dev port, and seed `.aztrx/` into `.gitignore`:
 
 ```bash
-cd your-app
-aztrx init                                      # scaffold config, gitignore .aztrx/
-aztrx run http://localhost:3000                 # deterministic walk
-aztrx run http://localhost:3000 --fuzz          # seeded chaos (replayable)
-aztrx run http://localhost:3000 --repro         # minimize → compile → validate
-aztrx run http://localhost:3000 --repro --heal  # + propose a gated, verified patch (needs ANTHROPIC_API_KEY)
-aztrx run http://localhost:3000 --repro --heal --pr-comment  # + write a GitHub PR markdown comment
-aztrx run http://localhost:3000 --fuzz --repro --fail-on   # CI gate: exit 1 on a crash
+npx aztrx init
 ```
 
-## What it does
+### 2. Autonomous healing (`--heal`)
 
-1. **Detect** — the CDP interceptor records every action and the ring-buffer recorder captures the console/network/exception surface around it; a classifier dedupes by stack fingerprint. No framework hooks — works on React, Next.js, Vite, Svelte, Remix, Vue.
-2. **Locate** — the sourcemap resolver maps minified stacks back to your source lines.
-3. **Stress** — the chaos fuzzer drives a seeded, replayable vocabulary far richer than a crawl: clicks, hovers, keypresses, select changes, scrolls, garbage inputs.
-4. **Prove** — the ddmin minimizer shrinks the failing sequence, the spec compiler emits a Playwright `.spec.ts`, and the flake-rate validator labels it `deterministic` / `flaky` / `unreliable`.
+Locate the crash, hand the redacted context to an LLM, run a TypeScript check and Playwright validation inside an isolated worktree, and write a verified `.patch` file:
 
-## The repro is the point
-
-A finding isn't a line in a log — it's a test:
-
-```ts
-// .aztrx/repro/520f123d52a0.spec.ts
-import { test } from "@playwright/test";
-
-test("reproduces Cannot read properties of undefined (reading 'token')", async ({ page }) => {
-  await page.goto("http://localhost:3000");
-  await page.getByTestId("checkout").click();
-  // …the minimized sequence that crashes it, every time
-});
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+npx aztrx run http://localhost:3000 --fuzz --repro --heal
 ```
 
-Run it to watch the bug break again — deterministically.
+### 3. Live studio dashboard
 
-## Outputs
+Inspect real-time telemetry events and triage findings in the built-in web UI:
 
-- **`.aztrx/report.html`** — offline report with source snippets and repro verdicts.
-- **`aztrx studio`** — live dashboard on `localhost:7331`, streaming findings as they land.
-- **Ink TUI** — a live terminal panel (effective ops/sec, route status, `[deterministic 5/5]` badges, collapsed noise). Auto-on in a TTY; `--plain` for CI logs.
+```bash
+npx aztrx studio
+# → listening at http://localhost:7331
+```
 
-## GitHub Action
+### 4. Cloud & CI ingest (`--upload`)
 
-Ship a runtime gate on every PR. The action boots your dev server, runs
+Stream sanitized, deduplicated crash fingerprints and metrics to your team's ingest server:
+
+```bash
+npx aztrx run http://localhost:3000 --upload --api-key <YOUR_API_KEY> --cloud-url http://localhost:8787
+```
+
+### 5. GitHub Action
+
+Ship a runtime gate on every PR — see [Continuous Integration](#continuous-integration-github-action) below.
+
+---
+
+## CLI reference
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
+| `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
+| `--heal` | Generate + verify an LLM patch (implies `--repro`) | — |
+| `--upload` | Stream run findings to the cloud ingest backend | — |
+| `--api-key <key>` | Auth key for `--upload` / `--share-data` | `$AZTRX_API_KEY` |
+| `--cloud-url <url>` | Ingest server base URL | `https://api.aztrx.app` |
+| `--max-actions <n>` | Max actions per pass | `100` |
+| `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
+| `--repro-runs <n>` | Flake-rate replay iterations | `3` |
+| `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` |
+| `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` |
+| `--pr-comment [path]` | Write a GitHub PR markdown comment | `.aztrx/pr-comment.md` |
+| `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
+| `--share-data` | Also upload the sanitized tuples (opt-in) | — |
+| `--repo <path>` | Root path for sourcemap → source resolution | cwd |
+| `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
+| `--auth <path>` / `--storage-state <path>` | Playwright storage-state for authenticated pages | — |
+| `--fail-on` | Exit `1` if any crash/error finding is present | — |
+| `--dry-run` | Log planned actions without executing them | — |
+| `--crash-test` | Throw a deliberate error to verify capture | — |
+| `--plain` / `--ui` | Force plain logs / force the live panel | — |
+
+---
+
+## Output artifacts
+
+Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
+
+```
+.aztrx/
+├── report.html                  # zero-CDN interactive triage report
+├── repro/
+│   └── 458f6bf71977.spec.ts     # minimal, executable Playwright repro
+├── heal/
+│   └── fix.patch                # gated, compiler-checked fix
+├── events.jsonl                 # run log, streamed by `aztrx studio`
+├── telemetry/dataset.jsonl      # opt-in anonymized tuple dataset
+└── pr-comment.md                # GitHub PR markdown (with --pr-comment)
+```
+
+---
+
+## Architecture
+
+Aztrx is a decoupled, event-driven pipeline — modules talk only through an
+`EventBus`; the orchestrator wires them together.
+
+```
+[ CDP interceptor ] ──▶ [ action ring buffer ] ──▶ [ classifier (fingerprint) ]
+                                │
+[ verified .patch ] ◀── [ LLM healer ] ◀── [ ddmin minimizer ] ◀── [ sourcemap resolver ]
+                                │
+                   [ Playwright spec (.spec.ts) ] ──▶ [ flake-rate validator ]
+```
+
+| Module | Role |
+| --- | --- |
+| `interceptor.ts` | Captures raw runtime errors and CDP console/network events |
+| `recorder.ts` | Rolling action buffer with deterministic selector cascades |
+| `classifier.ts` | Hashes call sites + messages into deduplicated crash fingerprints |
+| `resolver.ts` | Maps minified frames to source files, lines, and snippets via sourcemaps |
+| `minimizer.ts` | ddmin delta-debugging — eliminates irrelevant actions |
+| `specCompiler.ts` | Emits standalone, clean Playwright test scripts |
+| `validator.ts` | Multi-pass replays → `deterministic` / `flaky` / `unreliable` |
+| `heal/` | Redact → generate → AST gate → sandbox → `tsc` → verify (F10) |
+| `networkGuard.ts` | Deny-by-default network policy (F6) |
+
+---
+
+## Continuous Integration (GitHub Action)
+
+Runtime gate on every PR. The action boots your dev server, runs
 `aztrx run --fail-on --repro --heal`, posts a markdown comment with the
-deterministic Playwright repro and the gated patch, and fails the check when a
-crash/error is found. Two ways to wire it:
+deterministic repro + gated patch, and fails the check on a crash/error.
 
 ```yaml
-# .github/workflows/ci.yml  — composite action, inline
+# .github/workflows/ci.yml — composite action, inline
 on: pull_request
 jobs:
   aztrx:
@@ -101,8 +189,9 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — enables --heal
 ```
 
+Or as a reusable workflow:
+
 ```yaml
-# .github/workflows/ci.yml  — reusable workflow form
 on: pull_request
 jobs:
   aztrx:
@@ -114,91 +203,40 @@ jobs:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-## Flags
-
-| Flag | What it does |
-| --- | --- |
-| `--fuzz` | Chaos fuzzing instead of the deterministic walk |
-| `--seed <n>` | RNG seed for `--fuzz` (replayable, default `42`) |
-| `--repro` | Minimize + compile + validate every finding (ddmin → spec → flake-rate) |
-| `--repro-runs <n>` | Replay iterations for the flake-rate gate (default `3`) |
-| `--heal` | Closed-loop healing: redact → generate → gate → sandbox → verify (implies `--repro`) |
-| `--heal-model <model>` | Fallback LLM tier for healing (default `claude-sonnet-5`; set `AZTRX_MODEL` to override) |
-| `--heal-fast-model <model>` | Fast/cheap first tier for the smart router (default `claude-haiku-4-5`; set `AZTRX_FAST_MODEL` to override) |
-| `--pr-comment [path]` | Write a GitHub PR markdown comment with repro + patch (default `.aztrx/pr-comment.md`) |
-| `--telemetry` | Opt-in: collect anonymized `crash → repro → patch` tuples locally (`.aztrx/telemetry/`) |
-| `--share-data` | Opt-in: also upload the sanitized tuples to the telemetry endpoint |
-| `--upload` | Opt-in: stream run results to the Aztrx cloud dashboard (`/api/runs`) |
-| `--api-key <key>` | API key for `--upload` / `--share-data` (defaults to `$AZTRX_API_KEY`) |
-| `--cloud-url <url>` | Override the cloud ingest base URL (default `https://api.aztrx.app`) |
-| `--max-actions <n>` | Max actions per pass (default `100`) |
-| `--allow-host <host>` | Add a host to the network allow-list (repeatable) |
-| `--auth <path>` / `--storage-state <path>` | Path to a Playwright storage-state JSON (cookies/localStorage) so authenticated pages replay logged-in |
-| `--fail-on` | Exit `1` if any crash/error finding is present — the CI gate |
-| `--dry-run` | Report what *would* be clicked, without clicking |
-| `--crash-test` | Throw a deliberate error to verify capture |
-| `--plain` / `--ui` | Force logs / force the live panel regardless of TTY |
+---
 
 ## Smart Cloud Router
 
-`--heal` is backed by a two-tier router. The fast/cheap model (`claude-haiku-4-5`)
-generates first; its patch is gated, compiled, and replayed against the repro. If
-the bug still reproduces — or the patch fails a gate — aztrx falls back to the
-capable model (`claude-sonnet-5`) and tries again. Most one-line fixes never pay
-for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` / `AZTRX_MODEL`
-or the `--heal-fast-model` / `--heal-model` flags.
+`--heal` is backed by a two-tier router. The fast/cheap model
+(`claude-haiku-4-5`) generates first; its patch is gated, compiled, and replayed
+against the repro. If the bug still reproduces — or the patch fails a gate —
+aztrx falls back to `claude-sonnet-5` and tries again. Most one-line fixes never
+pay for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` /
+`AZTRX_MODEL` or `--heal-fast-model` / `--heal-model`.
 
 ## Telemetry & privacy
 
 Off by default and strictly opt-in. `--telemetry` collects the anonymized tuple
 `[crash_fingerprint, min_repro_spec, verified_patch, framework_metadata,
-model_tier_used]` for each crash/error finding and appends it to a local JSONL
-dataset (`.aztrx/telemetry/dataset.jsonl`) — nothing leaves the machine.
-`--share-data` additionally uploads the same sanitized envelope to the telemetry
-endpoint (`AZTRX_TELEMETRY_URL`, default `api.aztrx.app`).
-
-Before packaging, every field passes a sanitizer that irreversibly strips
-secrets (API keys, tokens, JWTs, private keys, DB credentials), anonymizes URLs
-to `<host>` (localhost is kept), and scrubs repo-absolute paths and webpack
-namespaces to `<repo>`. The `crash_fingerprint` is already a stack hash. The
-upload is fire-and-forget, bounded by a 2s timeout, and never affects the exit
+model_tier_used]` locally (nothing leaves the machine); `--share-data` uploads it
+to the telemetry endpoint. Every field passes a sanitizer that irreversibly
+strips secrets, anonymizes URLs to `<host>`, and scrubs repo paths to `<repo>`.
+Uploads are fire-and-forget, bounded by a 2s timeout, and never affect the exit
 code.
-
-## Cloud dashboard
-
-`--upload` streams a completed run to the Aztrx ingest API (`api.aztrx.app`),
-where findings are deduplicated by crash fingerprint across the team's runs and
-surfaced on a per-org dashboard. The same endpoint backs `--share-data`.
-
-```bash
-aztrx run http://localhost:3000 --repro --heal --upload --api-key $AZTRX_API_KEY
-```
-
-The backend is a dependency-free Node HTTP server in [`server/`](server/) — two
-ingest routes (`POST /api/runs`, `POST /api/telemetry`), org + API-key
-validation via `x-api-key`, and a JSON-file dedup store keyed by fingerprint.
-Run it locally:
-
-```bash
-AZTRX_API_KEYS='{"sk_live_123":{"org":"acme","label":"Acme Inc"}}' npm run server
-```
-
-Every uploaded field has already passed the sanitizer; the server treats
-payloads as untrusted and stores them verbatim under `server/.data` (gitignored).
 
 ## Security invariants
 
 - **Deny-by-default network** — only the target origin (plus explicit `--allow-host`) is reachable.
 - **Destructive-action deny-list** — never clicks delete / pay / logout.
-- **`.aztrx/` is gitignored** on `init` — your repro specs and reports stay out of your history.
+- **`.aztrx/` is gitignored** on `init` — repro specs and reports stay out of history.
+
+---
 
 ## Open benchmark
 
 The detector is scored against a 13-target corpus of **real Next.js App Router
 apps** — one seeded runtime bug per app across the archetype matrix (null deref,
-async race, JSON parse, stack overflow, Server Action, route transition, and more). Each target
-is a self-contained `next dev` app with a `manifest.json`; the scorer boots the
-server, drives the real `run()`, and matches findings to the manifest.
+async race, JSON parse, stack overflow, Server Action, route transition, and more).
 
 | metric | value |
 | --- | --- |
@@ -215,9 +253,10 @@ npm run bench                # detection
 npm run bench:repro          # detection + repro scoring
 ```
 
-The numbers are deterministic for a given `--seed` (mulberry32 PRNG). Full
-per-case table, scoring notes, and caveats live in
+Full per-case table and scoring notes live in
 [`bench/frameworks/RESULTS.md`](bench/frameworks/RESULTS.md).
+
+---
 
 ## Roadmap
 
@@ -229,6 +268,20 @@ per-case table, scoring notes, and caveats live in
 - [x] B2B ($29/mo) — Smart Cloud Router (haiku fast-tier → verify → Sonnet fallback)
 - [x] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
 - [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
+
+## Contributing
+
+```bash
+git clone https://github.com/DanisChaparov/aztrx
+cd aztrx
+npm install
+npx playwright install chromium
+npm run build
+
+# smoke fixture (throws on the "Break me" button)
+node fixtures/serve.mjs &
+node dist/cli.js run http://localhost:8901 --fuzz --repro
+```
 
 ## License
 
