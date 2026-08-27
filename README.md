@@ -1,6 +1,4 @@
-<img src="media/logo.svg" width="28" height="28" align="left" alt="Aztrx logo" />
-
-# Aztrx AI
+# <img src="media/logo.svg" width="28" height="28" alt="Aztrx logo" align="middle" /> Aztrx AI
 
 > **Autonomous runtime stress-tester, deterministic bug minimizer, and self-healing engine for web applications.**
 
