@@ -15,7 +15,7 @@ Aztrx AI drives your web app like a hostile user — clicking, entering boundary
 
 - **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
-- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it.
+- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
 
 ---
@@ -109,6 +109,9 @@ Ship a runtime gate on every PR — see [Continuous Integration](#continuous-int
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` |
 | `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` |
+| `--test-command <cmd>` | Test command run against a healed patch | `npm test` (auto-detected) |
+| `--test-timeout <ms>` | Timeout for the heal test gate | `300000` |
+| `--no-test` | Skip the test gate during healing | — |
 | `--pr-comment [path]` | Write a GitHub PR markdown comment | `.aztrx/pr-comment.md` |
 | `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
@@ -228,11 +231,42 @@ strips secrets, anonymizes URLs to `<host>`, and scrubs repo paths to `<repo>`.
 Uploads are fire-and-forget, bounded by a 2s timeout, and never affect the exit
 code.
 
-## Security invariants
+## Security & data flow
 
-- **Deny-by-default network** — only the target origin (plus explicit `--allow-host`) is reachable.
-- **Destructive-action deny-list** — never clicks delete / pay / logout.
-- **`.aztrx/` is gitignored** on `init` — repro specs and reports stay out of history.
+**Local-first by default.** A run never phones home unless you pass an opt-in
+flag. By default nothing leaves your machine — no telemetry, no cloud sync, no
+LLM call.
+
+| What | Leaves your machine | When |
+| --- | --- | --- |
+| `run` (default) | nothing | — |
+| `--heal` | redacted file + redacted error/stack, to the LLM API | only with `--heal` + `ANTHROPIC_API_KEY` |
+| `--share-data` | a sanitized crash→repro→patch tuple | explicit opt-in |
+| `--upload` | sanitized findings + counts | explicit opt-in |
+
+### Invariants
+
+- **Sourcemap containment.** A hostile sourcemap or stack URL can't read outside
+  your repo: every path is resolved against the repo root and rejected if it
+  escapes it — including through symlinks. Secret-bearing files (`.env`, `.npmrc`,
+  private keys) are never read into a report or PR comment.
+- **Redaction before the model.** `--heal` redacts common secret patterns (keys,
+  tokens, credentials) from the file, error, and stack before they're sent; only
+  the repo-relative path and line/column are visible. Redaction is heuristic — it
+  is not a substitute for not committing secrets.
+- **Isolated sandbox, no commits.** Patches land in a detached `git worktree` in
+  the OS temp dir — never your working tree. Aztrx AI never commits. A patch must
+  parse, add no new imports / `eval` / `child_process`, typecheck, *and* pass your
+  own test suite before it's offered as a `.patch` for you to review.
+- **Deny-by-default network.** Only the target origin (plus explicit
+  `--allow-host`) is reachable; off-origin calls are blocked.
+- **Destructive-action deny-list.** Never clicks delete / pay / logout.
+- **Studio is localhost-only.** The dashboard binds `127.0.0.1` with no wildcard
+  CORS.
+- **`.aztrx/` is gitignored** on `init` — repro specs, reports, and patches stay
+  out of history.
+- **Pinned supply chain.** The GitHub Action pins `aztrx-cli@0.1.0` (never
+  `@latest`).
 
 ---
 
