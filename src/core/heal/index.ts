@@ -7,8 +7,9 @@
  *   3. gate     — re-parse the patched file; reject new imports / eval /
  *                 child_process / empty catch
  *   4. sandbox  — apply the patch in a detached git worktree, never the tree
- *   5. verify   — replay the repro against the patched app; the bug must be gone
- *   6. hand off — write a unified-diff `.patch` for a human to review and commit
+ *   5. test     — run the repo's own test suite; reject the patch if it goes red
+ *   6. verify   — replay the repro against the patched app; the bug must be gone
+ *   7. hand off — write a unified-diff `.patch` for a human to review and commit
  *
  * Aztrx never commits. A patch that fails any gate, does not apply exactly, or
  * still reproduces the bug is rejected and reported, not silently kept.
@@ -21,10 +22,10 @@ import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
 import { generatePatch, modelTiers } from "./llm.js";
 import type { ModelTier } from "./llm.js";
-import { applyHunks, createWorktree, diffWorktree, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
+import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
 import { verifyFix } from "./verify.js";
 import type { Finding } from "../types.js";
-import type { HealContext, HealOptions, HealResult, Patch, VerifyResult } from "./types.js";
+import type { HealContext, HealOptions, HealResult, Patch, TestGateResult, VerifyResult } from "./types.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -147,6 +148,7 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   // The winning (or last) patch + verification, held back for the final save.
   let savedPatch: Patch | null = null;
   let savedVerification: VerifyResult | null = null;
+  let savedTest: TestGateResult | null = null;
   let savedGateOk = false;
   let last: HealResult = base;
 
@@ -236,6 +238,28 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
         continue;
       }
 
+      // 3c. Test gate — run the repo's own test suite against the patched
+      // worktree. A patch that breaks tests is rejected before we pay for the
+      // Playwright verification, so "autonomous fixing" never regresses checks.
+      const test: TestGateResult = opts.skipTest
+        ? { ran: false, ok: true, command: "", output: "" }
+        : await runTests(wt.dir, opts.repoRoot, {
+            command: opts.testCommand,
+            timeoutMs: opts.testTimeoutMs,
+          });
+      if (test.ran) savedTest = test;
+      if (test.ran && !test.ok) {
+        last = {
+          ...base,
+          status: "test-failed",
+          hunks,
+          explanation: patch.explanation,
+          error: test.output.slice(0, 400) || `${test.command} failed`,
+          model: tier.model,
+        };
+        continue;
+      }
+
       // 4. Verify — the bug must stop reproducing.
       const serve = opts.serve ?? ((dir, fp) => staticServe(dir, fp));
       const v = await verifyFix({
@@ -275,7 +299,7 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
       );
     }
 
-    return { ...last, tiers: tiers.map((t) => t.model) };
+    return { ...last, test: savedTest ?? undefined, tiers: tiers.map((t) => t.model) };
   } finally {
     await wt.cleanup();
   }

@@ -10,7 +10,7 @@ import { promisify } from "util";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import type { PatchHunk } from "./types.js";
+import type { PatchHunk, TestGateResult } from "./types.js";
 
 const execFileP = promisify(execFile);
 
@@ -122,5 +122,58 @@ export async function typecheckWorktree(
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string };
     return { ok: false, ran: true, output: ((err.stdout ?? "") + (err.stderr ?? "")).trim() };
+  }
+}
+
+/** Run the repo's own test suite inside the patched worktree. Best-effort: skips
+ * (passes by omission) when there is no `test` script to run, so untested or
+ * non-JS projects are never blocked. `CI=true` is set so watch-mode runners exit
+ * instead of hanging until the timeout. */
+export async function runTests(
+  worktreeDir: string,
+  repoRoot: string,
+  opts: { command?: string; timeoutMs?: number } = {}
+): Promise<TestGateResult> {
+  const command = opts.command ?? "npm test";
+
+  // Auto-detect: without an explicit command, only run when package.json declares
+  // a `test` script — `npm test` otherwise errors "Missing script".
+  if (!opts.command) {
+    let hasTest = false;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(worktreeDir, "package.json"), "utf-8"));
+      hasTest = typeof pkg.scripts?.test === "string";
+    } catch {
+      hasTest = false;
+    }
+    if (!hasTest) return { ran: false, ok: true, command: "", output: "" };
+  }
+
+  // A fresh worktree has no node_modules — symlink the root's so the runner
+  // resolves (the same trick typecheckWorktree uses).
+  const rootNodeModules = path.join(repoRoot, "node_modules");
+  const wtNodeModules = path.join(worktreeDir, "node_modules");
+  if (!fs.existsSync(wtNodeModules) && fs.existsSync(rootNodeModules)) {
+    try {
+      fs.symlinkSync(rootNodeModules, wtNodeModules, process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      /* resolution errors surface in the run below */
+    }
+  }
+
+  const timeoutMs = opts.timeoutMs ?? 300000;
+  try {
+    const { stdout } = await execFileP(command, [], {
+      cwd: worktreeDir,
+      shell: true,
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+      env: { ...process.env, CI: "true" },
+    });
+    return { ran: true, ok: true, command, output: stdout.trim().slice(0, 2000) };
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    const output = `${err.stdout ?? ""}\n${err.stderr ?? ""}`.trim().slice(0, 2000);
+    return { ran: true, ok: false, command, output };
   }
 }

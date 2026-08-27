@@ -6,6 +6,7 @@ export type HealStatus =
   | "rejected" // AST safety gates rejected the patch
   | "compile-failed" // tsc --noEmit rejected the patch
   | "apply-failed" // hunks did not match exactly (or were ambiguous)
+  | "test-failed" // the repo's test suite failed against the patched code
   | "skipped" // no healable target (no own-code location / no deterministic repro)
   | "no-llm"; // no LLM configured and no injected patch generator
 
@@ -46,6 +47,15 @@ export interface VerifyResult {
   fixed: boolean;
 }
 
+export interface TestGateResult {
+  /** False when there was no test script to run — the gate passes by omission. */
+  ran: boolean;
+  ok: boolean;
+  command: string;
+  /** Tail of the test output, already truncated. */
+  output: string;
+}
+
 export interface HealOptions {
   repoRoot: string;
   url: string;
@@ -62,6 +72,13 @@ export interface HealOptions {
   /** Inject an app server for the patched code. Default: static file server. */
   serve?: (worktreeDir: string, filePath: string) => Promise<{ url: string; close: () => Promise<void> }>;
   verifyRuns?: number;
+  /** Override the test command run against a healed patch (default: `npm test`,
+   * auto-detected from package.json). */
+  testCommand?: string;
+  /** Timeout for the test gate, ms (default 300000). */
+  testTimeoutMs?: number;
+  /** Skip the test gate entirely. */
+  skipTest?: boolean;
 }
 
 export interface HealResult {
@@ -72,6 +89,7 @@ export interface HealResult {
   hunks: PatchHunk[];
   violations: GateViolation[];
   verification?: VerifyResult;
+  test?: TestGateResult;
   /** Path to the saved unified-diff patch artifact (.aztrx/heal/…, gitignored). */
   patchPath?: string;
   error?: string;

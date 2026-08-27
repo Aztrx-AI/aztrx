@@ -34,6 +34,9 @@ interface CliOptions {
   heal?: boolean;
   healModel?: string;
   healFastModel?: string;
+  testCommand?: string;
+  test?: boolean;
+  testTimeoutMs?: string;
   prComment?: string | boolean;
   telemetry?: boolean;
   shareData?: boolean;
@@ -90,6 +93,9 @@ program
   .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
   .option("--heal-model <model>", "LLM model for healing — the fallback tier (default claude-sonnet-5)")
   .option("--heal-fast-model <model>", "fast/cheap first tier for the smart router (default claude-haiku-4-5)")
+  .option("--test-command <cmd>", "test command run against a healed patch (default: npm test, auto-detected)")
+  .option("--test-timeout <ms>", "timeout for the heal test gate, ms", "300000")
+  .option("--no-test", "skip the test gate during healing")
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
   .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
@@ -121,6 +127,9 @@ program
         heal: opts.heal,
         healModel: opts.healModel,
         healFastModel: opts.healFastModel,
+        testCommand: opts.testCommand,
+        testTimeoutMs: opts.testTimeoutMs ? parseInt(opts.testTimeoutMs, 10) : undefined,
+        skipTest: opts.test === false,
         telemetry: opts.telemetry,
         shareData: opts.shareData,
         upload: opts.upload,

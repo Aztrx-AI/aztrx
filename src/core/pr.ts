@@ -77,6 +77,7 @@ function healBlock(f: Finding): string {
     unfixed: { text: "unfixed", color: "f5a623" },
     rejected: { text: "rejected", color: "ff5a5f" },
     "compile-failed": { text: "compile-failed", color: "ff5a5f" },
+    "test-failed": { text: "test-failed", color: "ff5a5f" },
     "apply-failed": { text: "apply-failed", color: "ff5a5f" },
     skipped: { text: "skipped", color: "5b6573" },
     "no-llm": { text: "no-llm", color: "5b6573" },
@@ -93,6 +94,9 @@ function healBlock(f: Finding): string {
     body.push(fence(diff, "diff"));
   } else if (h.explanation) {
     body.push(`> ${h.explanation}`);
+  }
+  if (h.test?.ran) {
+    body.push(`${h.test.ok ? "✅" : "❌"} **tests** ${inlineCode(h.test.command)} — ${h.test.ok ? "passed" : "failed"}`);
   }
   if (h.error) body.push(`\n_${escapeHtml(h.error)}_`);
 

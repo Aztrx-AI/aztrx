@@ -42,6 +42,12 @@ export interface RunOptions {
   healModel?: string;
   /** Fast/cheap first tier for the Smart Cloud Router (`AZTRX_FAST_MODEL`). */
   healFastModel?: string;
+  /** Override the test command run against a healed patch (default: `npm test`). */
+  testCommand?: string;
+  /** Timeout for the heal test gate, ms. */
+  testTimeoutMs?: number;
+  /** Skip the heal test gate. */
+  skipTest?: boolean;
   /** F11: collect + persist anonymized telemetry locally (opt-in). */
   telemetry?: boolean;
   /** F11: additionally upload the sanitized tuple to the telemetry endpoint. */
@@ -308,7 +314,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         f.repro.verdict !== "unreliable"
     );
     if (healTargets.length) {
-      say(pc.cyan("— Closed-loop healing (redact → generate → gate → sandbox → verify) —"));
+      say(pc.cyan("— Closed-loop healing (redact → generate → gate → sandbox → test → verify) —"));
       emitPhase("heal");
       for (const f of healTargets) {
         say(pc.dim(`  healing: ${f.rawMessage.split("\n")[0].slice(0, 60)}`));
@@ -321,6 +327,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
             allowHosts: [...allowHosts],
             model: options.healModel,
             fastModel: options.healFastModel,
+            testCommand: options.testCommand,
+            testTimeoutMs: options.testTimeoutMs,
+            skipTest: options.skipTest,
           });
           f.heal = result;
           bus.emit("heal", {
