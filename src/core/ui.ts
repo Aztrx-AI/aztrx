@@ -58,6 +58,8 @@ h1 .brand-sub{color:var(--dim)}
 h2{font-size:15px;margin:0;font-weight:600;word-break:break-word}
 .loc{color:var(--dim);font-size:12.5px;margin-top:8px}
 .snippet{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font:12px/1.6 ui-monospace,monospace;color:var(--muted);margin:12px 0 0;white-space:pre}
+.server{color:var(--amber);font-size:12.5px;margin-top:8px}
+.server-body{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font:12px/1.6 ui-monospace,monospace;color:var(--muted);margin:8px 0 0;white-space:pre;max-height:240px;overflow-y:auto}
 .occ{color:var(--dim);font-size:12px;margin-top:8px}
 .repro{display:inline-flex;align-items:center;gap:8px;font-size:12px;margin-top:12px;padding:4px 10px;border-radius:6px;border:1px solid}
 .repro.deterministic{color:var(--green);border-color:rgba(67,229,138,.35);background:rgba(67,229,138,.07)}

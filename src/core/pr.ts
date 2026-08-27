@@ -120,8 +120,12 @@ function findingBlock(f: Finding): string {
   const snippet = f.mappedLocation?.codeContext
     ? `\n\n${fence(f.mappedLocation.codeContext, path.extname(f.mappedLocation.filePath).replace(".", "") || "ts")}`
     : "";
+  const serverErr = f.serverError
+    ? `\n**Server** ${escapeHtml(f.serverError.message)}` +
+      (f.serverError.body ? `\n\n${fence(f.serverError.body, "text")}` : "")
+    : "";
 
-  return `<details open>\n<summary><code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${reproBlock(f)}${healBlock(f)}\n</details>`;
+  return `<details open>\n<summary><code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${serverErr}${reproBlock(f)}${healBlock(f)}\n</details>`;
 }
 
 export function renderPrComment(targetUrl: string, findings: Finding[], opts: { repoRoot?: string } = {}): string {

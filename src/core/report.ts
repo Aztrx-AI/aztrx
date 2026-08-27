@@ -28,6 +28,12 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
         ? `${escapeHtml(f.mappedLocation.filePath)}:${f.mappedLocation.line}:${f.mappedLocation.column}`
         : "";
       const snippet = f.mappedLocation ? escapeHtml(f.mappedLocation.codeContext) : "";
+      const serverErr = f.serverError
+        ? `<div class="server">server: ${escapeHtml(f.serverError.message)}</div>` +
+          (f.serverError.body
+            ? `<pre class="server-body">${escapeHtml(f.serverError.body)}</pre>`
+            : "")
+        : "";
       const repro = f.repro
         ? `<div class="repro ${f.repro.verdict}">${f.repro.verdict} · ${f.repro.reproductions}/${f.repro.runs} runs · ${f.repro.actions.length} step(s) · <code>${escapeHtml(path.basename(f.repro.specPath))}</code></div>`
         : "";
@@ -48,6 +54,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
       </header>
       ${loc ? `<div class="loc">${loc}</div>` : ""}
       ${snippet ? `<pre class="snippet">${snippet}</pre>` : ""}
+      ${serverErr}
       ${f.occurrences > 1 ? `<div class="occ">seen ×${f.occurrences}</div>` : ""}
       ${repro}
       ${steps}

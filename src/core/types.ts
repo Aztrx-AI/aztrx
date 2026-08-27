@@ -7,6 +7,24 @@ export type FindingType =
   | "network_5xx"
   | "network_timeout";
 
+/** A server-side source location, e.g. a stack frame from a 500 response body. */
+export interface ServerFrame {
+  /** Raw path string as it appeared in the stack (file:// URL, POSIX, or Windows). */
+  filePath: string;
+  line: number;
+  column: number;
+}
+
+/** Server-side error captured from a 500 response body by the HTTP fuzzer. */
+export interface ServerErrorInfo {
+  /** The server's own error message, best-effort extracted from the body. */
+  message: string;
+  /** Truncated response body. */
+  body: string;
+  /** Best-effort source location parsed from a stack trace in the body. */
+  frame?: ServerFrame;
+}
+
 export interface TelemetryErrorPayload {
   type: FindingType;
   rawMessage: string;
@@ -14,6 +32,8 @@ export interface TelemetryErrorPayload {
   url?: string;
   line?: number;
   column?: number;
+  /** Server-side error context (F5-http). Present only for network findings. */
+  serverError?: ServerErrorInfo;
 }
 
 export type ActionType =
@@ -75,6 +95,8 @@ export interface Finding {
   rawMessage: string;
   rawStack: string;
   mappedLocation?: MappedLocation;
+  /** Server's own error response, captured by `--http-fuzz` (message + body). */
+  serverError?: { message: string; body: string };
   actionHistory: RecordedAction[];
   repro?: ReproReport;
   /** F10 closed-loop healing result, attached when `--heal` ran for this finding. */

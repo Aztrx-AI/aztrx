@@ -2,6 +2,7 @@ import type { Page } from "playwright";
 import type { EventBus } from "./eventBus.js";
 import type { HttpRequestAction } from "./types.js";
 import { network5xxMessage } from "./interceptor.js";
+import { extractServerFrame } from "./resolver.js";
 
 export interface HttpFuzzOptions {
   maxRequests?: number;
@@ -53,6 +54,35 @@ const HOSTILE_HEADERS: Array<[string, string]> = [
   ["accept", "application/x-www-form-urlencoded"],
   ["cookie", "a".repeat(4096)],
 ];
+
+/** Read a response body as text, bounded so a huge (or gzip-bomb) 500 page can't
+ * balloon a finding. */
+async function readBodyText(res: { text(): Promise<string> }): Promise<string> {
+  const MAX = 64 * 1024;
+  try {
+    const text = await res.text();
+    return text.length > MAX ? text.slice(0, MAX) + "\n…(truncated)" : text;
+  } catch {
+    return "";
+  }
+}
+
+/** Best-effort server error message from a 500 body: a JSON `error`/`message`
+ * field, else the first non-empty line (HTML tags stripped). */
+function extractServerMessage(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "(empty body)";
+  try {
+    const j = JSON.parse(trimmed);
+    const msg = j?.error?.message ?? j?.message ?? j?.error ?? j?.detail;
+    if (typeof msg === "string" && msg.trim()) return msg.trim().slice(0, 200);
+  } catch {
+    // not JSON — fall through to plain-text extraction
+  }
+  const first = trimmed.split("\n").find((l) => l.trim()) ?? trimmed;
+  const text = first.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text.slice(0, 200) || "(empty body)";
+}
 
 /** Is this host allowed under the deny-by-default policy (loopback always is)? */
 function hostAllowed(url: string, allowHosts: Set<string>): boolean {
@@ -204,6 +234,7 @@ export async function httpFuzz(
       }
 
       let status = 0;
+      let bodyText = "";
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 8000);
       try {
@@ -214,7 +245,8 @@ export async function httpFuzz(
           signal: ctrl.signal,
         });
         status = res.status;
-        await res.arrayBuffer().catch(() => {});
+        if (status >= 500) bodyText = await readBodyText(res);
+        else await res.arrayBuffer().catch(() => {});
       } catch {
         // network error or timeout — hang detection is a follow-up slice
         status = 0;
@@ -227,6 +259,11 @@ export async function httpFuzz(
           type: "network_5xx",
           rawMessage: network5xxMessage(status, req.url),
           rawStack: "",
+          serverError: {
+            message: extractServerMessage(bodyText),
+            body: bodyText,
+            frame: extractServerFrame(bodyText) ?? undefined,
+          },
         });
       }
 

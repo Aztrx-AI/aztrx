@@ -10,7 +10,7 @@ import { walkDom } from "./domWalker.js";
 import { fuzz } from "./fuzzer.js";
 import { httpFuzz } from "./httpFuzzer.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
-import { resolveFrame } from "./resolver.js";
+import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import { ReplayEngine } from "./replay.js";
 import { minimize } from "./minimizer.js";
 import { writeSpec } from "./specCompiler.js";
@@ -85,6 +85,9 @@ function printFinding(f: Finding, write: (s: string) => void): void {
     );
     write(pc.dim(f.mappedLocation.codeContext));
   }
+  if (f.serverError) {
+    write(pc.dim(`   server: ${f.serverError.message}`));
+  }
   if (f.occurrences > 1) write(pc.dim(`   (×${f.occurrences})`));
   write("");
 }
@@ -148,11 +151,24 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     }
     runLog.append({ type: "finding", finding });
 
+    if (payload.serverError) {
+      finding.serverError = { message: payload.serverError.message, body: payload.serverError.body };
+    }
+
     if (payload.url && payload.line) {
       const resolved = await resolveFrame(
         { url: payload.url, line: payload.line, column: payload.column ?? 0, message: payload.rawMessage },
         repoRoot
       );
+      finding.mappedLocation = {
+        filePath: resolved.sourceFile,
+        line: resolved.line,
+        column: resolved.column,
+        codeContext: resolved.codeSnippet,
+        isOwnCode: resolved.resolvedFrom !== "unresolved",
+      };
+    } else if (payload.serverError?.frame) {
+      const resolved = resolveServerFrame(payload.serverError.frame, repoRoot);
       finding.mappedLocation = {
         filePath: resolved.sourceFile,
         line: resolved.line,
@@ -324,6 +340,12 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     const healTargets = findings.filter(
       (f) =>
         (f.severity === "crash" || f.severity === "error") &&
+        // Server findings are located but not yet healable: verifying a server
+        // patch needs to boot the patched server, which the default static
+        // verifier can't do — heal would false-verify. Deferred until the verify
+        // gap is closed.
+        f.type !== "network_5xx" &&
+        f.type !== "network_timeout" &&
         f.mappedLocation?.isOwnCode &&
         f.repro &&
         f.repro.verdict !== "unreliable"

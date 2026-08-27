@@ -97,6 +97,8 @@ Ship a runtime gate on every PR — see [Continuous Integration](#continuous-int
 
 The DOM fuzzer (`--fuzz`) breaks the *client*. `--http-fuzz` attacks the *server*: it harvests the endpoints your app actually calls, then throws hostile requests at them — query overflow, JSON type-confusion, header injection, method confusion — and turns every `5xx` into an executable repro.
 
+Every `5xx` finding also captures the server's *own* error response — its message and body — and, when the body leaks a stack trace, the server-side source line. So a finding reads "`HTTP 500 /api/cart` … `server: Cannot read properties of undefined` at `app/api/cart/route.ts:14`", not just "something 500'd". (Server findings are reported and repro'd but not yet healed — see Roadmap.)
+
 ---
 
 ## CLI reference
@@ -371,6 +373,7 @@ Full per-case table and scoring notes live in
 - [x] B2B ($29/mo) — Smart Cloud Router (haiku fast-tier → verify → Sonnet fallback)
 - [x] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
 - [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
+- [ ] Server-side healing — heal server `5xx` findings (verify a patch by booting the patched server, not static-serving it)
 
 ## Contributing
 

@@ -5,6 +5,7 @@ import {
   originalPositionFor,
   type DecodedSourceMap,
 } from "@jridgewell/trace-mapping";
+import type { ServerFrame } from "./types.js";
 
 export type ResolvedFrom = "sourcemap" | "direct" | "unresolved";
 
@@ -38,6 +39,34 @@ export function extractFrame(text: string): RawFrame | null {
     column: parseInt(match[3], 10),
     message: text.split("\n")[0].trim().slice(0, 200),
   };
+}
+
+/** True if `p` looks like an absolute source path — a `file://` URL, a POSIX
+ * absolute path, or a Windows drive path. Rejects bare relative tokens like
+ * `route.ts` so a stray `foo:12:34` in a stack body is never mistaken for a file. */
+function isServerPath(p: string): boolean {
+  return p.startsWith("file://") || p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+}
+
+/**
+ * Pull the first server-side source frame out of a raw server stack (a 500 body,
+ * a Next.js dev error page, etc.). V8 emits one frame per line as
+ * `at <fn> (<path>:<line>:<col>)` or `at <path>:<line>:<col>`; we take the first
+ * frame whose path is not inside node_modules. Best-effort — returns null when
+ * the body carries no stack trace (e.g. an explicit
+ * `NextResponse.json(..., { status: 500 })`).
+ */
+export function extractServerFrame(stack: string): ServerFrame | null {
+  for (const raw of stack.split("\n")) {
+    const line = raw.trim();
+    const m = line.match(/\(?([^\s()"']+):(\d+):(\d+)\)?$/);
+    if (!m) continue;
+    const filePath = m[1];
+    if (!isServerPath(filePath)) continue;
+    if (filePath.includes("node_modules")) continue;
+    return { filePath, line: parseInt(m[2], 10), column: parseInt(m[3], 10) };
+  }
+  return null;
 }
 
 function stripQuery(url: string): string {
@@ -134,6 +163,53 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
     column: frame.column,
     codeSnippet: extractSnippet(directPath, frame.line),
     resolvedFrom: isFile(directPath) && !isSensitive(directPath) ? "direct" : "unresolved",
+  };
+}
+
+/**
+ * Resolve a server-side source frame (a filesystem path) to a repo-relative
+ * source location + snippet. Mirrors `resolveFrame`'s containment rules: a path
+ * outside the repo — via `..` traversal or a symlink pointing out — is never
+ * read. Server frames carry no sourcemap; a directly-readable file maps
+ * `resolvedFrom: "direct"`.
+ */
+export function resolveServerFrame(frame: ServerFrame, repoRoot: string): MappedError {
+  let p = frame.filePath.replace(/^file:\/\//, "");
+  if (/^\/[A-Za-z]:[\\/]/.test(p)) p = p.slice(1); // /C:/x → C:/x (Windows-on-POSIX)
+  const abs = path.resolve(p);
+
+  const rel = path.relative(repoRoot, abs);
+  let contained = !(rel.startsWith("..") || path.isAbsolute(rel));
+  if (contained) {
+    try {
+      const realRoot = fs.realpathSync(repoRoot);
+      const realTarget = fs.realpathSync(abs);
+      const realRel = path.relative(realRoot, realTarget);
+      if (realRel.startsWith("..") || path.isAbsolute(realRel)) contained = false;
+    } catch {
+      // realpath fails for a not-yet-existing candidate — the lexical check above suffices.
+    }
+  }
+
+  if (!contained) {
+    return {
+      message: frame.filePath,
+      sourceFile: abs,
+      line: frame.line,
+      column: frame.column,
+      codeSnippet: `<file not accessible locally: ${abs}>`,
+      resolvedFrom: "unresolved",
+    };
+  }
+
+  const resolvedFrom = isFile(abs) && !isSensitive(abs) ? "direct" : "unresolved";
+  return {
+    message: frame.filePath,
+    sourceFile: rel,
+    line: frame.line,
+    column: frame.column,
+    codeSnippet: extractSnippet(abs, frame.line),
+    resolvedFrom,
   };
 }
 
