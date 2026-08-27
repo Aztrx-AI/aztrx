@@ -71,6 +71,9 @@ export interface HealOptions {
   patchFn?: (ctx: HealContext) => Promise<Patch>;
   /** Inject an app server for the patched code. Default: static file server. */
   serve?: (worktreeDir: string, filePath: string) => Promise<{ url: string; close: () => Promise<void> }>;
+  /** How to boot the patched app for server (network_5xx) findings. Auto-detected
+   * from package.json `scripts.dev` / `scripts.start` when omitted. */
+  startCommand?: string;
   verifyRuns?: number;
   /** Override the test command run against a healed patch (default: `npm test`,
    * auto-detected from package.json). */

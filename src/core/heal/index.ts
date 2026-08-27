@@ -23,6 +23,7 @@ import { auditPatch } from "./gates.js";
 import { generatePatch, modelTiers } from "./llm.js";
 import type { ModelTier } from "./llm.js";
 import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
+import { bootServer, detectStartCommand } from "./boot.js";
 import { verifyFix } from "./verify.js";
 import type { Finding } from "../types.js";
 import type { HealContext, HealOptions, HealResult, Patch, TestGateResult, VerifyResult } from "./types.js";
@@ -113,6 +114,18 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   }
   if (!finding.repro || finding.repro.verdict === "unreliable") {
     return { ...base, error: "no deterministic repro to verify against" };
+  }
+
+  // Server findings (network_5xx) verify by *booting* the patched app, not static
+  // serving. That needs a start command — resolve it before paying the LLM so a
+  // missing one skips cleanly rather than after an expensive generation.
+  const isNetwork = finding.type === "network_5xx";
+  const startCommand = opts.startCommand ?? detectStartCommand(opts.repoRoot);
+  if (isNetwork && !startCommand) {
+    return {
+      ...base,
+      error: "no start command for server heal (set --start-command, or add scripts.dev / scripts.start)",
+    };
   }
 
   const filePath = loc.filePath;
@@ -260,14 +273,19 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
         continue;
       }
 
-      // 4. Verify — the bug must stop reproducing.
-      const serve = opts.serve ?? ((dir, fp) => staticServe(dir, fp));
+      // 4. Verify — the bug must stop reproducing. Server findings boot the
+      // patched app in the worktree (static serving can't run a server); client
+      // findings keep the static server.
+      const serve = isNetwork
+        ? (dir: string) => bootServer({ worktreeDir: dir, repoRoot: opts.repoRoot, startCommand: startCommand as string })
+        : opts.serve ?? ((dir, fp) => staticServe(dir, fp));
       const v = await verifyFix({
         url: opts.url,
         actions: opts.actions,
         fingerprint: opts.fingerprint,
         runs: opts.verifyRuns ?? 3,
         serve: () => serve(wt.dir, filePath),
+        targetType: isNetwork ? finding.type : undefined,
       });
 
       savedPatch = patch;

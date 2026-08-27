@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 import { EventBus } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
 import { fingerprintOf } from "./classifier.js";
-import type { RecordedAction } from "./types.js";
+import type { FindingType, RecordedAction } from "./types.js";
 
 export interface ReplayEngineOptions {
   attachGuard?: (page: Page) => Promise<void>;
@@ -93,7 +93,12 @@ export class ReplayEngine {
     return this.browser;
   }
 
-  async run(url: string, actions: RecordedAction[], targetFingerprint: string): Promise<ReplayResult> {
+  async run(
+    url: string,
+    actions: RecordedAction[],
+    targetFingerprint: string,
+    opts?: { targetType?: FindingType }
+  ): Promise<ReplayResult> {
     // The browser is reused across replays for speed, but after enough page
     // loads a renderer can crash. Relaunch once and retry so a single crash
     // doesn't take down the whole repro pipeline.
@@ -109,7 +114,17 @@ export class ReplayEngine {
         page = await context.newPage();
         const bus = new EventBus();
         const fingerprints = new Set<string>();
-        bus.on("telemetry", (p) => fingerprints.add(fingerprintOf(p)));
+        const types = new Set<FindingType>();
+        // For type-based verification (server findings), ignore telemetry from the
+        // initial load + settle window — only the replayed requests count. Client
+        // verification stays fingerprint-exact and keeps collecting from page
+        // attach, so a mount-time client bug still verifies.
+        let collecting = !opts?.targetType;
+        bus.on("telemetry", (p) => {
+          if (!collecting) return;
+          fingerprints.add(fingerprintOf(p));
+          types.add(p.type);
+        });
         attachInterceptor(page, bus);
         if (this.opts.attachGuard) await this.opts.attachGuard(page);
 
@@ -118,10 +133,14 @@ export class ReplayEngine {
         // `load` event plus a settle window, and a replay that clicks before React
         // attaches its handlers won't reproduce the crash (false "unreliable").
         await page.waitForTimeout(2000);
+        if (opts?.targetType) collecting = true;
         await replayActions(page, actions);
         await page.waitForTimeout(300);
 
-        return { reproduced: fingerprints.has(targetFingerprint) };
+        const reproduced = opts?.targetType
+          ? types.has(opts.targetType)
+          : fingerprints.has(targetFingerprint);
+        return { reproduced };
       } catch (e) {
         lastError = e;
         await this.close(); // drop the (possibly crashed) browser and retry fresh

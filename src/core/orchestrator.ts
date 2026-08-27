@@ -52,6 +52,9 @@ export interface RunOptions {
   testTimeoutMs?: number;
   /** Skip the heal test gate. */
   skipTest?: boolean;
+  /** How to boot the app for server-side healing (network_5xx findings).
+   * Auto-detected from package.json `scripts.dev` / `scripts.start` when omitted. */
+  startCommand?: string;
   /** F11: collect + persist anonymized telemetry locally (opt-in). */
   telemetry?: boolean;
   /** F11: additionally upload the sanitized tuple to the telemetry endpoint. */
@@ -340,11 +343,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     const healTargets = findings.filter(
       (f) =>
         (f.severity === "crash" || f.severity === "error") &&
-        // Server findings are located but not yet healable: verifying a server
-        // patch needs to boot the patched server, which the default static
-        // verifier can't do — heal would false-verify. Deferred until the verify
-        // gap is closed.
-        f.type !== "network_5xx" &&
+        // A `network_5xx` finding heals only when its 500 body leaked a server
+        // stack (→ an own-code source location); heal then boots the patched app
+        // to verify. `network_timeout` stays excluded — it needs a time-based
+        // repro first.
         f.type !== "network_timeout" &&
         f.mappedLocation?.isOwnCode &&
         f.repro &&
@@ -367,6 +369,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
             testCommand: options.testCommand,
             testTimeoutMs: options.testTimeoutMs,
             skipTest: options.skipTest,
+            startCommand: options.startCommand,
           });
           f.heal = result;
           bus.emit("heal", {

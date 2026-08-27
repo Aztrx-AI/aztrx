@@ -39,6 +39,7 @@ interface CliOptions {
   testCommand?: string;
   test?: boolean;
   testTimeoutMs?: string;
+  startCommand?: string;
   prComment?: string | boolean;
   badge?: string | boolean;
   telemetry?: boolean;
@@ -100,6 +101,7 @@ program
   .option("--test-command <cmd>", "test command run against a healed patch (default: npm test, auto-detected)")
   .option("--test-timeout <ms>", "timeout for the heal test gate, ms", "300000")
   .option("--no-test", "skip the test gate during healing")
+  .option("--start-command <cmd>", "command to boot the app for server healing (default: auto-detect scripts.dev/scripts.start)")
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
@@ -136,6 +138,7 @@ program
         testCommand: opts.testCommand,
         testTimeoutMs: opts.testTimeoutMs ? parseInt(opts.testTimeoutMs, 10) : undefined,
         skipTest: opts.test === false,
+        startCommand: opts.startCommand,
         telemetry: opts.telemetry,
         shareData: opts.shareData,
         upload: opts.upload,
