@@ -54,6 +54,37 @@ function isFile(p: string): boolean {
   }
 }
 
+/** Secret-bearing filenames that must never be read, even inside the repo — a
+ * hostile sourcemap could otherwise point `source` at `.env`, an npmrc, or a
+ * private key and exfiltrate it into the report / PR comment. */
+const SENSITIVE_FILE = /^\.env(\..+)?$|^\.npmrc$|^\.yarnrc$|^\.netrc$|^\.pem$|^\.htpasswd$|^id_rsa$|^id_ed25519$|^id_ecdsa$|^id_dsa$/;
+
+function isSensitive(p: string): boolean {
+  return SENSITIVE_FILE.test(path.basename(p));
+}
+
+/** Resolve `segments` under `root`, returning null if the result escapes the
+ * root — via `..` traversal or a symlink pointing outside it. This is the
+ * boundary that keeps sourcemap- and URL-derived paths from reading (or,
+ * downstream, healing) arbitrary files outside the repo. */
+function resolveWithin(root: string, ...segments: string[]): string | null {
+  const candidate = path.resolve(root, ...segments);
+  const rel = path.relative(root, candidate);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+
+  // Symlink escape: when the file exists, its real path must also stay inside.
+  try {
+    const realRoot = fs.realpathSync(root);
+    const realTarget = fs.realpathSync(candidate);
+    const realRel = path.relative(realRoot, realTarget);
+    if (realRel.startsWith("..") || path.isAbsolute(realRel)) return null;
+  } catch {
+    // realpath fails for not-yet-existing candidates — the lexical check above
+    // already ran and is sufficient for those.
+  }
+  return candidate;
+}
+
 /** Turns a sourcemap `source` value into candidate absolute paths to probe. */
 function sourceCandidates(source: string, repoRoot: string): string[] {
   const cleaned = source
@@ -64,12 +95,14 @@ function sourceCandidates(source: string, repoRoot: string): string[] {
     .split("?")[0];
 
   const prefixes = ["", "apps/web/", "src/", "app/"];
-  return prefixes.map((p) => path.resolve(repoRoot, p, cleaned));
+  return prefixes
+    .map((p) => resolveWithin(repoRoot, p, cleaned))
+    .filter((c): c is string => c !== null);
 }
 
 function locateFile(candidates: string[]): string | null {
   for (const c of candidates) {
-    if (isFile(c)) return c;
+    if (isFile(c) && !isSensitive(c)) return c;
   }
   return null;
 }
@@ -83,14 +116,24 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
   const relative = stripQuery(frame.url)
     .replace(/^https?:\/\/[^/]+\//, "")
     .replace(/^\//, "");
-  const directPath = path.resolve(repoRoot, relative);
+  const directPath = resolveWithin(repoRoot, relative);
+  if (!directPath) {
+    return {
+      message: frame.message,
+      sourceFile: relative,
+      line: frame.line,
+      column: frame.column,
+      codeSnippet: `<file not accessible locally: ${relative}>`,
+      resolvedFrom: "unresolved",
+    };
+  }
   return {
     message: frame.message,
     sourceFile: path.relative(repoRoot, directPath),
     line: frame.line,
     column: frame.column,
     codeSnippet: extractSnippet(directPath, frame.line),
-    resolvedFrom: isFile(directPath) ? "direct" : "unresolved",
+    resolvedFrom: isFile(directPath) && !isSensitive(directPath) ? "direct" : "unresolved",
   };
 }
 
@@ -136,7 +179,7 @@ async function trySourceMap(frame: RawFrame, repoRoot: string): Promise<MappedEr
 }
 
 export function extractSnippet(filePath: string, targetLine: number, window = 4): string {
-  if (!isFile(filePath)) return `<file not accessible locally: ${filePath}>`;
+  if (!isFile(filePath) || isSensitive(filePath)) return `<file not accessible locally: ${filePath}>`;
   const lines = fs.readFileSync(filePath, "utf-8").split("\n");
   const start = Math.max(0, targetLine - window - 1);
   const end = Math.min(lines.length, targetLine + window);

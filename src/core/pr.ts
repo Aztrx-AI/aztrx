@@ -39,6 +39,21 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/** Wrap `code` in a backtick fence one longer than any run inside it, so the
+ * content can never close the fence (blocks markdown breakout from a hostile
+ * sourcemap snippet or patch). */
+function fence(code: string, lang = ""): string {
+  const runs = code.match(/`+/g) ?? [];
+  const maxRun = runs.reduce((m, r) => Math.max(m, r.length), 0);
+  const delim = "`".repeat(Math.max(3, maxRun + 1));
+  return `${delim}${lang}\n${code.trimEnd()}\n${delim}`;
+}
+
+/** Inline code that can't be broken out of — backticks/newlines are stripped. */
+function inlineCode(s: string): string {
+  return "`" + s.replace(/`/g, "").replace(/[\r\n]/g, " ") + "`";
+}
+
 function readIfExists(p: string): string | null {
   try {
     return fs.readFileSync(p, "utf-8");
@@ -48,8 +63,8 @@ function readIfExists(p: string): string | null {
 }
 
 function describeAction(a: RecordedAction): string {
-  const sel = a.selectors[0] ? ` \`${a.selectors[0]}\`` : "";
-  const val = a.value ? ` \`${a.value}\`` : "";
+  const sel = a.selectors[0] ? ` ${inlineCode(a.selectors[0])}` : "";
+  const val = a.value ? ` ${inlineCode(a.value)}` : "";
   return `**${a.type}**${val}${sel}`;
 }
 
@@ -75,9 +90,7 @@ function healBlock(f: Finding): string {
   // The saved unified diff is only produced for a patch that reached verify.
   const diff = h.patchPath ? readIfExists(path.resolve(h.patchPath)) : null;
   if (diff) {
-    body.push("```diff");
-    body.push(diff.trimEnd());
-    body.push("```");
+    body.push(fence(diff, "diff"));
   } else if (h.explanation) {
     body.push(`> ${h.explanation}`);
   }
@@ -96,7 +109,7 @@ function reproBlock(f: Finding): string {
     : "";
 
   const spec = readIfExists(path.resolve(r.specPath));
-  const specBlock = spec ? `\n\`\`\`ts\n${spec.trimEnd()}\n\`\`\`` : "";
+  const specBlock = spec ? `\n${fence(spec, "ts")}` : "";
 
   return `\n<details>\n<summary>▶ ${verdict} · ${r.actions.length} step(s)</summary>\n\n**Reproduce**${steps}${specBlock}\n</details>`;
 }
@@ -109,7 +122,7 @@ function findingBlock(f: Finding): string {
     ? `\n**Location** \`${f.mappedLocation.filePath}:${f.mappedLocation.line}:${f.mappedLocation.column}\``
     : "";
   const snippet = f.mappedLocation?.codeContext
-    ? `\n\n\`\`\`${path.extname(f.mappedLocation.filePath).replace(".", "") || "ts"}\n${f.mappedLocation.codeContext.trimEnd()}\n\`\`\``
+    ? `\n\n${fence(f.mappedLocation.codeContext, path.extname(f.mappedLocation.filePath).replace(".", "") || "ts")}`
     : "";
 
   return `<details open>\n<summary>${icon} <code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${reproBlock(f)}${healBlock(f)}\n</details>`;

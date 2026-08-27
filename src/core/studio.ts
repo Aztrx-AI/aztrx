@@ -37,7 +37,6 @@ function sseHandler(req: http.IncomingMessage, res: http.ServerResponse, eventsF
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    "Access-Control-Allow-Origin": "*",
   });
   res.write(`data: ${JSON.stringify({ type: "hello" })}\n\n`);
 
@@ -219,7 +218,7 @@ export function startStudio(opts: StudioOptions): http.Server {
     return send(res, 404, "text/plain; charset=utf-8", "not found");
   });
 
-  server.listen(port, () => {
+  server.listen(port, "127.0.0.1", () => {
     console.log(pc.cyan("\n⚡ Aztrx AI Studio"));
     console.log(pc.dim(`   → http://localhost:${port}`));
     console.log(pc.dim(`   watching ${path.relative(process.cwd(), eventsFile)}`));
