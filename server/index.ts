@@ -144,7 +144,7 @@ if (isMain) {
   const cfg = loadConfig();
   const server = createIngestServer(cfg);
   server.listen(cfg.port, () => {
-    console.log("⚡ Aztrx cloud ingest");
+    console.log("Aztrx cloud ingest");
     console.log(`   → http://localhost:${cfg.port}`);
     console.log(`   data: ${cfg.dataDir}`);
     console.log(`   keys: ${Object.keys(cfg.keys).length} org(s)`);

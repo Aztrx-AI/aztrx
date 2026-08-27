@@ -15,7 +15,7 @@ const GARBAGE = [
   "<script>alert(1)</script>",
   "'; DROP TABLE users;--",
   "a".repeat(4096),
-  "😀".repeat(64),
+  "字".repeat(64),
   String.fromCharCode(0) + "null-byte",
   "NaN",
   "-1",

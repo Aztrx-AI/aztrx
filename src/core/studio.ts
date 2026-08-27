@@ -219,7 +219,7 @@ export function startStudio(opts: StudioOptions): http.Server {
   });
 
   server.listen(port, "127.0.0.1", () => {
-    console.log(pc.cyan("\n⚡ Aztrx AI Studio"));
+    console.log(pc.cyan("\nAztrx AI Studio"));
     console.log(pc.dim(`   → http://localhost:${port}`));
     console.log(pc.dim(`   watching ${path.relative(process.cwd(), eventsFile)}`));
     console.log(pc.dim("   Ctrl+C to stop\n"));

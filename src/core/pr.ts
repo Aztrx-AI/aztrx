@@ -19,13 +19,6 @@ const SEV_BADGE: Record<string, string> = {
   noise: "5b6573",
 };
 
-const SEV_ICON: Record<string, string> = {
-  crash: "💥",
-  error: "🚨",
-  warning: "⚠️",
-  noise: "·",
-};
-
 /** Shields.io badge-path escaping: literal `-` → `--`, `/` → `%2F`, space → `_`. */
 function shield(s: string): string {
   return s.replace(/-/g, "--").replace(/\//g, "%2F").replace(/ /g, "_");
@@ -96,7 +89,7 @@ function healBlock(f: Finding): string {
     body.push(`> ${h.explanation}`);
   }
   if (h.test?.ran) {
-    body.push(`${h.test.ok ? "✅" : "❌"} **tests** ${inlineCode(h.test.command)} — ${h.test.ok ? "passed" : "failed"}`);
+    body.push(`**tests** ${inlineCode(h.test.command)} — ${h.test.ok ? "passed" : "failed"}`);
   }
   if (h.error) body.push(`\n_${escapeHtml(h.error)}_`);
 
@@ -120,7 +113,6 @@ function reproBlock(f: Finding): string {
 
 function findingBlock(f: Finding): string {
   const sev = f.severity;
-  const icon = SEV_ICON[sev] ?? "·";
   const first = f.rawMessage.split("\n")[0];
   const loc = f.mappedLocation
     ? `\n**Location** \`${f.mappedLocation.filePath}:${f.mappedLocation.line}:${f.mappedLocation.column}\``
@@ -129,7 +121,7 @@ function findingBlock(f: Finding): string {
     ? `\n\n${fence(f.mappedLocation.codeContext, path.extname(f.mappedLocation.filePath).replace(".", "") || "ts")}`
     : "";
 
-  return `<details open>\n<summary>${icon} <code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${reproBlock(f)}${healBlock(f)}\n</details>`;
+  return `<details open>\n<summary><code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${reproBlock(f)}${healBlock(f)}\n</details>`;
 }
 
 export function renderPrComment(targetUrl: string, findings: Finding[], opts: { repoRoot?: string } = {}): string {
@@ -160,10 +152,10 @@ export function renderPrComment(targetUrl: string, findings: Finding[], opts: { 
 
   const body = sorted.length
     ? sorted.map(findingBlock).join("\n\n")
-    : "> ✅ No crash, error, or warning surfaced — the app survived this pass.";
+    : "> No crash, error, or warning surfaced — the app survived this pass.";
 
   return `<!-- aztrx -->
-## ⚡ Aztrx AI — runtime stress-test
+## Aztrx AI — runtime stress-test
 
 ${summaryBadges}
 

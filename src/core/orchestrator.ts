@@ -115,7 +115,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const emitPhase = (phase: RunPhase, detail?: string) =>
     bus.emit("phase", { phase, detail, ts: Date.now() });
 
-  say(pc.cyan("\n⚡ Aztrx AI v0.1.0 — Runtime Detector"));
+  say(pc.cyan("\nAztrx AI v0.1.0 — Runtime Detector"));
   say(pc.dim(`Target: ${url}`));
   say(pc.dim(`Repo:   ${repoRoot}`));
   if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));

@@ -61,11 +61,6 @@ function Icon({ className = "h-5 w-5", children }: IconProps & { children: React
   );
 }
 
-const Bolt = ({ className }: IconProps) => (
-  <Icon className={className}>
-    <path d="M13 2 4.5 13.5H11L9.5 22 19 10.5h-6.5L13 2Z" />
-  </Icon>
-);
 const Minimize = ({ className }: IconProps) => (
   <Icon className={className}>
     <path d="M4 9h6V3" />
@@ -302,10 +297,7 @@ function Magic() {
           <BentoCard className="md:col-span-2" delay={0}>
             <div className="flex items-start justify-between gap-6">
               <div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
-                  <Bolt />
-                </div>
-                <h3 className="mt-6 text-xl font-semibold text-white">Chaos Fuzzing</h3>
+                <h3 className="text-xl font-semibold text-white">Chaos Fuzzing</h3>
                 <p className="mt-3 max-w-md text-zinc-400">
                   Drives your app over the Chrome DevTools Protocol — clicking, typing garbage, and
                   racing async UI faster than a human ever could.
