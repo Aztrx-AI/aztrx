@@ -93,7 +93,7 @@ program
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
   .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
-  .option("--upload", "opt-in: stream run results to the Aztrx cloud dashboard (needs --api-key)")
+  .option("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)")
   .option("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_API_KEY)")
   .option("--cloud-url <url>", "override the cloud ingest base URL (default https://api.aztrx.app)")
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
@@ -145,7 +145,7 @@ program
         try {
           findings = await runPromise;
         } catch (e) {
-          console.error(pc.red("Aztrx run failed:"), (e as Error).message);
+          console.error(pc.red("Aztrx AI run failed:"), (e as Error).message);
           process.exit(1);
         }
       } else {

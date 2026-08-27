@@ -63,7 +63,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Aztrx
+      - name: Run Aztrx AI
         uses: DanisChaparov/aztrx@main
         with:
           url: ${{ inputs.url }}

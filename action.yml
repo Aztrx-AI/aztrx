@@ -1,4 +1,4 @@
-name: "Aztrx — find the crash, prove it, propose the fix"
+name: "Aztrx AI — find the crash, prove it, propose the fix"
 description: >-
   Runs aztrx against a running dev server on a pull request, posts a markdown
   comment with the deterministic Playwright repro and the gated patch, and fails

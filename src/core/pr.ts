@@ -146,7 +146,7 @@ export function renderPrComment(targetUrl: string, findings: Finding[], opts: { 
     : "> ✅ No crash, error, or warning surfaced — the app survived this pass.";
 
   return `<!-- aztrx -->
-## ⚡ Aztrx — runtime stress-test
+## ⚡ Aztrx AI — runtime stress-test
 
 ${summaryBadges}
 

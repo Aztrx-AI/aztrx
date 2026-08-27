@@ -1,19 +1,19 @@
-# ⚡ Aztrx
+# ⚡ Aztrx AI
 
 > **Autonomous runtime stress-tester, deterministic bug minimizer, and self-healing engine for web applications.**
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg?style=flat-square)](https://nodejs.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 
-Aztrx drives your web app like a hostile user — clicking, entering boundary data, and racing asynchronous UI states. When a runtime crash occurs (even one swallowed by a React Error Boundary), Aztrx intercepts it via the Chrome DevTools Protocol, maps it back to the exact source line, shrinks the interaction trace to the bare minimum with **ddmin**, and emits an executable, standalone **Playwright test** that proves the bug — not a log line.
+Aztrx AI drives your web app like a hostile user — clicking, entering boundary data, and racing asynchronous UI states. When a runtime crash occurs (even one swallowed by a React Error Boundary), Aztrx AI intercepts it via the Chrome DevTools Protocol, maps it back to the exact source line, shrinks the interaction trace to the bare minimum with **ddmin**, and emits an executable, standalone **Playwright test** that proves the bug — not a log line.
 
 ![aztrx demo](media/demo.gif)
 
 ---
 
-## Why Aztrx
+## Why Aztrx AI
 
-- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
+- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
 - **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
@@ -47,7 +47,7 @@ npm run build
 npm link        # puts `aztrx-cli` on your PATH
 ```
 
-Aztrx drives Chromium through Playwright — the first run downloads the browser
+Aztrx AI drives Chromium through Playwright — the first run downloads the browser
 automatically (`npx playwright install chromium` to force it).
 
 ---
@@ -142,7 +142,7 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 
 ## Architecture
 
-Aztrx is a decoupled, event-driven pipeline — modules talk only through an
+Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
 `EventBus`; the orchestrator wires them together.
 
 ```

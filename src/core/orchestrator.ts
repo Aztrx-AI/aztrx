@@ -48,7 +48,7 @@ export interface RunOptions {
   shareData?: boolean;
   /** Override the telemetry endpoint (`AZTRX_TELEMETRY_URL`). */
   telemetryUrl?: string;
-  /** F12: upload the run's findings to the Aztrx cloud dashboard (opt-in). */
+  /** F12: upload the run's findings to the Aztrx AI cloud dashboard (opt-in). */
   upload?: boolean;
   /** API key for cloud + telemetry uploads (`AZTRX_API_KEY`). */
   apiKey?: string;
@@ -109,7 +109,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const emitPhase = (phase: RunPhase, detail?: string) =>
     bus.emit("phase", { phase, detail, ts: Date.now() });
 
-  say(pc.cyan("\n⚡ Aztrx v0.1.0 — Runtime Detector"));
+  say(pc.cyan("\n⚡ Aztrx AI v0.1.0 — Runtime Detector"));
   say(pc.dim(`Target: ${url}`));
   say(pc.dim(`Repo:   ${repoRoot}`));
   if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));

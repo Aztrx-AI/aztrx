@@ -17,7 +17,7 @@ export function compileSpec(finding: Finding, actions: RecordedAction[], url: st
 
   out.push(`import { test, expect } from "@playwright/test";`);
   out.push(``);
-  out.push(`// Aztrx repro — ${finding.id}`);
+  out.push(`// Aztrx AI repro — ${finding.id}`);
   out.push(`// severity: ${finding.severity}   type: ${finding.type}`);
   if (finding.mappedLocation) {
     out.push(`// source: ${finding.mappedLocation.filePath}:${finding.mappedLocation.line}:${finding.mappedLocation.column}`);

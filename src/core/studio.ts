@@ -175,7 +175,7 @@ function dashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aztrx Studio</title>
+<title>Aztrx AI Studio</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -220,7 +220,7 @@ export function startStudio(opts: StudioOptions): http.Server {
   });
 
   server.listen(port, () => {
-    console.log(pc.cyan("\n⚡ Aztrx Studio"));
+    console.log(pc.cyan("\n⚡ Aztrx AI Studio"));
     console.log(pc.dim(`   → http://localhost:${port}`));
     console.log(pc.dim(`   watching ${path.relative(process.cwd(), eventsFile)}`));
     console.log(pc.dim("   Ctrl+C to stop\n"));

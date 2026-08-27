@@ -2,7 +2,7 @@
   "name": "aztrx-cli",
   "version": "0.1.0",
   "private": false,
-  "description": "Aztrx — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
+  "description": "Aztrx AI — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "license": "Apache-2.0",
   "author": "Danis Chaparov <d.chaparov@gmail.com>",
   "type": "module",

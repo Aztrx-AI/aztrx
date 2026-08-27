@@ -1,43 +1,29 @@
 import type { Metadata } from "next";
-import { Chakra_Petch, Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
-});
-
-const chakra = Chakra_Petch({
-  variable: "--font-chakra",
-  weight: ["600", "700"],
-  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Aztrx — Find the crash. Prove it. Ship the fix.",
+  title: "Aztrx AI — Let AI break your app instead.",
   description:
-    "Runtime stress-tester for web apps. Aztrx drives your app like a hostile user, catches the errors your error boundary swallows, and compiles a deterministic Playwright repro you can run to watch it break again.",
+    "Autonomous runtime stress-tester. Aztrx AI drives your web app like a hostile user, catches the errors your error boundary swallows, and compiles a deterministic Playwright repro you can run to watch it break again.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${chakra.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
-        <script
-          dangerouslySetInnerHTML={{
-            __html: "document.documentElement.classList.add('js');",
-          }}
-        />
-        {children}
-      </body>
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }
