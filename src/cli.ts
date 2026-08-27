@@ -10,6 +10,7 @@ import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
 import { writePrComment } from "./core/pr.js";
+import { writeBadge } from "./core/badge.js";
 import { flushTelemetry } from "./core/telemetry/index.js";
 import { flushCloud } from "./core/cloud/index.js";
 
@@ -38,6 +39,7 @@ interface CliOptions {
   test?: boolean;
   testTimeoutMs?: string;
   prComment?: string | boolean;
+  badge?: string | boolean;
   telemetry?: boolean;
   shareData?: boolean;
   upload?: boolean;
@@ -97,6 +99,7 @@ program
   .option("--test-timeout <ms>", "timeout for the heal test gate, ms", "300000")
   .option("--no-test", "skip the test gate during healing")
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
+  .option("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
   .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
   .option("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)")
@@ -168,6 +171,15 @@ program
             : path.join(repoRoot, ".aztrx", "pr-comment.md");
         writePrComment(repoRoot, url, findings, prPath);
         console.log(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
+      }
+
+      if (opts.badge) {
+        const badgePath =
+          typeof opts.badge === "string"
+            ? opts.badge
+            : path.join(repoRoot, ".aztrx", "badge.svg");
+        writeBadge(repoRoot, findings, badgePath);
+        console.log(pc.dim(`Badge: ${path.relative(repoRoot, badgePath)}`));
       }
 
       // Drain any in-flight telemetry uploads (each bounded) before exit, so a
