@@ -113,6 +113,7 @@ Ship a runtime gate on every PR — see [Continuous Integration](#continuous-int
 | `--test-timeout <ms>` | Timeout for the heal test gate | `300000` |
 | `--no-test` | Skip the test gate during healing | — |
 | `--pr-comment [path]` | Write a GitHub PR markdown comment | `.aztrx/pr-comment.md` |
+| `--badge [path]` | Write a self-contained SVG status badge | `.aztrx/badge.svg` |
 | `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
@@ -138,7 +139,8 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 │   └── fix.patch                # gated, compiler-checked fix
 ├── events.jsonl                 # run log, streamed by `aztrx-cli studio`
 ├── telemetry/dataset.jsonl      # opt-in anonymized tuple dataset
-└── pr-comment.md                # GitHub PR markdown (with --pr-comment)
+├── pr-comment.md                # GitHub PR markdown (with --pr-comment)
+└── badge.svg                    # status badge (with --badge)
 ```
 
 ---
@@ -209,6 +211,63 @@ jobs:
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
+
+---
+
+## Status badge
+
+Hang a live badge in your README that reflects your *actual* crash/error state —
+not a static "protected" sticker.
+
+```bash
+npx aztrx-cli run http://localhost:3000 --badge badge.svg
+```
+
+```markdown
+[![aztrx](badge.svg)](https://github.com/DanisChaparov/aztrx)
+```
+
+The badge is a self-contained SVG generated from the run's findings — green
+`crash-free` or red `N findings`. It's honest because it's *earned*: regenerate it
+in CI on every push to `main` and commit it back.
+
+```yaml
+# .github/workflows/badge.yml — keep the badge honest on every push to main
+on:
+  push:
+    branches: [main]
+jobs:
+  badge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Boot dev server
+        run: |
+          nohup npm run dev > /tmp/dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sS -o /dev/null http://localhost:3000 && break
+            sleep 2
+          done
+      - name: Generate badge
+        run: npx --yes aztrx-cli@0.1.0 run http://localhost:3000 --badge badge.svg
+      - name: Commit badge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add badge.svg
+          git commit -m "chore: update aztrx badge" || echo "no change"
+          git push
+```
+
+No `--fail-on` here on purpose: the badge reflects the findings whatever they
+are, and the run still exits 0 so the commit step always runs. Swap `push` for a
+`schedule` cron if you'd rather regenerate daily than on every push.
 
 ---
 
