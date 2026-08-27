@@ -39,6 +39,21 @@ export async function replayActions(page: Page, actions: RecordedAction[]): Prom
       await page.waitForTimeout(30);
       continue;
     }
+    if (a.type === "request" && a.request) {
+      // Issue the request in-page so the attached interceptor sees the response
+      // and emits `network_5xx` — that is how a server finding reproduces here.
+      await page
+        .evaluate(async (r) => {
+          try {
+            await fetch(r.url, { method: r.method, headers: r.headers, body: r.body });
+          } catch {
+            // ignore — the 5xx (or its absence) is observed by the interceptor
+          }
+        }, a.request)
+        .catch(() => {});
+      await page.waitForTimeout(50);
+      continue;
+    }
     for (const sel of a.selectors) {
       const loc = page.locator(sel).first();
       const n = await loc.count().catch(() => 0);

@@ -23,7 +23,18 @@ export type ActionType =
   | "hover"
   | "keypress"
   | "select"
-  | "scroll";
+  | "scroll"
+  | "request";
+
+/** A raw HTTP request synthesized by the HTTP mutation fuzzer (F5-http). */
+export interface HttpRequestAction {
+  method: string;
+  /** Absolute URL — matches the interceptor's `res.url()` so fingerprints line up. */
+  url: string;
+  headers?: Record<string, string>;
+  /** Already-serialized body (JSON string, form-encoded, etc.). */
+  body?: string;
+}
 
 export interface RecordedAction {
   type: ActionType;
@@ -32,6 +43,8 @@ export interface RecordedAction {
   value?: string;
   timestamp: number;
   postState?: { url: string };
+  /** Present when `type === "request"` — the hostile HTTP request to replay. */
+  request?: HttpRequestAction;
 }
 
 export interface MappedLocation {

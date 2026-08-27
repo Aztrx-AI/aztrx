@@ -13,6 +13,7 @@ const js = (s: string): string => JSON.stringify(s);
 export function compileSpec(finding: Finding, actions: RecordedAction[], url: string): string {
   const title = finding.rawMessage.split("\n")[0].slice(0, 80) || "unknown error";
   const needle = finding.rawMessage.split("\n")[0].slice(0, 120);
+  const hasRequest = actions.some((a) => a.type === "request");
   const out: string[] = [];
 
   out.push(`import { test, expect } from "@playwright/test";`);
@@ -35,6 +36,16 @@ export function compileSpec(finding: Finding, actions: RecordedAction[], url: st
     }
     if (a.type === "scroll") {
       out.push(`  await page.mouse.wheel(0, ${a.value === "up" ? -600 : 600});`);
+      continue;
+    }
+    if (a.type === "request" && a.request) {
+      out.push(`  {`);
+      out.push(`    const status = await page.evaluate(async (r) => {`);
+      out.push(`      try { const resp = await fetch(r.url, { method: r.method, headers: r.headers, body: r.body }); return resp.status; }`);
+      out.push(`      catch { return 0; }`);
+      out.push(`    }, ${JSON.stringify(a.request)});`);
+      out.push(`    expect(status).toBeGreaterThanOrEqual(500);`);
+      out.push(`  }`);
       continue;
     }
     const sel = a.selectors[0];
@@ -62,7 +73,11 @@ export function compileSpec(finding: Finding, actions: RecordedAction[], url: st
     }
   }
 
-  out.push(`  await expect.poll(() => errors.join("\\n"), { timeout: 5000 }).toContain(${js(needle)});`);
+  if (!hasRequest) {
+    // A server-side 5xx produces no `pageerror`/`console.error` — the per-request
+    // status assertion above is the proof instead, so skip the error poll.
+    out.push(`  await expect.poll(() => errors.join("\\n"), { timeout: 5000 }).toContain(${js(needle)});`);
+  }
   out.push(`});`);
   return out.join("\n") + "\n";
 }

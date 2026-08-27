@@ -25,6 +25,7 @@ interface CliOptions {
   crashTest?: boolean;
   failOn?: boolean;
   fuzz?: boolean;
+  httpFuzz?: boolean;
   seed: string;
   repro?: boolean;
   reproRuns: string;
@@ -89,6 +90,7 @@ program
   .option("--crash-test", "throw a deliberate error to verify capture")
   .option("--fail-on", "exit 1 if any crash/error finding is present")
   .option("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)")
+  .option("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)")
   .option("--seed <n>", "RNG seed for fuzz", "42")
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
@@ -123,6 +125,7 @@ program
         dryRun: opts.dryRun,
         crashTest: opts.crashTest,
         fuzz: opts.fuzz,
+        httpFuzz: opts.httpFuzz,
         repro: opts.repro || opts.heal,
         seed: parseInt(opts.seed, 10),
         allowHosts: opts.allowHost ?? [],
@@ -152,7 +155,7 @@ program
           done: runPromise,
           targetUrl: url,
           repoRoot,
-          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : opts.heal ? "repro → heal" : opts.repro ? "repro" : "deterministic walk",
+          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : opts.httpFuzz ? "http fuzz" : opts.heal ? "repro → heal" : opts.repro ? "repro" : "deterministic walk",
         });
         try {
           findings = await runPromise;

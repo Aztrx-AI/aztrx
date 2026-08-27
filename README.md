@@ -28,6 +28,7 @@ Run against any running local dev server — no install, no repo clone:
 npx aztrx-cli run http://localhost:3000              # deterministic walk
 npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
 npx aztrx-cli run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
+npx aztrx-cli run http://localhost:3000 --http-fuzz --repro   # server-side 5xx hunt → proof
 ```
 
 Install it globally:
@@ -92,6 +93,10 @@ npx aztrx-cli run http://localhost:3000 --upload --api-key <YOUR_API_KEY> --clou
 
 Ship a runtime gate on every PR — see [Continuous Integration](#continuous-integration-github-action) below.
 
+### 6. HTTP mutation fuzzing (`--http-fuzz`)
+
+The DOM fuzzer (`--fuzz`) breaks the *client*. `--http-fuzz` attacks the *server*: it harvests the endpoints your app actually calls, then throws hostile requests at them — query overflow, JSON type-confusion, header injection, method confusion — and turns every `5xx` into an executable repro.
+
 ---
 
 ## CLI reference
@@ -99,6 +104,7 @@ Ship a runtime gate on every PR — see [Continuous Integration](#continuous-int
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
+| `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
 | `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
 | `--heal` | Generate + verify an LLM patch (implies `--repro`) | — |
 | `--upload` | Stream run findings to the cloud ingest backend | — |

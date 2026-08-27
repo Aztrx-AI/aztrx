@@ -8,6 +8,7 @@ import { SignalClassifier, loadBaseline } from "./classifier.js";
 import { ActionRecorder } from "./recorder.js";
 import { walkDom } from "./domWalker.js";
 import { fuzz } from "./fuzzer.js";
+import { httpFuzz } from "./httpFuzzer.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
 import { resolveFrame } from "./resolver.js";
 import { ReplayEngine } from "./replay.js";
@@ -28,6 +29,9 @@ export interface RunOptions {
   dryRun?: boolean;
   crashTest?: boolean;
   fuzz?: boolean;
+  /** F5-http: mutate the target origin with hostile HTTP requests (server-side
+   * attack surface). Runs after the walk/fuzz pass, before repro/heal. */
+  httpFuzz?: boolean;
   repro?: boolean;
   seed?: number;
   allowHosts?: string[];
@@ -88,6 +92,7 @@ function printFinding(f: Finding, write: (s: string) => void): void {
 /** Human-readable run mode, surfaced in the cloud dashboard. */
 function runMode(o: RunOptions): string {
   if (o.fuzz) return `fuzz (seed ${o.seed ?? 42})`;
+  if (o.httpFuzz) return "http fuzz";
   if (o.heal) return "repro → heal";
   if (o.repro) return "repro";
   return "deterministic walk";
@@ -206,6 +211,16 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       ? await fuzz(page, bus, { seed: options.seed, maxActions, dryRun: options.dryRun })
       : await walkDom(page, bus, { maxActions, dryRun: options.dryRun });
     say(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${acted} action(s).\n`));
+  }
+
+  if (loaded && options.httpFuzz) {
+    emitPhase("http-fuzz");
+    const sent = await httpFuzz(page, url, bus, {
+      maxRequests: maxActions,
+      dryRun: options.dryRun,
+      allowHosts,
+    });
+    say(pc.dim(`\nHTTP-fuzzed ${sent} request(s).\n`));
   }
 
   await page.waitForTimeout(500);

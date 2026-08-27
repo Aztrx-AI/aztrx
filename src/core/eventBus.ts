@@ -1,7 +1,7 @@
 import type { Finding, RecordedAction, ReproVerdict, TelemetryErrorPayload } from "./types.js";
 import type { HealStatus } from "./heal/types.js";
 
-export type RunPhase = "launch" | "walk" | "fuzz" | "repro" | "heal" | "done";
+export type RunPhase = "launch" | "walk" | "fuzz" | "http-fuzz" | "repro" | "heal" | "done";
 
 export interface PhaseEvent {
   phase: RunPhase;

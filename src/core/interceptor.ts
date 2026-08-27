@@ -2,6 +2,16 @@ import type { Page } from "playwright";
 import { extractFrame } from "./resolver.js";
 import type { EventBus } from "./eventBus.js";
 
+/**
+ * Canonical 5xx finding message. Shared by the interceptor (passive in-browser
+ * capture) and the HTTP mutation fuzzer (active Node-side capture) so the two
+ * produce byte-identical `rawMessage`s — otherwise a finding's fingerprint and
+ * its replay fingerprint would diverge and repro would never match.
+ */
+export function network5xxMessage(status: number, url: string): string {
+  return `HTTP ${status} ${url}`;
+}
+
 // Route unhandled rejections through console.error so a single capture path
 // handles them alongside React Error Boundary logs (both land in console.error).
 const INIT_SCRIPT = `
@@ -97,7 +107,7 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
     if (res.status() >= 500) {
       bus.emit("telemetry", {
         type: "network_5xx",
-        rawMessage: `HTTP ${res.status()} ${res.url()}`,
+        rawMessage: network5xxMessage(res.status(), res.url()),
         rawStack: "",
       });
     }

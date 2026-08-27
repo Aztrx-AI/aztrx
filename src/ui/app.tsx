@@ -20,13 +20,14 @@ const PHASE_LABEL: Record<RunPhase, { text: string; color: string }> = {
   launch: { text: "◉ launching browser…", color: C.azure },
   walk: { text: "◉ walking the DOM…", color: C.azure },
   fuzz: { text: "◉ fuzzing (chaos)…", color: C.azure },
+  "http-fuzz": { text: "◉ fuzzing (HTTP mutations)…", color: C.azure },
   repro: { text: "◉ minimize → compile → validate…", color: C.azure },
   heal: { text: "◉ healing (redact → generate → gate → sandbox → verify)…", color: C.azure },
   done: { text: "✓ done", color: C.green },
 };
 
 // Actions that mutate app state — the ones that "count" toward ops/sec.
-const EFFECTIVE = new Set<RecordedAction["type"]>(["click", "input", "select", "keypress"]);
+const EFFECTIVE = new Set<RecordedAction["type"]>(["click", "input", "select", "keypress", "request"]);
 
 interface UiState {
   phase: RunPhase;
