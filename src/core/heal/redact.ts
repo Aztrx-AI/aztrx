@@ -23,6 +23,9 @@ const WHOLE_MATCH: Array<{ re: RegExp; label: string }> = [
   { re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, label: "slack_token" },
   { re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, label: "jwt" },
   { re: /\bBearer [A-Za-z0-9._-]{20,}/g, label: "bearer_token" },
+  { re: /\bBasic [A-Za-z0-9+/=]{10,}\b/g, label: "basic_auth" },
+  { re: /\bAIza[0-9A-Za-z_-]{30,}\b/g, label: "google_api_key" },
+  { re: /\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g, label: "stripe_key" },
 ];
 
 // Prefix-preserving: group 1 stays in place (so the code structure — the key
@@ -30,7 +33,20 @@ const WHOLE_MATCH: Array<{ re: RegExp; label: string }> = [
 // the secret value that is replaced.
 const VALUE_MATCH: Array<{ re: RegExp; label: string }> = [
   {
-    re: /(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token)["']?\s*[:=]\s*)(["']?[^"'\s;,&}{=]{8,}["']?)/gi,
+    // `key = value` where the key is (or embeds) a secret-shaped word. Boundary
+    // is "not a letter/digit" — so `_`/`-`/`.` join compound names like
+    // `aws_secret_access_key` / `FOO_ACCESS_KEY`, while a plain `secret = x`
+    // still matches. (JS `\b` treats `_` as a word char, which would miss the
+    // compound forms — hence the explicit lookarounds.)
+    re: /(["']?[A-Za-z0-9._-]*(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)(?![A-Za-z0-9])[A-Za-z0-9._-]*["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
+    label: "secret_value",
+  },
+  {
+    // CamelCase / bare form (`apiKey`, `accessToken`, `secretKey`) — the
+    // lookaround form above misses these because the keyword is glued to a
+    // letter. No boundary here, so a keyword directly before `:`/`=` matches
+    // even mid-identifier.
+    re: /(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
     label: "secret_value",
   },
   {
@@ -72,4 +88,20 @@ export function unredact(input: string, map: Map<string, string>): string {
   let out = input;
   for (const [ph, secret] of map) out = out.split(ph).join(secret);
   return out;
+}
+
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/**
+ * Irreversible secret scrub for anything rendered to a human or written to a
+ * report / PR comment. Runs the same patterns as `redact()` but discards the
+ * map — every secret collapses to a fixed `[REDACTED]` token — then scrubs
+ * emails, which `redact()` deliberately leaves alone (they aren't secrets and
+ * the reversible layer must not mangle non-secret code it may need to patch).
+ */
+export function sanitizeSecrets(input: string): string {
+  const { text } = redact(input);
+  return text
+    .replace(/__AZTRX_REDACTED_\d+__/g, "[REDACTED]")
+    .replace(EMAIL_RE, "[REDACTED]");
 }

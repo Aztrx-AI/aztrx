@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Finding, RecordedAction } from "./types.js";
+import { sanitizeSecrets } from "./heal/redact.js";
 
 /**
  * F-report — the PR bot's markdown comment. Same findings as the HTML report,
@@ -47,6 +48,17 @@ function inlineCode(s: string): string {
   return "`" + s.replace(/`/g, "").replace(/[\r\n]/g, " ") + "`";
 }
 
+/** Scrub secrets and strip markdown-breakout chars for anything inlined into a
+ * heading or inline-code span. The PR comment renders untrusted stack/snippet
+ * text — a secret in it (or a stray backtick) must never leak or break out. */
+function cleanInline(s: string): string {
+  return sanitizeSecrets(s).replace(/`/g, "").replace(/[\r\n]/g, " ");
+}
+
+/** Hard cap on the server body inlined into a PR comment — a 500 page can be
+ * huge, and only the first line or two are ever diagnostic. */
+const SERVER_BODY_CAP = 2000;
+
 function readIfExists(p: string): string | null {
   try {
     return fs.readFileSync(p, "utf-8");
@@ -56,8 +68,8 @@ function readIfExists(p: string): string | null {
 }
 
 function describeAction(a: RecordedAction): string {
-  const sel = a.selectors[0] ? ` ${inlineCode(a.selectors[0])}` : "";
-  const val = a.value ? ` ${inlineCode(a.value)}` : "";
+  const sel = a.selectors[0] ? ` ${inlineCode(sanitizeSecrets(a.selectors[0]))}` : "";
+  const val = a.value ? ` ${inlineCode(sanitizeSecrets(a.value))}` : "";
   return `**${a.type}**${val}${sel}`;
 }
 
@@ -113,16 +125,18 @@ function reproBlock(f: Finding): string {
 
 function findingBlock(f: Finding): string {
   const sev = f.severity;
-  const first = f.rawMessage.split("\n")[0];
+  const first = sanitizeSecrets(f.rawMessage.split("\n")[0]);
   const loc = f.mappedLocation
-    ? `\n**Location** \`${f.mappedLocation.filePath}:${f.mappedLocation.line}:${f.mappedLocation.column}\``
+    ? `\n**Location** \`${cleanInline(f.mappedLocation.filePath)}:${f.mappedLocation.line}:${f.mappedLocation.column}\``
     : "";
   const snippet = f.mappedLocation?.codeContext
-    ? `\n\n${fence(f.mappedLocation.codeContext, path.extname(f.mappedLocation.filePath).replace(".", "") || "ts")}`
+    ? `\n\n${fence(sanitizeSecrets(f.mappedLocation.codeContext), path.extname(f.mappedLocation.filePath).replace(".", "") || "ts")}`
     : "";
   const serverErr = f.serverError
-    ? `\n**Server** ${escapeHtml(f.serverError.message)}` +
-      (f.serverError.body ? `\n\n${fence(f.serverError.body, "text")}` : "")
+    ? `\n**Server** ${escapeHtml(sanitizeSecrets(f.serverError.message))}` +
+      (f.serverError.body
+        ? `\n\n${fence(sanitizeSecrets(f.serverError.body.slice(0, SERVER_BODY_CAP)), "text")}`
+        : "")
     : "";
 
   return `<details open>\n<summary><code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${serverErr}${reproBlock(f)}${healBlock(f)}\n</details>`;
@@ -163,7 +177,7 @@ export function renderPrComment(targetUrl: string, findings: Finding[], opts: { 
 
 ${summaryBadges}
 
-**Target** \`${targetUrl}\` · **${counts.crash ?? 0} crash** · **${counts.error ?? 0} error** · **${counts.warning ?? 0} warning**
+**Target** \`${cleanInline(targetUrl)}\` · **${counts.crash ?? 0} crash** · **${counts.error ?? 0} error** · **${counts.warning ?? 0} warning**
 
 ---
 

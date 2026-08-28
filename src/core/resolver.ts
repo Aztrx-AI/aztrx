@@ -86,10 +86,32 @@ function isFile(p: string): boolean {
 /** Secret-bearing filenames that must never be read, even inside the repo — a
  * hostile sourcemap could otherwise point `source` at `.env`, an npmrc, or a
  * private key and exfiltrate it into the report / PR comment. */
-const SENSITIVE_FILE = /^\.env(\..+)?$|^\.npmrc$|^\.yarnrc$|^\.netrc$|^\.pem$|^\.htpasswd$|^id_rsa$|^id_ed25519$|^id_ecdsa$|^id_dsa$/;
-
 function isSensitive(p: string): boolean {
-  return SENSITIVE_FILE.test(path.basename(p));
+  const name = path.basename(p).toLowerCase();
+
+  // Dotfiles that hold secrets.
+  if (
+    name === ".env" ||
+    name.startsWith(".env.") ||
+    name === ".npmrc" ||
+    name === ".yarnrc" ||
+    name === ".netrc" ||
+    name === ".htpasswd" ||
+    name === ".git-credentials"
+  ) {
+    return true;
+  }
+
+  // SSH / private keys.
+  if (/^id_(rsa|ed25519|ecdsa|dsa)(\..*)?$/.test(name)) return true;
+
+  // Certificate and keystore material.
+  if (/\.(pem|key|p12|pfx|jks|keystore|p8)$/.test(name)) return true;
+
+  // Names that advertise secrets.
+  if (/(credential|secret|service[-_]?account|private[-_]?key)/.test(name)) return true;
+
+  return false;
 }
 
 /** Resolve `segments` under `root`, returning null if the result escapes the
@@ -213,8 +235,25 @@ export function resolveServerFrame(frame: ServerFrame, repoRoot: string): Mapped
   };
 }
 
+/** True for a loopback hostname — the only place a sourcemap URL may point. */
+function isLoopback(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0.0.0.0";
+}
+
 async function trySourceMap(frame: RawFrame, repoRoot: string): Promise<MappedError | null> {
   const mapUrl = stripQuery(frame.url) + ".map";
+  // SSRF guard: the sourcemap URL is derived from an untrusted stack frame, so
+  // refuse to fetch anything that isn't the local machine (this tool inspects
+  // local dev servers) before a single byte leaves the process.
+  let host: string;
+  try {
+    host = new URL(mapUrl).hostname;
+  } catch {
+    return null;
+  }
+  if (!isLoopback(host)) return null;
+
   let rawMap: DecodedSourceMap;
   try {
     const res = await fetch(mapUrl);

@@ -26,6 +26,7 @@ interface CliOptions {
   failOn?: boolean;
   fuzz?: boolean;
   httpFuzz?: boolean;
+  httpFuzzMutations?: boolean;
   seed: string;
   repro?: boolean;
   reproRuns: string;
@@ -92,6 +93,7 @@ program
   .option("--fail-on", "exit 1 if any crash/error finding is present")
   .option("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)")
   .option("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)")
+  .option("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)")
   .option("--seed <n>", "RNG seed for fuzz", "42")
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
@@ -128,6 +130,7 @@ program
         crashTest: opts.crashTest,
         fuzz: opts.fuzz,
         httpFuzz: opts.httpFuzz,
+        httpFuzzMutations: opts.httpFuzzMutations,
         repro: opts.repro || opts.heal,
         seed: parseInt(opts.seed, 10),
         allowHosts: opts.allowHost ?? [],

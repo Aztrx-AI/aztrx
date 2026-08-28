@@ -16,7 +16,10 @@ inputs:
     description: "GitHub token with `pull-requests: write` scope, used to post the comment."
     required: true
   args:
-    description: "Extra aztrx-cli run flags (see `aztrx-cli run --help`)."
+    description: >-
+      Extra aztrx-cli run flags (see `aztrx-cli run --help`). Whitespace-separated;
+      treated as literal argv (never shell-evaluated). A trusted maintainer input —
+      it comes from this repo's committed workflow, not PR code.
     default: "--fail-on --repro --heal"
     required: false
   working-directory:
@@ -24,15 +27,20 @@ inputs:
     default: "."
     required: false
   install:
-    description: "Command to install dependencies. Set 'false' to skip."
+    description: >-
+      Command to install dependencies. Set 'false' to skip. A trusted maintainer
+      input — it is run as a shell command from this repo's committed workflow.
     default: "npm ci"
     required: false
   aztrx:
     description: "Command used to invoke aztrx-cli. Override to pin a version or a git ref."
-    default: "npx --yes aztrx-cli@0.1.0"
+    default: "npx --yes aztrx-cli@0.1.1"
     required: false
   start-command:
-    description: "Command to boot the dev server in the background (e.g. 'npm run dev')."
+    description: >-
+      Command to boot the dev server in the background (e.g. 'npm run dev'). A
+      trusted maintainer input — it is run as a shell command from this repo's
+      committed workflow.
     default: ""
     required: false
   wait-for:
@@ -106,7 +114,11 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
       run: |
         set +e
-        ${{ inputs.aztrx }} run "${{ inputs.url }}" ${{ inputs.args }} --pr-comment .aztrx/pr-comment.md
+        # Word-split `args` into argv WITHOUT shell-evaluating it — any
+        # metacharacter a consumer smuggles in becomes a literal argument (which
+        # commander rejects) rather than a command.
+        read -r -a AZTRX_ARGS <<< "${{ inputs.args }}"
+        ${{ inputs.aztrx }} run "${{ inputs.url }}" "${AZTRX_ARGS[@]}" --pr-comment .aztrx/pr-comment.md
         code=$?
         echo "exit_code=$code" >> "$GITHUB_OUTPUT"
         echo "comment_path=${{ inputs.working-directory }}/.aztrx/pr-comment.md" >> "$GITHUB_OUTPUT"

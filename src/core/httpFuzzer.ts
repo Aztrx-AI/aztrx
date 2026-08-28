@@ -10,6 +10,11 @@ export interface HttpFuzzOptions {
   /** Hostnames the fuzzer may target — the Node-side self-enforcement of the
    * deny-by-default policy (the browser `networkGuard` only wraps the `Page`). */
   allowHosts?: Set<string>;
+  /** Opt-in for POST/PUT body mutations. Default false: the fuzzer sends only
+   * GET requests (query mutations + hostile GET headers), which can't mutate
+   * server state. Set this to also probe JSON-body type-confusion and method
+   * confusion — only on endpoints you own and trust to be non-destructive. */
+  mutations?: boolean;
 }
 
 // Static assets carry no server-side logic worth mutating — skip them so we
@@ -18,7 +23,7 @@ const STATIC_EXT = /\.(js|mjs|cjs|css|map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|
 
 // Mirror the DOM deny-list (domWalker.ts) at the path level: never throw
 // hostile requests at endpoints that mutate real state — delete, pay, logout, etc.
-const DESTRUCTIVE_PATH = /(delete|remove|logout|sign\s?out|log\s?out|pay|checkout|purchase|buy|unsubscribe|purge|drop|truncate)/i;
+const DESTRUCTIVE_PATH = /(delete|remove|logout|sign\s?out|log\s?out|pay|checkout|purchase|buy|unsubscribe|purge|drop|truncate|confirm|update|orders|users|settings|admin|invite|grant)/i;
 
 const HOSTILE_QUERY: Array<[string, string]> = [
   ["id", "-1"],
@@ -58,7 +63,10 @@ const HOSTILE_HEADERS: Array<[string, string]> = [
 /** Read a response body as text, bounded so a huge (or gzip-bomb) 500 page can't
  * balloon a finding. */
 async function readBodyText(res: { text(): Promise<string> }): Promise<string> {
-  const MAX = 64 * 1024;
+  // Bounded so a huge (or gzip-bomb) 500 page can't balloon a finding. The first
+  // few KB is all a server stack trace / error JSON ever needs — the rest is
+  // noise that only widens the secret-leak surface if it lands in a report.
+  const MAX = 8 * 1024;
   try {
     const text = await res.text();
     return text.length > MAX ? text.slice(0, MAX) + "\n…(truncated)" : text;
@@ -140,7 +148,7 @@ async function collectEndpoints(page: Page, origin: string): Promise<URL[]> {
 }
 
 /** Expand one endpoint into a bounded set of hostile requests. Deterministic. */
-function buildRequests(endpoint: URL): HttpRequestAction[] {
+function buildRequests(endpoint: URL, opts: { mutations?: boolean } = {}): HttpRequestAction[] {
   const reqs: HttpRequestAction[] = [];
   const base = endpoint.toString();
 
@@ -162,21 +170,24 @@ function buildRequests(endpoint: URL): HttpRequestAction[] {
     }
   }
 
-  // Body mutations via method confusion (POST/PUT, never DELETE).
-  for (const body of JSON_BODIES) {
+  // Body mutations via method confusion (POST/PUT, never DELETE). Opt-in: these
+  // mutate server state, so they're off by default (GET-only).
+  if (opts.mutations) {
+    for (const body of JSON_BODIES) {
+      reqs.push({
+        method: "POST",
+        url: base,
+        headers: { "content-type": "application/json" },
+        body,
+      });
+    }
     reqs.push({
-      method: "POST",
+      method: "PUT",
       url: base,
       headers: { "content-type": "application/json" },
-      body,
+      body: "{}",
     });
   }
-  reqs.push({
-    method: "PUT",
-    url: base,
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  });
 
   // Header injection on a plain GET.
   for (const [name, value] of HOSTILE_HEADERS) {
@@ -215,7 +226,7 @@ export async function httpFuzz(
 
   let sent = 0;
   outer: for (const endpoint of endpoints) {
-    for (const req of buildRequests(endpoint)) {
+    for (const req of buildRequests(endpoint, { mutations: opts.mutations })) {
       if (sent >= max) break outer;
 
       const { pathname, search } = new URL(req.url);

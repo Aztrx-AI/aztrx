@@ -11,6 +11,7 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
+import { buildChildEnv } from "./childEnv.js";
 
 /** Auto-detect how the app starts, mirroring `runTests`'s `npm test` convention:
  * prefer `scripts.dev` (no build step), then `scripts.start`. Null when neither
@@ -89,7 +90,9 @@ export async function bootServer(opts: {
   const child = spawn(command, {
     shell: true,
     cwd: worktreeDir,
-    env: { ...process.env, PORT: String(port), CI: "true" },
+    // Minimal allow-list — the booted app is patched PR code; it must not see
+    // the caller's ANTHROPIC_API_KEY or other CI secrets.
+    env: buildChildEnv({ PORT: String(port), CI: "true" }),
     // On POSIX, detach so the server + its children form their own process
     // group — close() can then signal the whole group. Windows can't do group
     // signaling; it relies on `taskkill /T` below instead.

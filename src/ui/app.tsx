@@ -205,7 +205,7 @@ function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
           Aztrx AI
         </Text>
         <Text color={C.dim}> — Runtime Detector</Text>
-        <Text color={C.dim}>   v0.1.0</Text>
+        <Text color={C.dim}>   v0.1.1</Text>
       </Box>
       <Text color={C.dim}>  target  {targetUrl}     repo  {repoRoot}</Text>
       <Text color={C.dim}>  mode    {mode}</Text>

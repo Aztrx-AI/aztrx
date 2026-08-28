@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import type { PatchHunk, TestGateResult } from "./types.js";
+import { buildChildEnv } from "./childEnv.js";
 
 const execFileP = promisify(execFile);
 
@@ -116,7 +117,7 @@ export async function typecheckWorktree(
     const { stdout } = await execFileP(
       process.execPath,
       [tscBin, "--noEmit", "-p", worktreeDir],
-      { cwd: worktreeDir, maxBuffer: 10 * 1024 * 1024 }
+      { cwd: worktreeDir, maxBuffer: 10 * 1024 * 1024, env: buildChildEnv() }
     );
     return { ok: true, ran: true, output: stdout.trim() };
   } catch (e) {
@@ -168,7 +169,9 @@ export async function runTests(
       shell: true,
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, CI: "true" },
+      // Minimal allow-list — never hand the full `process.env` (and its
+      // ANTHROPIC_API_KEY / GH_TOKEN / AWS_* secrets) to untrusted PR test code.
+      env: buildChildEnv({ CI: "true" }),
     });
     return { ran: true, ok: true, command, output: stdout.trim().slice(0, 2000) };
   } catch (e) {

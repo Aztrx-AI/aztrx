@@ -32,6 +32,8 @@ export interface RunOptions {
   /** F5-http: mutate the target origin with hostile HTTP requests (server-side
    * attack surface). Runs after the walk/fuzz pass, before repro/heal. */
   httpFuzz?: boolean;
+  /** With `httpFuzz`, also send POST/PUT body mutations (default: GET-only). */
+  httpFuzzMutations?: boolean;
   repro?: boolean;
   seed?: number;
   allowHosts?: string[];
@@ -126,7 +128,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const emitPhase = (phase: RunPhase, detail?: string) =>
     bus.emit("phase", { phase, detail, ts: Date.now() });
 
-  say(pc.cyan("\nAztrx AI v0.1.0 — Runtime Detector"));
+  say(pc.cyan("\nAztrx AI v0.1.1 — Runtime Detector"));
   say(pc.dim(`Target: ${url}`));
   say(pc.dim(`Repo:   ${repoRoot}`));
   if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
@@ -238,6 +240,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       maxRequests: maxActions,
       dryRun: options.dryRun,
       allowHosts,
+      mutations: options.httpFuzzMutations,
     });
     say(pc.dim(`\nHTTP-fuzzed ${sent} request(s).\n`));
   }

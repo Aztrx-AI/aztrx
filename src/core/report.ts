@@ -2,9 +2,16 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Finding } from "./types.js";
 import { BASE_CSS, SEVERITY_COLOR, seismograph } from "./ui.js";
+import { sanitizeSecrets } from "./heal/redact.js";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** HTML-escape AND scrub secrets — the report renders untrusted stack/snippet
+ * text, so a secret that survives into it must not reach the file. */
+function clean(s: string): string {
+  return escapeHtml(sanitizeSecrets(s));
 }
 
 const SEV_ORDER = ["crash", "error", "warning", "noise"] as const;
@@ -25,13 +32,13 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
   const cards = sorted
     .map((f) => {
       const loc = f.mappedLocation
-        ? `${escapeHtml(f.mappedLocation.filePath)}:${f.mappedLocation.line}:${f.mappedLocation.column}`
+        ? `${clean(f.mappedLocation.filePath)}:${f.mappedLocation.line}:${f.mappedLocation.column}`
         : "";
-      const snippet = f.mappedLocation ? escapeHtml(f.mappedLocation.codeContext) : "";
+      const snippet = f.mappedLocation ? clean(f.mappedLocation.codeContext) : "";
       const serverErr = f.serverError
-        ? `<div class="server">server: ${escapeHtml(f.serverError.message)}</div>` +
+        ? `<div class="server">server: ${clean(f.serverError.message)}</div>` +
           (f.serverError.body
-            ? `<pre class="server-body">${escapeHtml(f.serverError.body)}</pre>`
+            ? `<pre class="server-body">${clean(f.serverError.body)}</pre>`
             : "")
         : "";
       const repro = f.repro
@@ -40,8 +47,8 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
       const steps = f.actionHistory.length
         ? `<details><summary>action history (${f.actionHistory.length})</summary><ol>${f.actionHistory
             .map((a) => {
-              const detail = a.value ? ` <span>${escapeHtml(a.value)}</span>` : "";
-              const sel = a.selectors[0] ? ` ${escapeHtml(a.selectors[0])}` : "";
+              const detail = a.value ? ` <span>${clean(a.value)}</span>` : "";
+              const sel = a.selectors[0] ? ` ${clean(a.selectors[0])}` : "";
               return `<li><code>${escapeHtml(a.type)}${detail}</code>${sel}</li>`;
             })
             .join("")}</ol></details>`
@@ -50,7 +57,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
     <article class="finding">
       <header>
         <span class="sev" style="--sev:${SEVERITY_COLOR[f.severity]}">${escapeHtml(f.severity)}</span>
-        <h2>${escapeHtml(f.rawMessage.split("\n")[0])}</h2>
+        <h2>${clean(f.rawMessage.split("\n")[0])}</h2>
       </header>
       ${loc ? `<div class="loc">${loc}</div>` : ""}
       ${snippet ? `<pre class="snippet">${snippet}</pre>` : ""}
@@ -77,7 +84,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
     <div class="brand-row">
       <h1><span class="brand">aztrx</span> <span class="brand-sub">report</span></h1>
     </div>
-    <div class="target">${escapeHtml(targetUrl)}</div>
+    <div class="target">${clean(targetUrl)}</div>
   </div>
   <div class="bar">
     <span class="count">crash <b class="crash">${counts.crash ?? 0}</b></span>
