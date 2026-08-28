@@ -13,6 +13,9 @@ import { writePrComment } from "./core/pr.js";
 import { writeBadge } from "./core/badge.js";
 import { flushTelemetry } from "./core/telemetry/index.js";
 import { flushCloud } from "./core/cloud/index.js";
+import { summarizeFindings } from "./core/summarize.js";
+import { applyVerifiedPatches } from "./core/heal/apply.js";
+import { promptYesNo } from "./core/prompt.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -50,6 +53,10 @@ interface CliOptions {
   cloudUrl?: string;
   storageState?: string;
   auth?: string;
+  magicFix?: boolean;
+  explain?: boolean;
+  yes?: boolean;
+  lang?: string;
 }
 
 program
@@ -104,6 +111,10 @@ program
   .option("--test-timeout <ms>", "timeout for the heal test gate, ms", "300000")
   .option("--no-test", "skip the test gate during healing")
   .option("--start-command <cmd>", "command to boot the app for server healing (default: auto-detect scripts.dev/scripts.start)")
+  .option("--magic-fix", "find → explain → heal → apply: closed-loop fix with a human-language report and an apply prompt")
+  .option("--explain", "print a human-language summary of the findings (no healing)")
+  .option("-y, --yes", "auto-apply verified fixes without prompting (with --magic-fix)")
+  .option("--lang <en|ru>", "language for the human-language summary", "en")
   .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
   .option("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)")
   .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
@@ -131,11 +142,11 @@ program
         fuzz: opts.fuzz,
         httpFuzz: opts.httpFuzz,
         httpFuzzMutations: opts.httpFuzzMutations,
-        repro: opts.repro || opts.heal,
+        repro: opts.repro || opts.heal || opts.magicFix,
         seed: parseInt(opts.seed, 10),
         allowHosts: opts.allowHost ?? [],
         reproRuns: parseInt(opts.reproRuns, 10),
-        heal: opts.heal,
+        heal: opts.heal || opts.magicFix,
         healModel: opts.healModel,
         healFastModel: opts.healFastModel,
         testCommand: opts.testCommand,
@@ -189,6 +200,37 @@ program
             : path.join(repoRoot, ".aztrx", "badge.svg");
         writeBadge(repoRoot, findings, badgePath);
         console.log(pc.dim(`Badge: ${path.relative(repoRoot, badgePath)}`));
+      }
+
+      // F13 — human-language summary + opt-in apply (the "Senior Rescuer" flow).
+      // The run already printed its structured output; this layer explains it and,
+      // under `--magic-fix`, offers to apply the verified patches so `git diff`
+      // shows the result. Never commits.
+      if (opts.magicFix || opts.explain) {
+        const summary = await summarizeFindings(findings, { lang: opts.lang });
+        console.log("\n" + summary);
+      }
+
+      if (opts.magicFix) {
+        const healed = findings.filter((f) => f.heal?.status === "healed");
+        if (healed.length > 0) {
+          const doApply = await promptYesNo(
+            `Apply ${healed.length} verified fix${healed.length === 1 ? "" : "es"} to the working tree? (y/N)`,
+            { yes: opts.yes }
+          );
+          if (doApply) {
+            const result = applyVerifiedPatches(repoRoot, findings);
+            for (const a of result.applied) {
+              console.log(pc.green("  ✓ applied") + ` ${a.filePath} (${a.hunkCount} edit${a.hunkCount === 1 ? "" : "s"})`);
+            }
+            for (const c of result.conflicts) {
+              console.log(pc.yellow("  ◐ skipped") + ` ${c.filePath}: ${c.error}`);
+            }
+            console.log(pc.dim("  Review with: git diff"));
+          } else {
+            console.log(pc.dim("  Not applied — review the .patch files under .aztrx/heal/."));
+          }
+        }
       }
 
       // Drain any in-flight telemetry uploads (each bounded) before exit, so a
