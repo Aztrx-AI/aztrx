@@ -9,6 +9,7 @@ const spring = { type: "spring" as const, stiffness: 70, damping: 20 };
 
 const INSTALL = "npx aztrx-cli run http://localhost:3000";
 const GITHUB = "https://github.com/DanisChaparov/aztrx";
+const SUPPORT = "https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs";
 
 /* ────────────────────────── primitives ────────────────────────── */
 
@@ -111,6 +112,17 @@ const GitHub = ({ className }: IconProps) => (
   </svg>
 );
 
+const Message = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Icon>
+);
+const Wand = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M12.5 6.5 5 14l5 5 7.5-7.5a2.1 2.1 0 0 0 0-3l-.5-.5a2.1 2.1 0 0 0-3 0Z" />
+  </Icon>
+);
+
 /* ────────────────────────── header ────────────────────────── */
 
 function Mark({ className = "h-7 w-7" }: { className?: string }) {
@@ -138,15 +150,25 @@ function Header() {
           Aztrx <span className="font-medium text-zinc-500">AI</span>
         </span>
       </div>
-      <a
-        href={GITHUB}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
-      >
-        <GitHub className="h-3.5 w-3.5" />
-        GitHub
-      </a>
+      <div className="flex items-center gap-2">
+        <a
+          href={SUPPORT}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
+        >
+          Support
+        </a>
+        <a
+          href={GITHUB}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
+        >
+          <GitHub className="h-3.5 w-3.5" />
+          GitHub
+        </a>
+      </div>
     </header>
   );
 }
@@ -285,11 +307,11 @@ function Magic() {
         <Reveal>
           <Eyebrow>The magic</Eyebrow>
           <h2 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-            One command. Four stages.
+            One command. Find, explain, fix.
           </h2>
           <p className="mt-5 max-w-2xl text-lg text-zinc-400">
             Aztrx AI doesn&apos;t read logs — it drives your app like a hostile user, catches what
-            your error boundary swallows, and hands you a proof, not a stack trace.
+            your error boundary swallows, proves it, explains it in plain language, and fixes it.
           </p>
         </Reveal>
 
@@ -360,6 +382,36 @@ function Magic() {
                 <span>✓ replayed</span>
               </div>
             </div>
+          </BentoCard>
+
+          <BentoCard className="md:col-span-2" delay={0.05}>
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+                  <Message />
+                </div>
+                <h3 className="mt-6 text-xl font-semibold text-white">Human-Language Report</h3>
+                <p className="mt-3 max-w-md text-zinc-400">
+                  <span className="font-mono text-sm">--explain</span> turns a run into a plain-language
+                  summary — what broke, where, and whether a fix is ready. No stack-trace archaeology.
+                </p>
+              </div>
+              <div className="hidden shrink-0 flex-col gap-1 font-mono text-xs text-zinc-500 sm:flex">
+                <span className="text-zinc-200">&quot;found 2 problems&quot;</span>
+                <span>not 40 log lines</span>
+              </div>
+            </div>
+          </BentoCard>
+
+          <BentoCard delay={0.1}>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+              <Wand />
+            </div>
+            <h3 className="mt-6 text-xl font-semibold text-white">One-Click Apply</h3>
+            <p className="mt-3 text-zinc-400">
+              <span className="font-mono text-sm">--magic-fix</span> applies the verified patch to your
+              working tree — <span className="font-mono text-sm">git diff</span> shows the result. No commit.
+            </p>
           </BentoCard>
         </div>
       </div>
@@ -588,6 +640,9 @@ function Footer() {
           <div className="mt-24 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-zinc-500">
             <a href={GITHUB} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               GitHub
+            </a>
+            <a href={SUPPORT} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
+              Support
             </a>
             <a href="#" className="transition-colors hover:text-white">
               Documentation

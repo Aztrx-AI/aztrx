@@ -1,6 +1,6 @@
 # <img src="media/logo.svg" width="28" height="32" alt="Aztrx logo" align="absmiddle" /> Aztrx AI
 
-> **Autonomous runtime stress-tester, deterministic bug minimizer, and self-healing engine for web applications.**
+> **Autonomous runtime stress-tester, deterministic bug minimizer, human-language explainer, and self-healing engine for web applications.**
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg?style=flat-square)](https://nodejs.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
@@ -15,7 +15,8 @@ Aztrx AI drives your web app like a hostile user — clicking, entering boundary
 
 - **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
-- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it.
+- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it. `--magic-fix` takes it one step further and applies the verified patch to your working tree.
+- **Explains in plain language.** `--explain` turns a run's findings into a short, human-language summary — what broke, where, and whether a fix is ready — instead of a wall of stack traces.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
 
 ---
@@ -29,6 +30,8 @@ npx aztrx-cli run http://localhost:3000              # deterministic walk
 npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
 npx aztrx-cli run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
 npx aztrx-cli run http://localhost:3000 --http-fuzz --repro   # server-side 5xx hunt → proof
+npx aztrx-cli run http://localhost:3000 --explain             # human-language summary
+npx aztrx-cli run http://localhost:3000 --magic-fix           # find → explain → heal → apply
 ```
 
 Install it globally:
@@ -63,13 +66,31 @@ Scaffold `aztrx.config.ts`, detect the framework + dev port, and seed `.aztrx/` 
 npx aztrx-cli init
 ```
 
-### 2. Autonomous healing (`--heal`)
+### 2. Autonomous healing (`--heal`) & one-click apply (`--magic-fix`)
 
 Locate the crash, hand the redacted context to an LLM, run a TypeScript check and Playwright validation inside an isolated worktree, and write a verified `.patch` file:
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
 npx aztrx-cli run http://localhost:3000 --fuzz --repro --heal
+```
+
+**One-click heal & apply — `--magic-fix`.** Chains find → explain → heal, then asks
+*"Apply the fix?"* (`y/N`). On yes, the verified patch lands in your working tree —
+`git diff` shows the result. Aztrx still never commits.
+
+```bash
+npx aztrx-cli run http://localhost:3000 --magic-fix
+npx aztrx-cli run http://localhost:3000 --magic-fix --yes   # non-interactive (CI)
+```
+
+**Human-language "X-ray" report — `--explain`.** A short, plain-language summary of
+what was found, where, and whether a fix is ready — instead of a wall of stack
+traces. LLM-powered when `ANTHROPIC_API_KEY` is set, deterministic offline fallback
+otherwise (`--lang ru` for Russian).
+
+```bash
+npx aztrx-cli run http://localhost:3000 --explain
 ```
 
 ### 3. Live studio dashboard
@@ -111,6 +132,10 @@ When the 500 body leaks that server stack, `--heal` can also *fix* it: it boots 
 | `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
 | `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
 | `--heal` | Generate + verify an LLM patch (implies `--repro`) | — |
+| `--magic-fix` | Find → explain → heal → apply (implies `--heal`) | — |
+| `--explain` | Print a human-language summary of the findings | — |
+| `--yes` / `-y` | Auto-apply verified fixes without prompting (with `--magic-fix`) | — |
+| `--lang <code>` | Language for the human-language summary (`en`, `ru`) | `en` |
 | `--upload` | Stream run findings to the cloud ingest backend | — |
 | `--api-key <key>` | Auth key for `--upload` / `--share-data` | `$AZTRX_API_KEY` |
 | `--cloud-url <url>` | Ingest server base URL | `https://api.aztrx.app` |
@@ -183,6 +208,7 @@ Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
 | F10 | `heal/` | Closed-loop healing — redact → generate → AST gate → sandbox → `tsc` → verify |
 | F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuple collection (data flywheel) |
 | F12 | `cloud/` | Opt-in cloud sync — streams sanitized findings to the ingest dashboard |
+| F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" report + opt-in apply of verified patches (`--magic-fix`) |
 
 ---
 
@@ -377,6 +403,10 @@ Full per-case table and scoring notes live in
 - [x] B2B ($29/mo) — Cloud dashboard (api.aztrx.app)
 - [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
 - [x] Server-side healing — heal server `5xx` findings (verify a patch by booting the patched server; requires a leaked server stack + a resolvable start command)
+- [x] Human-language "X-ray" report — `--explain` / `--lang` (LLM + offline fallback)
+- [x] One-click heal & apply — `--magic-fix` (verified patch → working tree, `y/N`, no commit)
+- [ ] Autonomous Swarm — parallel micro-agents attacking endpoints / tests / logic at once
+- [ ] Auth auto-generation — synthesize test tokens / walk login forms (today: replayed `--storage-state` scenarios only)
 
 ## Contributing
 
@@ -392,6 +422,13 @@ node fixtures/serve.mjs &
 node dist/cli.js http://localhost:8901/crash.html --repo fixtures --repro
 # → one ● crash mapped to crash.html:13:15, minimized to 1 step
 ```
+
+## Support the project
+
+If Aztrx AI saved you hours of debugging or helped you ship a clean release, you
+can support the author directly — name a fair price on Polar.sh:
+
+[![Support on Polar.sh](https://img.shields.io/badge/Support-Polar.sh-16161f?style=flat-square)](https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs)
 
 ## License
 
