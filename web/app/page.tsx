@@ -415,7 +415,7 @@ function Magic() {
             </div>
             <h3 className="mt-6 text-xl font-semibold text-white">One-Click Apply</h3>
             <p className="mt-3 text-zinc-400">
-              <span className="font-mono text-sm">--magic-fix</span> applies the verified patch to your
+              <span className="font-mono text-sm">--fix</span> applies the verified patch to your
               working tree — <span className="font-mono text-sm">git diff</span> shows the result. No commit.
             </p>
           </BentoCard>

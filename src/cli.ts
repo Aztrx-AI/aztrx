@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as os from "os";
 import pc from "picocolors";
 import { program } from "commander";
+import { opt, formatHelp } from "./cli/help.js";
 import { run } from "./core/orchestrator.js";
 import type { RunOptions } from "./core/orchestrator.js";
 import { EventBus } from "./core/eventBus.js";
@@ -29,6 +30,36 @@ function collect(value: string, prev: string[]): string[] {
 function autoWorkers(): number {
   const n = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
   return Math.max(1, Math.min(n, 8));
+}
+
+/** Print one low-key "next flag" hint after a run, so users learn the advanced
+ * flags on demand instead of memorizing the whole surface. Fires only in the
+ * plain-log path when there's a finding worth acting on. */
+function suggestNext(
+  findings: Finding[],
+  opts: {
+    repro?: boolean;
+    heal?: boolean;
+    fix?: boolean;
+    magicFix?: boolean;
+    httpFuzz?: boolean;
+    dryRun?: boolean;
+    crashTest?: boolean;
+  },
+): void {
+  if (opts.dryRun || opts.crashTest || findings.length === 0) return;
+
+  const crashOrError = findings.some((f) => f.severity === "crash" || f.severity === "error");
+  const alreadyFixing = opts.heal || opts.fix || opts.magicFix;
+  if (crashOrError && !alreadyFixing) {
+    console.log(pc.dim("Tip: run with --fix to attempt a closed-loop fix, or --repro to prove these with a runnable spec"));
+    return;
+  }
+
+  const serverError = findings.some((f) => f.type === "network_5xx");
+  if (serverError && !opts.httpFuzz) {
+    console.log(pc.dim("Tip: run with --http-fuzz to map the server-side attack surface"));
+  }
 }
 
 interface CliOptions {
@@ -68,6 +99,7 @@ interface CliOptions {
   loginEmail?: string;
   loginPassword?: string;
   loginUrl?: string;
+  fix?: boolean;
   magicFix?: boolean;
   explain?: boolean;
   yes?: boolean;
@@ -131,51 +163,55 @@ program
   .command("run", { isDefault: true })
   .description("inspect a running app and prove its bugs with an executable repro")
   .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
-  .option("--repo <path>", "project root to inspect/watch (default: cwd)")
-  .option("--max-actions <n>", "max actions per pass", "100")
-  .option("--dry-run", "report what would be clicked without clicking")
-  .option("--crash-test", "throw a deliberate error to verify capture")
-  .option("--fail-on", "exit 1 if any crash/error finding is present")
-  .option("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)")
-  .option("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)")
-  .option("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)")
-  .option("--seed <n>", "RNG seed for fuzz", "42")
-  .option("--workers <n>", "number of parallel detection workers (default 1)")
-  .option("--swarm", "auto-size the swarm to the machine's CPU cores (alias: --workers auto)")
-  .option("--repro", "minimize + compile + validate each finding (F7-F9)")
-  .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
-  .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
-  .option("--heal-model <model>", "LLM model for healing — the fallback tier (default claude-sonnet-5)")
-  .option("--heal-fast-model <model>", "fast/cheap first tier for the smart router (default claude-haiku-4-5)")
-  .option("--test-command <cmd>", "test command run against a healed patch (default: npm test, auto-detected)")
-  .option("--test-timeout <ms>", "timeout for the heal test gate, ms", "300000")
-  .option("--no-test", "skip the test gate during healing")
-  .option("--start-command <cmd>", "command to boot the app for server healing (default: auto-detect scripts.dev/scripts.start)")
-  .option("--magic-fix", "find → explain → heal → apply: closed-loop fix with a human-language report and an apply prompt")
-  .option("--explain", "print a human-language summary of the findings (no healing)")
-  .option("-y, --yes", "auto-apply verified fixes without prompting (with --magic-fix)")
-  .option("--lang <en|ru>", "language for the human-language summary", "en")
-  .option("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)")
-  .option("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)")
-  .option("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)")
-  .option("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint")
-  .option("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)")
-  .option("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_API_KEY)")
-  .option("--cloud-url <url>", "override the cloud ingest base URL (default https://api.aztrx.app)")
-  .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
-  .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
-  .option("--auth <path>", "alias for --storage-state")
-  .option("--login", "auto-login before the pass (needs --login-email/--login-password or AZTRX_AUTH_* env)")
-  .option("--login-email <email>", "email for --login (default: $AZTRX_AUTH_EMAIL)")
-  .option("--login-password <pass>", "password for --login (default: $AZTRX_AUTH_PASSWORD)")
-  .option("--login-url <url>", "explicit login page URL for --login (default: current page)")
-  .option("--plain", "disable the live terminal UI, print plain logs (default when piped)")
-  .option("--ui", "force the live terminal UI even when stdout is not a TTY")
+  .configureHelp({ formatHelp })
+  .addOption(opt("--repo <path>", "project root to inspect/watch (default: cwd)", "advanced"))
+  .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
+  .addOption(opt("--dry-run", "report what would be clicked without clicking", "detect"))
+  .addOption(opt("--crash-test", "throw a deliberate error to verify capture", "advanced"))
+  .addOption(opt("--fail-on", "exit 1 if any crash/error finding is present", "ship"))
+  .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)", "detect"))
+  .addOption(opt("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)", "detect"))
+  .addOption(opt("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)", "advanced"))
+  .addOption(opt("--seed <n>", "RNG seed for fuzz", "advanced").default("42"))
+  .addOption(opt("--workers <n>", "number of parallel detection workers (default 1)", "detect"))
+  .addOption(opt("--swarm", "auto-size the swarm to the machine's CPU cores (alias: --workers auto)").hideHelp())
+  .addOption(opt("--repro", "minimize + compile + validate each finding (F7-F9)", "prove"))
+  .addOption(opt("--repro-runs <n>", "replay iterations for the flake-rate gate", "advanced").default("3"))
+  .addOption(opt("--fix", "find → explain → heal → apply: one-command fix", "fix"))
+  .addOption(opt("--heal", "closed-loop healing for crash/error findings (implies --repro)", "fix"))
+  .addOption(opt("--magic-fix", "alias for --fix (deprecated)").hideHelp())
+  .addOption(opt("--heal-model <model>", "LLM model for healing — the fallback tier (default claude-sonnet-5)", "advanced"))
+  .addOption(opt("--heal-fast-model <model>", "fast/cheap first tier for the smart router (default claude-haiku-4-5)", "advanced"))
+  .addOption(opt("--test-command <cmd>", "test command run against a healed patch (default: npm test, auto-detected)", "advanced"))
+  .addOption(opt("--test-timeout <ms>", "timeout for the heal test gate, ms", "advanced").default("300000"))
+  .addOption(opt("--no-test", "skip the test gate during healing", "advanced"))
+  .addOption(opt("--start-command <cmd>", "command to boot the app for server healing (default: auto-detect scripts.dev/scripts.start)", "advanced"))
+  .addOption(opt("--explain", "print a human-language summary of the findings (no healing)", "fix"))
+  .addOption(opt("-y, --yes", "auto-apply verified fixes without prompting (with --fix)", "fix"))
+  .addOption(opt("--lang <en|ru>", "language for the human-language summary", "advanced").default("en"))
+  .addOption(opt("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)", "ship"))
+  .addOption(opt("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)", "ship"))
+  .addOption(opt("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)", "advanced"))
+  .addOption(opt("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint", "advanced"))
+  .addOption(opt("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)", "advanced"))
+  .addOption(opt("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_API_KEY)", "advanced"))
+  .addOption(opt("--cloud-url <url>", "override the cloud ingest base URL (default https://api.aztrx.app)", "advanced"))
+  .addOption(opt("--allow-host <host>", "add a host to the network allow-list (repeatable)", "advanced").argParser(collect).default([]))
+  .addOption(opt("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages", "auth"))
+  .addOption(opt("--auth <path>", "alias for --storage-state").hideHelp())
+  .addOption(opt("--login", "auto-login before the pass (needs AZTRX_AUTH_EMAIL/AZTRX_AUTH_PASSWORD env)", "auth"))
+  .addOption(opt("--login-email <email>", "email for --login (default: $AZTRX_AUTH_EMAIL)").hideHelp())
+  .addOption(opt("--login-password <pass>", "password for --login (default: $AZTRX_AUTH_PASSWORD)").hideHelp())
+  .addOption(opt("--login-url <url>", "explicit login page URL for --login (default: current page)").hideHelp())
+  .addOption(opt("--plain", "disable the live terminal UI, print plain logs (default when piped)", "advanced"))
+  .addOption(opt("--ui", "force the live terminal UI even when stdout is not a TTY", "advanced"))
   .action(
     async (
       url: string,
       opts: CliOptions
     ) => {
+      // `--fix` is the memorable verb; `--magic-fix` is a hidden alias.
+      const magicFix = opts.magicFix || opts.fix;
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
       const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
       const mode =
@@ -197,12 +233,12 @@ program
         fuzz: opts.fuzz,
         httpFuzz: opts.httpFuzz,
         httpFuzzMutations: opts.httpFuzzMutations,
-        repro: opts.repro || opts.heal || opts.magicFix,
+        repro: opts.repro || opts.heal || magicFix,
         seed: parseInt(opts.seed, 10),
         workers,
         allowHosts: opts.allowHost ?? [],
         reproRuns: parseInt(opts.reproRuns, 10),
-        heal: opts.heal || opts.magicFix,
+        heal: opts.heal || magicFix,
         healModel: opts.healModel,
         healFastModel: opts.healFastModel,
         testCommand: opts.testCommand,
@@ -264,14 +300,14 @@ program
 
       // F13 — human-language summary + opt-in apply (the "Senior Rescuer" flow).
       // The run already printed its structured output; this layer explains it and,
-      // under `--magic-fix`, offers to apply the verified patches so `git diff`
+      // under `--fix`, offers to apply the verified patches so `git diff`
       // shows the result. Never commits.
-      if (opts.magicFix || opts.explain) {
+      if (magicFix || opts.explain) {
         const summary = await summarizeFindings(findings, { lang: opts.lang });
         console.log("\n" + summary);
       }
 
-      if (opts.magicFix) {
+      if (magicFix) {
         const healed = findings.filter((f) => f.heal?.status === "healed");
         if (healed.length > 0) {
           const doApply = await promptYesNo(
@@ -291,6 +327,10 @@ program
             console.log(pc.dim("  Not applied — review the .patch files under .aztrx/heal/."));
           }
         }
+      }
+
+      if (!useUi) {
+        suggestNext(findings, opts);
       }
 
       // Drain any in-flight telemetry uploads (each bounded) before exit, so a

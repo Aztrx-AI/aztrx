@@ -15,7 +15,7 @@ Aztrx AI drives your web app like a hostile user — clicking, entering boundary
 
 - **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
-- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it. `--magic-fix` takes it one step further and applies the verified patch to your working tree.
+- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it. `--fix` takes it one step further and applies the verified patch to your working tree.
 - **Explains in plain language.** `--explain` turns a run's findings into a short, human-language summary — what broke, where, and whether a fix is ready — instead of a wall of stack traces.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
 
@@ -31,7 +31,7 @@ npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
 npx aztrx-cli run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
 npx aztrx-cli run http://localhost:3000 --http-fuzz --repro   # server-side 5xx hunt → proof
 npx aztrx-cli run http://localhost:3000 --explain             # human-language summary
-npx aztrx-cli run http://localhost:3000 --magic-fix           # find → explain → heal → apply
+npx aztrx-cli run http://localhost:3000 --fix                 # find → explain → heal → apply
 ```
 
 Install it globally:
@@ -66,7 +66,7 @@ Scaffold `aztrx.config.ts`, detect the framework + dev port, and seed `.aztrx/` 
 npx aztrx-cli init
 ```
 
-### 2. Autonomous healing (`--heal`) & one-click apply (`--magic-fix`)
+### 2. Autonomous healing (`--heal`) & one-click apply (`--fix`)
 
 Locate the crash, hand the redacted context to an LLM, run a TypeScript check and Playwright validation inside an isolated worktree, and write a verified `.patch` file:
 
@@ -75,13 +75,13 @@ export ANTHROPIC_API_KEY="your-api-key"
 npx aztrx-cli run http://localhost:3000 --fuzz --repro --heal
 ```
 
-**One-click heal & apply — `--magic-fix`.** Chains find → explain → heal, then asks
+**One-click heal & apply — `--fix`.** Chains find → explain → heal, then asks
 *"Apply the fix?"* (`y/N`). On yes, the verified patch lands in your working tree —
 `git diff` shows the result. Aztrx still never commits.
 
 ```bash
-npx aztrx-cli run http://localhost:3000 --magic-fix
-npx aztrx-cli run http://localhost:3000 --magic-fix --yes   # non-interactive (CI)
+npx aztrx-cli run http://localhost:3000 --fix
+npx aztrx-cli run http://localhost:3000 --fix --yes   # non-interactive (CI)
 ```
 
 **Human-language "X-ray" report — `--explain`.** A short, plain-language summary of
@@ -172,15 +172,20 @@ npx aztrx-cli modernize src/legacy.js --yes      # apply without prompting
 
 ## CLI reference
 
+`aztrx-cli run --help` is grouped by intent (Detect / Prove / Fix / Report & ship /
+Auth); the table below is the complete reference — including flags hidden from
+`--help` (aliases and niche tuning knobs).
+
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
 | `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
 | `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
 | `--heal` | Generate + verify an LLM patch (implies `--repro`) | — |
-| `--magic-fix` | Find → explain → heal → apply (implies `--heal`) | — |
+| `--fix` | Find → explain → heal → apply — the one-command fix (implies `--heal`) | — |
+| `--magic-fix` | Deprecated alias for `--fix` (hidden) | — |
 | `--explain` | Print a human-language summary of the findings | — |
-| `--yes` / `-y` | Auto-apply verified fixes without prompting (with `--magic-fix`) | — |
+| `--yes` / `-y` | Auto-apply verified fixes without prompting (with `--fix`) | — |
 | `--lang <code>` | Language for the human-language summary (`en`, `ru`) | `en` |
 | `--upload` | Stream run findings to the cloud ingest backend | — |
 | `--api-key <key>` | Auth key for `--upload` / `--share-data` | `$AZTRX_API_KEY` |
@@ -188,7 +193,7 @@ npx aztrx-cli modernize src/legacy.js --yes      # apply without prompting
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
 | `--workers <n>` | Number of parallel detection workers | `1` |
-| `--swarm` | Auto-size the swarm to the machine's CPU cores | — |
+| `--swarm` | Hidden alias for `--workers auto` | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` |
 | `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` |
@@ -202,11 +207,11 @@ npx aztrx-cli modernize src/legacy.js --yes      # apply without prompting
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
-| `--auth <path>` / `--storage-state <path>` | Playwright storage-state for authenticated pages | — |
+| `--storage-state <path>` | Playwright storage-state for authenticated pages (`--auth` is a hidden alias) | — |
 | `--login` | Auto-login before the pass (needs `--login-email`/`--login-password`) | — |
-| `--login-email <email>` | Email for `--login` | `$AZTRX_AUTH_EMAIL` |
-| `--login-password <pass>` | Password for `--login` | `$AZTRX_AUTH_PASSWORD` |
-| `--login-url <url>` | Explicit login page URL for `--login` | current page |
+| `--login-email <email>` | Email for `--login` (hidden — prefer `$AZTRX_AUTH_EMAIL`) | `$AZTRX_AUTH_EMAIL` |
+| `--login-password <pass>` | Password for `--login` (hidden — prefer `$AZTRX_AUTH_PASSWORD`) | `$AZTRX_AUTH_PASSWORD` |
+| `--login-url <url>` | Explicit login page URL for `--login` (hidden) | current page |
 | `--fail-on` | Exit `1` if any crash/error finding is present | — |
 | `--dry-run` | Log planned actions without executing them | — |
 | `--crash-test` | Throw a deliberate error to verify capture | — |
@@ -260,7 +265,7 @@ Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
 | F10 | `heal/` | Closed-loop healing — redact → generate → AST gate → sandbox → `tsc` → verify |
 | F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuple collection (data flywheel) |
 | F12 | `cloud/` | Opt-in cloud sync — streams sanitized findings to the ingest dashboard |
-| F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" report + opt-in apply of verified patches (`--magic-fix`) |
+| F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" report + opt-in apply of verified patches (`--fix`) |
 
 ---
 
@@ -456,7 +461,7 @@ Full per-case table and scoring notes live in
 - [x] Data flywheel — opt-in anonymized patch-tuple collection (F11)
 - [x] Server-side healing — heal server `5xx` findings (verify a patch by booting the patched server; requires a leaked server stack + a resolvable start command)
 - [x] Human-language "X-ray" report — `--explain` / `--lang` (LLM + offline fallback)
-- [x] One-click heal & apply — `--magic-fix` (verified patch → working tree, `y/N`, no commit)
+- [x] One-click heal & apply — `--fix` (verified patch → working tree, `y/N`, no commit)
 - [x] Autonomous Swarm — parallel detection: walk + multi-seed fuzz + http-fuzz workers, merged by fingerprint
 - [x] Auth auto-login — `--login` walks login forms (synthesize test tokens — next)
 - [x] Code modernizer — LLM-rewrite legacy JS/TS (`modernize`; Python — next)

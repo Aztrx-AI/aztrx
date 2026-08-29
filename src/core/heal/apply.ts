@@ -1,7 +1,7 @@
 /**
  * F13 — the only place Aztrx writes a verified patch into the user's *working
  * tree*. Healing itself stays sandboxed (see `index.ts`); this module is the
- * explicit, opt-in "apply" step behind `--magic-fix`, so the recipe's promised
+ * explicit, opt-in "apply" step behind `--fix`, so the recipe's promised
  * `git diff` shows real changes.
  *
  * Rules that keep this safe:

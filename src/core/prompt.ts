@@ -1,5 +1,5 @@
 /**
- * A single yes/no confirmation for `--magic-fix`. Kept tiny and side-effect free:
+ * A single yes/no confirmation for `--fix`. Kept tiny and side-effect free:
  *
  *   - `--yes` short-circuits to `true` (scripts/CI).
  *   - a non-TTY stdout without `--yes` short-circuits to `false` — an unattended
