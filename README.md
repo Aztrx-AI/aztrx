@@ -122,6 +122,25 @@ Every `5xx` finding also captures the server's *own* error response — its mess
 
 When the 500 body leaks that server stack, `--heal` can also *fix* it: it boots the patched app inside the worktree (via `--start-command`, or auto-detected `scripts.dev`/`scripts.start`), waits for an HTTP readiness signal, and replays the repro against the booted server — so a server patch is verified against a *running* app, not a static file. Server findings whose body does not leak a stack are still reported and repro'd but not healed (there is no file to patch).
 
+### 7. Authenticated testing (`--login`)
+
+Auto-login before the pass: Aztrx detects the login form (`input[type="password"]`),
+fills your credentials, and continues — the walk/fuzz and every repro then run
+authenticated. The session is saved to `.aztrx/auth-state.json` (gitignored) and
+reused for replays.
+
+```bash
+npx aztrx-cli run http://localhost:3000 --login \
+  --login-email you@example.com --login-password secret
+
+# or via env:
+AZTRX_AUTH_EMAIL=you@example.com AZTRX_AUTH_PASSWORD=secret \
+  npx aztrx-cli run http://localhost:3000 --login
+```
+
+Point `--login-url` at an explicit login page if the app doesn't redirect to one.
+If login posts to a third-party auth backend, add `--allow-host auth.example.com`.
+
 ---
 
 ## CLI reference
@@ -155,6 +174,10 @@ When the 500 body leaks that server stack, `--heal` can also *fix* it: it boots 
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
 | `--auth <path>` / `--storage-state <path>` | Playwright storage-state for authenticated pages | — |
+| `--login` | Auto-login before the pass (needs `--login-email`/`--login-password`) | — |
+| `--login-email <email>` | Email for `--login` | `$AZTRX_AUTH_EMAIL` |
+| `--login-password <pass>` | Password for `--login` | `$AZTRX_AUTH_PASSWORD` |
+| `--login-url <url>` | Explicit login page URL for `--login` | current page |
 | `--fail-on` | Exit `1` if any crash/error finding is present | — |
 | `--dry-run` | Log planned actions without executing them | — |
 | `--crash-test` | Throw a deliberate error to verify capture | — |
