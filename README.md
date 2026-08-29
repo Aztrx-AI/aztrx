@@ -154,6 +154,20 @@ npx aztrx-cli run http://localhost:3000 --workers 4          # explicit count
 npx aztrx-cli run http://localhost:3000 --swarm --http-fuzz  # + server-side attacks
 ```
 
+### 9. Code modernizer (`modernize`)
+
+Rewrite a legacy JS/TS file into modern idiomatic syntax — `var` → `const`/`let`,
+callbacks and promise chains → `async`/`await`, arrow functions — while preserving
+behavior. The output is re-parsed before you ever see it, and applied only after you
+confirm (never automatically).
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+npx aztrx-cli modernize src/legacy.js            # review the changes, then y/N
+npx aztrx-cli modernize src/legacy.js --yes      # apply without prompting
+# → review with: git diff src/legacy.js
+```
+
 ---
 
 ## CLI reference
@@ -444,7 +458,8 @@ Full per-case table and scoring notes live in
 - [x] Human-language "X-ray" report — `--explain` / `--lang` (LLM + offline fallback)
 - [x] One-click heal & apply — `--magic-fix` (verified patch → working tree, `y/N`, no commit)
 - [x] Autonomous Swarm — parallel detection: walk + multi-seed fuzz + http-fuzz workers, merged by fingerprint
-- [ ] Auth auto-generation — synthesize test tokens / walk login forms (today: replayed `--storage-state` scenarios only)
+- [x] Auth auto-login — `--login` walks login forms (synthesize test tokens — next)
+- [x] Code modernizer — LLM-rewrite legacy JS/TS (`modernize`; Python — next)
 
 ## Contributing
 
