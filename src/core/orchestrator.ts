@@ -1,9 +1,11 @@
 import * as path from "path";
+import * as fs from "fs";
 import { chromium } from "playwright";
 import pc from "picocolors";
 import { EventBus } from "./eventBus.js";
 import type { RunPhase } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
+import { establishLogin } from "./auth.js";
 import { SignalClassifier, loadBaseline } from "./classifier.js";
 import { ActionRecorder } from "./recorder.js";
 import { walkDom } from "./domWalker.js";
@@ -41,6 +43,12 @@ export interface RunOptions {
   /** Path to a Playwright storage-state JSON (cookies + localStorage) so the
    * session starts authenticated. Produced by `playwright codegen --save-storage`. */
   storageState?: string;
+  /** F-auth: auto-login before the pass. Needs `loginEmail` + `loginPassword`. */
+  login?: boolean;
+  loginEmail?: string;
+  loginPassword?: string;
+  /** Explicit login page URL (default: the current page, after any auth-wall redirect). */
+  loginUrl?: string;
   /** F10: attempt closed-loop healing for crash/error findings. Needs
    * `ANTHROPIC_API_KEY` (or an injected patchFn) and `repro: true`. */
   heal?: boolean;
@@ -217,6 +225,29 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     await page.waitForTimeout(2000);
   }
 
+  // F-auth — optional auto-login. Establishes a session before the pass and
+  // reuses the captured storage-state for the repro pipeline so replays run
+  // authenticated too. Best-effort: a failed login logs a warning, never aborts.
+  let replayStorageState = options.storageState;
+  if (loaded && options.login && options.loginEmail && options.loginPassword) {
+    const res = await establishLogin(page, {
+      email: options.loginEmail,
+      password: options.loginPassword,
+      loginUrl: options.loginUrl,
+    });
+    if (res.ok) {
+      const state = await context.storageState();
+      const authStatePath = path.join(repoRoot, ".aztrx", "auth-state.json");
+      fs.mkdirSync(path.dirname(authStatePath), { recursive: true });
+      fs.writeFileSync(authStatePath, JSON.stringify(state, null, 2), "utf-8");
+      replayStorageState = authStatePath;
+      say(pc.dim(`  [auth] logged in → ${path.relative(repoRoot, authStatePath)}`));
+      await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
+    } else {
+      say(pc.yellow(`  [auth] skipped: ${res.reason}`));
+    }
+  }
+
   if (loaded && options.crashTest) {
     await page.evaluate(() => {
       setTimeout(() => {
@@ -255,7 +286,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (options.repro) {
     const engine = new ReplayEngine({
       attachGuard: async (p) => attachNetworkGuard(p, { allowHosts }),
-      storageState: options.storageState,
+      storageState: replayStorageState,
     });
     try {
       const targets = findings.filter(

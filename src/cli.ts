@@ -53,6 +53,10 @@ interface CliOptions {
   cloudUrl?: string;
   storageState?: string;
   auth?: string;
+  login?: boolean;
+  loginEmail?: string;
+  loginPassword?: string;
+  loginUrl?: string;
   magicFix?: boolean;
   explain?: boolean;
   yes?: boolean;
@@ -125,6 +129,10 @@ program
   .option("--allow-host <host>", "add a host to the network allow-list (repeatable)", collect, [])
   .option("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages")
   .option("--auth <path>", "alias for --storage-state")
+  .option("--login", "auto-login before the pass (needs --login-email/--login-password or AZTRX_AUTH_* env)")
+  .option("--login-email <email>", "email for --login (default: $AZTRX_AUTH_EMAIL)")
+  .option("--login-password <pass>", "password for --login (default: $AZTRX_AUTH_PASSWORD)")
+  .option("--login-url <url>", "explicit login page URL for --login (default: current page)")
   .option("--plain", "disable the live terminal UI, print plain logs (default when piped)")
   .option("--ui", "force the live terminal UI even when stdout is not a TTY")
   .action(
@@ -159,6 +167,10 @@ program
         apiKey: opts.apiKey,
         cloudUrl: opts.cloudUrl,
         storageState: opts.storageState ?? opts.auth,
+        login: opts.login,
+        loginEmail: opts.loginEmail ?? process.env.AZTRX_AUTH_EMAIL,
+        loginPassword: opts.loginPassword ?? process.env.AZTRX_AUTH_PASSWORD,
+        loginUrl: opts.loginUrl,
       };
       const failOn = Boolean(opts.failOn);
       const useUi = !opts.plain && (process.stdout.isTTY === true || opts.ui === true);
