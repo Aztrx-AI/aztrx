@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "path";
+import * as fs from "fs";
 import * as os from "os";
 import pc from "picocolors";
 import { program } from "commander";
@@ -17,6 +18,7 @@ import { flushCloud } from "./core/cloud/index.js";
 import { summarizeFindings } from "./core/summarize.js";
 import { applyVerifiedPatches } from "./core/heal/apply.js";
 import { promptYesNo } from "./core/prompt.js";
+import { modernizeFile } from "./core/modernize.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -100,6 +102,29 @@ program
   .option("--port <n>", "port to listen on", "7331")
   .action((opts: { port: string }) => {
     startStudio({ repoRoot: path.resolve(program.opts().repo as string), port: parseInt(opts.port, 10) });
+  });
+
+program
+  .command("modernize")
+  .description("rewrite a legacy JS/TS file into modern idiomatic syntax (LLM)")
+  .argument("<file>", "path to the file to modernize")
+  .option("-y, --yes", "apply without prompting")
+  .action(async (file: string, opts: { yes?: boolean }) => {
+    const repoRoot = path.resolve(program.opts().repo as string);
+    const rel = path.relative(repoRoot, path.resolve(file));
+    const res = await modernizeFile(repoRoot, file);
+    if (!res.ok) {
+      console.error(pc.red("modernize failed:") + ` ${res.error}`);
+      process.exit(1);
+    }
+    for (const c of res.changes) console.log(pc.green("  ✓") + ` ${c}`);
+    const doApply = await promptYesNo(`Apply modernized version to ${rel}? (y/N)`, { yes: opts.yes });
+    if (doApply) {
+      fs.writeFileSync(path.resolve(file), res.modernized as string, "utf-8");
+      console.log(pc.dim(`  Applied → review with: git diff ${rel}`));
+    } else {
+      console.log(pc.dim("  Not applied."));
+    }
   });
 
 program
