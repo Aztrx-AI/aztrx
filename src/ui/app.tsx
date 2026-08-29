@@ -18,6 +18,7 @@ const C = {
 
 const PHASE_LABEL: Record<RunPhase, { text: string; color: string }> = {
   launch: { text: "◉ launching browser…", color: C.azure },
+  swarm: { text: "◉ swarm (parallel workers)…", color: C.azure },
   walk: { text: "◉ walking the DOM…", color: C.azure },
   fuzz: { text: "◉ fuzzing (chaos)…", color: C.azure },
   "http-fuzz": { text: "◉ fuzzing (HTTP mutations)…", color: C.azure },

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "path";
+import * as os from "os";
 import pc from "picocolors";
 import { program } from "commander";
 import { run } from "./core/orchestrator.js";
@@ -22,6 +23,12 @@ function collect(value: string, prev: string[]): string[] {
   return prev;
 }
 
+/** Auto-size the swarm to the machine's CPU cores, capped so we never oversubscribe. */
+function autoWorkers(): number {
+  const n = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  return Math.max(1, Math.min(n, 8));
+}
+
 interface CliOptions {
   maxActions: string;
   dryRun?: boolean;
@@ -31,6 +38,8 @@ interface CliOptions {
   httpFuzz?: boolean;
   httpFuzzMutations?: boolean;
   seed: string;
+  workers?: string;
+  swarm?: boolean;
   repro?: boolean;
   reproRuns: string;
   allowHost?: string[];
@@ -106,6 +115,8 @@ program
   .option("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)")
   .option("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)")
   .option("--seed <n>", "RNG seed for fuzz", "42")
+  .option("--workers <n>", "number of parallel detection workers (default 1)")
+  .option("--swarm", "auto-size the swarm to the machine's CPU cores (alias: --workers auto)")
   .option("--repro", "minimize + compile + validate each finding (F7-F9)")
   .option("--repro-runs <n>", "replay iterations for the flake-rate gate", "3")
   .option("--heal", "closed-loop healing for crash/error findings (implies --repro)")
@@ -141,6 +152,17 @@ program
       opts: CliOptions
     ) => {
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
+      const mode =
+        (workers ?? 1) > 1 || opts.httpFuzz
+          ? `swarm (${workers ?? 1} worker${(workers ?? 1) === 1 ? "" : "s"})`
+          : opts.fuzz
+            ? `fuzz (seed ${opts.seed})`
+            : opts.heal
+              ? "repro → heal"
+              : opts.repro
+                ? "repro"
+                : "deterministic walk";
       const runOpts: RunOptions = {
         url,
         repoRoot,
@@ -152,6 +174,7 @@ program
         httpFuzzMutations: opts.httpFuzzMutations,
         repro: opts.repro || opts.heal || opts.magicFix,
         seed: parseInt(opts.seed, 10),
+        workers,
         allowHosts: opts.allowHost ?? [],
         reproRuns: parseInt(opts.reproRuns, 10),
         heal: opts.heal || opts.magicFix,
@@ -184,7 +207,7 @@ program
           done: runPromise,
           targetUrl: url,
           repoRoot,
-          mode: opts.fuzz ? `fuzz (seed ${opts.seed})` : opts.httpFuzz ? "http fuzz" : opts.heal ? "repro → heal" : opts.repro ? "repro" : "deterministic walk",
+          mode,
         });
         try {
           findings = await runPromise;

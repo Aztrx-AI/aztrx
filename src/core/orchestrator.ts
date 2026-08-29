@@ -1,18 +1,10 @@
 import * as path from "path";
-import * as fs from "fs";
-import { chromium } from "playwright";
 import pc from "picocolors";
 import { EventBus } from "./eventBus.js";
 import type { RunPhase } from "./eventBus.js";
-import { attachInterceptor } from "./interceptor.js";
-import { establishLogin } from "./auth.js";
-import { SignalClassifier, loadBaseline } from "./classifier.js";
-import { ActionRecorder } from "./recorder.js";
-import { walkDom } from "./domWalker.js";
-import { fuzz } from "./fuzzer.js";
-import { httpFuzz } from "./httpFuzzer.js";
+import { loadBaseline } from "./classifier.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
-import { resolveFrame, resolveServerFrame } from "./resolver.js";
+import { swarmDetect } from "./swarm.js";
 import { ReplayEngine } from "./replay.js";
 import { minimize } from "./minimizer.js";
 import { writeSpec } from "./specCompiler.js";
@@ -22,7 +14,7 @@ import { RunLog } from "./events.js";
 import { heal } from "./heal/index.js";
 import { submitTelemetry } from "./telemetry/index.js";
 import { submitRun } from "./cloud/index.js";
-import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
+import type { Finding } from "./types.js";
 
 export interface RunOptions {
   url: string;
@@ -38,6 +30,8 @@ export interface RunOptions {
   httpFuzzMutations?: boolean;
   repro?: boolean;
   seed?: number;
+  /** F-swarm: number of parallel detection workers (default 1). `--swarm` = auto. */
+  workers?: number;
   allowHosts?: string[];
   reproRuns?: number;
   /** Path to a Playwright storage-state JSON (cookies + localStorage) so the
@@ -107,6 +101,7 @@ function printFinding(f: Finding, write: (s: string) => void): void {
 
 /** Human-readable run mode, surfaced in the cloud dashboard. */
 function runMode(o: RunOptions): string {
+  if ((o.workers ?? 1) > 1) return `swarm (${o.workers} workers)`;
   if (o.fuzz) return `fuzz (seed ${o.seed ?? 42})`;
   if (o.httpFuzz) return "http fuzz";
   if (o.heal) return "repro → heal";
@@ -125,7 +120,7 @@ function runMode(o: RunOptions): string {
 export async function run(options: RunOptions): Promise<Finding[]> {
   const { url, repoRoot } = options;
   const maxActions = options.maxActions ?? 100;
-  const guardOn = Boolean(options.fuzz || options.repro);
+  const guardOn = Boolean(options.fuzz || options.repro || (options.workers ?? 1) > 1);
   const allowHosts = allowHostsFrom(url, options.allowHosts ?? []);
   const ui = options.ui === true;
   const bus = options.bus ?? new EventBus();
@@ -147,139 +142,66 @@ export async function run(options: RunOptions): Promise<Finding[]> {
 
   emitPhase("launch", url);
 
-  const classifier = new SignalClassifier(await loadBaseline(repoRoot));
-  const recorder = new ActionRecorder();
   const runLog = new RunLog(repoRoot);
   runLog.reset();
   runLog.append({ type: "run_start", url, ts: Date.now() });
 
-  bus.on("action", (a: RecordedAction) => recorder.record(a));
-  bus.on("telemetry", async (payload: TelemetryErrorPayload) => {
-    const finding = classifier.classify(payload);
-    if (!finding) return;
-    finding.actionHistory = recorder.snapshot();
-    if (finding.severity === "noise") {
-      bus.emit("noise", { ts: Date.now() });
-      return;
-    }
-    runLog.append({ type: "finding", finding });
+  const baseline = await loadBaseline(repoRoot);
+  const workers = options.workers ?? 1;
 
-    if (payload.serverError) {
-      finding.serverError = { message: payload.serverError.message, body: payload.serverError.body };
-    }
+  // F-swarm — parallel detection. One worker is the legacy pass; `--http-fuzz`
+  // or `workers > 1` fan out into a swarm. Findings come back merged by
+  // fingerprint, with per-worker action history already attached.
+  if (workers > 1 || options.httpFuzz) {
+    emitPhase("swarm", `${workers} worker(s)`);
+  } else if (options.fuzz) {
+    emitPhase("fuzz");
+  } else {
+    emitPhase("walk");
+  }
 
-    if (payload.url && payload.line) {
-      const resolved = await resolveFrame(
-        { url: payload.url, line: payload.line, column: payload.column ?? 0, message: payload.rawMessage },
-        repoRoot
-      );
-      finding.mappedLocation = {
-        filePath: resolved.sourceFile,
-        line: resolved.line,
-        column: resolved.column,
-        codeContext: resolved.codeSnippet,
-        isOwnCode: resolved.resolvedFrom !== "unresolved",
-      };
-    } else if (payload.serverError?.frame) {
-      const resolved = resolveServerFrame(payload.serverError.frame, repoRoot);
-      finding.mappedLocation = {
-        filePath: resolved.sourceFile,
-        line: resolved.line,
-        column: resolved.column,
-        codeContext: resolved.codeSnippet,
-        isOwnCode: resolved.resolvedFrom !== "unresolved",
-      };
-    }
-    bus.emit("finding", finding);
-    printFinding(finding, say);
+  const {
+    findings,
+    replayStorageState: swarmAuthState,
+    totalActions,
+    workerCount,
+  } = await swarmDetect({
+    url,
+    repoRoot,
+    maxActions,
+    dryRun: options.dryRun,
+    fuzz: options.fuzz,
+    httpFuzz: options.httpFuzz,
+    httpFuzzMutations: options.httpFuzzMutations,
+    seed: options.seed ?? 42,
+    workers,
+    allowHosts,
+    storageState: options.storageState,
+    login: options.login,
+    loginEmail: options.loginEmail,
+    loginPassword: options.loginPassword,
+    loginUrl: options.loginUrl,
+    crashTest: options.crashTest,
+    baseline,
+    guardOn,
+    log: say,
   });
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext(
-    options.storageState ? { storageState: options.storageState } : {}
-  );
-  const page = await context.newPage();
-  attachInterceptor(page, bus);
-  if (guardOn) {
-    await attachNetworkGuard(page, {
-      allowHosts,
-      onBlock: (u) => say(pc.dim(`  [guard] blocked ${u}`)),
-    });
-  }
-  page.on("framenavigated", (frame) => {
-    if (frame === page.mainFrame()) bus.emit("route", { url: frame.url(), ts: Date.now() });
-  });
+  // Replays reuse the swarm-captured auth state, or the explicit --storage-state.
+  const replayStorageState = swarmAuthState ?? options.storageState;
 
-  let loaded = true;
-  await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch((e) => {
-    loaded = false;
-    say(pc.red("Failed to load target: ") + pc.dim(e.message));
-  });
-
-  if (loaded) {
-    // Settle: wait for hydration and mount-time effects (async fetches,
-    // unhandled rejections, React warnings) to fire before we act. A page whose
-    // only bugs are mount-time would otherwise be closed before they happen —
-    // and a page with no interactive elements fuzzes zero actions, so it relies
-    // on this window.
-    await page.waitForTimeout(2000);
+  // Surface the merged findings to the live panel, run log, and console.
+  for (const f of findings) {
+    bus.emit("finding", f);
+    runLog.append({ type: "finding", finding: f });
+    printFinding(f, say);
   }
 
-  // F-auth — optional auto-login. Establishes a session before the pass and
-  // reuses the captured storage-state for the repro pipeline so replays run
-  // authenticated too. Best-effort: a failed login logs a warning, never aborts.
-  let replayStorageState = options.storageState;
-  if (loaded && options.login && options.loginEmail && options.loginPassword) {
-    const res = await establishLogin(page, {
-      email: options.loginEmail,
-      password: options.loginPassword,
-      loginUrl: options.loginUrl,
-    });
-    if (res.ok) {
-      const state = await context.storageState();
-      const authStatePath = path.join(repoRoot, ".aztrx", "auth-state.json");
-      fs.mkdirSync(path.dirname(authStatePath), { recursive: true });
-      fs.writeFileSync(authStatePath, JSON.stringify(state, null, 2), "utf-8");
-      replayStorageState = authStatePath;
-      say(pc.dim(`  [auth] logged in → ${path.relative(repoRoot, authStatePath)}`));
-      await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
-    } else {
-      say(pc.yellow(`  [auth] skipped: ${res.reason}`));
-    }
+  if (workerCount > 1) {
+    say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} worker(s).\n`));
+  } else {
+    say(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${totalActions} action(s).\n`));
   }
-
-  if (loaded && options.crashTest) {
-    await page.evaluate(() => {
-      setTimeout(() => {
-        throw new Error("Aztrx test: Cannot read properties of undefined (reading 'token')");
-      }, 300);
-    });
-    await page.waitForTimeout(800);
-  }
-
-  if (loaded) {
-    emitPhase(options.fuzz ? "fuzz" : "walk");
-    const acted = options.fuzz
-      ? await fuzz(page, bus, { seed: options.seed, maxActions, dryRun: options.dryRun })
-      : await walkDom(page, bus, { maxActions, dryRun: options.dryRun });
-    say(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${acted} action(s).\n`));
-  }
-
-  if (loaded && options.httpFuzz) {
-    emitPhase("http-fuzz");
-    const sent = await httpFuzz(page, url, bus, {
-      maxRequests: maxActions,
-      dryRun: options.dryRun,
-      allowHosts,
-      mutations: options.httpFuzzMutations,
-    });
-    say(pc.dim(`\nHTTP-fuzzed ${sent} request(s).\n`));
-  }
-
-  await page.waitForTimeout(500);
-  await browser.close();
-
-  const findings = classifier.findings();
 
   // F7 → F8 → F9: minimize each finding, compile an executable spec, validate
   // the flake rate. Only crash/error findings with a recorded action history.
