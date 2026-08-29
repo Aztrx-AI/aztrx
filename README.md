@@ -428,7 +428,7 @@ node dist/cli.js http://localhost:8901/crash.html --repo fixtures --repro
 If Aztrx AI saved you hours of debugging or helped you ship a clean release, you
 can support the author directly — name a fair price on Polar.sh:
 
-[![Support on Polar.sh](https://img.shields.io/badge/Support-Polar.sh-16161f?style=flat-square)](https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs)
+**[Donate on Polar.sh →](https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs)**
 
 ## License
 

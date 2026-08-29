@@ -122,6 +122,11 @@ const Wand = ({ className }: IconProps) => (
     <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M12.5 6.5 5 14l5 5 7.5-7.5a2.1 2.1 0 0 0 0-3l-.5-.5a2.1 2.1 0 0 0-3 0Z" />
   </Icon>
 );
+const Heart = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+  </Icon>
+);
 
 /* ────────────────────────── header ────────────────────────── */
 
@@ -157,6 +162,7 @@ function Header() {
           rel="noreferrer"
           className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
         >
+          <Heart className="h-3.5 w-3.5" />
           Support
         </a>
         <a
