@@ -1,16 +1,35 @@
 {
   "name": "aztrx-cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "description": "Aztrx AI — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "license": "Apache-2.0",
   "author": "Danis Chaparov <d.chaparov@gmail.com>",
   "type": "module",
-  "bin": { "aztrx-cli": "dist/cli.js" },
+  "bin": {
+    "aztrx-cli": "dist/cli.js"
+  },
   "main": "dist/core/orchestrator.js",
-  "files": ["dist", "README.md", "LICENSE", "media"],
-  "engines": { "node": ">=18" },
-  "keywords": ["testing", "playwright", "stress-test", "fuzzing", "web-app", "debugging", "repro", "qa", "e2e"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "media"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "testing",
+    "playwright",
+    "stress-test",
+    "fuzzing",
+    "web-app",
+    "debugging",
+    "repro",
+    "qa",
+    "e2e"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/DanisChaparov/aztrx.git"

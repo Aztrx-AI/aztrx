@@ -261,7 +261,7 @@ jobs:
             sleep 2
           done
       - name: Generate badge
-        run: npx --yes aztrx-cli@0.1.1 run http://localhost:3000 --badge badge.svg
+        run: npx --yes aztrx-cli@0.2.0 run http://localhost:3000 --badge badge.svg
       - name: Commit badge
         run: |
           git config user.name "github-actions[bot]"
@@ -320,7 +320,7 @@ LLM call.
   CORS.
 - **`.aztrx/` is gitignored** on `init` — repro specs, reports, and patches stay
   out of history.
-- **Pinned supply chain.** The GitHub Action pins `aztrx-cli@0.1.1` (never
+- **Pinned supply chain.** The GitHub Action pins `aztrx-cli@0.2.0` (never
   `@latest`).
 
 ## Telemetry & privacy
