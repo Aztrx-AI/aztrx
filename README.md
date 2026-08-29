@@ -141,6 +141,19 @@ AZTRX_AUTH_EMAIL=you@example.com AZTRX_AUTH_PASSWORD=secret \
 Point `--login-url` at an explicit login page if the app doesn't redirect to one.
 If login posts to a third-party auth backend, add `--allow-host auth.example.com`.
 
+### 8. Swarm — parallel detection (`--swarm` / `--workers`)
+
+Fan out detection into a swarm of workers that attack different sides at once — a
+deterministic walk, several chaos-fuzz seeds, and the server-side HTTP fuzzer —
+each in its own isolated context. Findings are merged by fingerprint (deduped,
+occurrences summed), then repro/heal run on the merged set as usual.
+
+```bash
+npx aztrx-cli run http://localhost:3000 --swarm              # auto-size to CPU cores
+npx aztrx-cli run http://localhost:3000 --workers 4          # explicit count
+npx aztrx-cli run http://localhost:3000 --swarm --http-fuzz  # + server-side attacks
+```
+
 ---
 
 ## CLI reference
@@ -160,6 +173,8 @@ If login posts to a third-party auth backend, add `--allow-host auth.example.com
 | `--cloud-url <url>` | Ingest server base URL | `https://api.aztrx.app` |
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
+| `--workers <n>` | Number of parallel detection workers | `1` |
+| `--swarm` | Auto-size the swarm to the machine's CPU cores | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` |
 | `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` |
@@ -428,7 +443,7 @@ Full per-case table and scoring notes live in
 - [x] Server-side healing — heal server `5xx` findings (verify a patch by booting the patched server; requires a leaked server stack + a resolvable start command)
 - [x] Human-language "X-ray" report — `--explain` / `--lang` (LLM + offline fallback)
 - [x] One-click heal & apply — `--magic-fix` (verified patch → working tree, `y/N`, no commit)
-- [ ] Autonomous Swarm — parallel micro-agents attacking endpoints / tests / logic at once
+- [x] Autonomous Swarm — parallel detection: walk + multi-seed fuzz + http-fuzz workers, merged by fingerprint
 - [ ] Auth auto-generation — synthesize test tokens / walk login forms (today: replayed `--storage-state` scenarios only)
 
 ## Contributing
