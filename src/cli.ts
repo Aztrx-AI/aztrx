@@ -52,7 +52,11 @@ function suggestNext(
   const crashOrError = findings.some((f) => f.severity === "crash" || f.severity === "error");
   const alreadyFixing = opts.heal || opts.fix || opts.magicFix;
   if (crashOrError && !alreadyFixing) {
-    console.log(pc.dim("Tip: run with --fix to attempt a closed-loop fix, or --repro to prove these with a runnable spec"));
+    if (opts.repro) {
+      console.log(pc.dim("Tip: run with --fix to attempt a closed-loop fix"));
+    } else {
+      console.log(pc.dim("Tip: run with --repro to prove these with a runnable spec, or --fix to fix them end-to-end"));
+    }
     return;
   }
 
