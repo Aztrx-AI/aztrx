@@ -11,170 +11,113 @@ Aztrx AI drives your web app like a hostile user — clicking, entering boundary
 
 ---
 
-## Why Aztrx AI
-
-- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object, so a crash you've never seen in your logs becomes a finding you can't ignore.
-- **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
-- **Heals, not just finds.** `--heal` generates a patch through an LLM, gates it (redaction + AST safety), compiles it, runs your test suite, and replays it against the repro inside an isolated git worktree — the patch is verified before a human ever sees it. `--fix` takes it one step further and applies the verified patch to your working tree.
-- **Explains in plain language.** `--explain` turns a run's findings into a short, human-language summary — what broke, where, and whether a fix is ready — instead of a wall of stack traces.
-- **Safe by default.** A deny-by-default network guard blocks off-origin calls, and a destructive-action deny-list refuses to click "delete", "pay", or "logout".
-
----
-
-## Quickstart
-
-Run against any running local dev server — no install, no repo clone:
+## Run it
 
 ```bash
-npx aztrx-cli run http://localhost:3000              # deterministic walk
-npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
-npx aztrx-cli run http://localhost:3000 --fuzz --repro   # + minimize → compile → validate
-npx aztrx-cli run http://localhost:3000 --http-fuzz --repro   # server-side 5xx hunt → proof
-npx aztrx-cli run http://localhost:3000 --explain             # human-language summary
-npx aztrx-cli run http://localhost:3000 --fix                 # find → explain → heal → apply
+npx aztrx-cli run http://localhost:3000
 ```
 
-Install it globally:
+That's the whole setup — no install, no config, no account, no API key. Point it at your
+running dev server and it finds the crashes. It drives Chromium through Playwright (the
+first run downloads the browser automatically).
+
+What that one command gives you:
+
+- **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx AI reads the real throw-site stack off the `Error` object — a crash you've never seen in your logs becomes a finding you can't ignore.
+- **Proves, not reports.** Every crash/error finding ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 5/5]`, `[flaky 3/5]`, or `[unreliable]`.
+- **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
+
+More ways to run — all optional flags on top of the same command:
+
+```bash
+npx aztrx-cli run http://localhost:3000 --fuzz       # seeded chaos (replayable)
+npx aztrx-cli run http://localhost:3000 --repro      # minimize → compile → validate
+npx aztrx-cli run http://localhost:3000 --http-fuzz  # server-side 5xx hunt
+```
+
+Prefer a global install?
 
 ```bash
 npm i -g aztrx-cli
-aztrx-cli run http://localhost:3000 --repro
+aztrx-cli run http://localhost:3000
 ```
-
-Or install from source (contributors):
-
-```bash
-git clone https://github.com/DanisChaparov/aztrx
-cd aztrx
-npm install
-npm run build
-npm link        # puts `aztrx-cli` on your PATH
-```
-
-Aztrx AI drives Chromium through Playwright — the first run downloads the browser
-automatically (`npx playwright install chromium` to force it).
 
 ---
 
-## Features & Workflows
+## Fix it, not just find it
 
-### 1. Initialize configuration
-
-Scaffold `aztrx.config.ts`, detect the framework + dev port, and seed `.aztrx/` into `.gitignore`:
-
-```bash
-npx aztrx-cli init
-```
-
-### 2. Autonomous healing (`--heal`) & one-click apply (`--fix`)
-
-Locate the crash, hand the redacted context to an LLM, run a TypeScript check and Playwright validation inside an isolated worktree, and write a verified `.patch` file:
+The only feature that needs a key. `--fix` hands the crash to an LLM and applies a
+verified patch to your working tree. Set `ANTHROPIC_API_KEY` and run:
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
-npx aztrx-cli run http://localhost:3000 --fuzz --repro --heal
+npx aztrx-cli run http://localhost:3000 --fix          # find → explain → heal → apply
+npx aztrx-cli run http://localhost:3000 --fix --yes    # non-interactive (CI)
 ```
 
-**One-click heal & apply — `--fix`.** Chains find → explain → heal, then asks
-*"Apply the fix?"* (`y/N`). On yes, the verified patch lands in your working tree —
-`git diff` shows the result. Aztrx still never commits.
+`--fix` chains find → explain → heal, then asks *"Apply the fix?"* (`y/N`). On yes, the
+verified patch lands in your working tree — `git diff` shows the result. Aztrx AI never
+commits.
+
+- **`--heal`** — the same pipeline, but stops at a verified `.patch` file (no apply).
+- **`--explain`** — a human-language "X-ray" summary of what broke, where, and whether a fix is ready. No key required: it falls back to a deterministic offline summary.
+
+Every patch is redacted, sandboxed in a detached git worktree, compiler-checked, and gated
+on your own test suite before you ever see it.
+
+---
+
+## Advanced
+
+Everything else is optional. One line each — the full table is in the [CLI reference](#cli-reference).
+
+### Fuzz harder
+`--fuzz` breaks the *client*; `--http-fuzz` attacks the *server* — it harvests your app's
+real endpoints and throws hostile requests at them (query overflow, JSON type-confusion,
+header injection), turning every `5xx` into an executable repro. When a 500 body leaks a
+server stack, `--heal` can even fix it by booting the patched app and replaying the repro.
+
+### Parallel swarm
+`--workers 4` fans detection into parallel workers (walk + several fuzz seeds + http-fuzz),
+merged by fingerprint. `--swarm` is a hidden alias for `--workers auto`.
+
+### Authenticated testing
+`--login` detects the login form and signs in before the pass, so every repro runs
+authenticated:
 
 ```bash
-npx aztrx-cli run http://localhost:3000 --fix
-npx aztrx-cli run http://localhost:3000 --fix --yes   # non-interactive (CI)
-```
-
-**Human-language "X-ray" report — `--explain`.** A short, plain-language summary of
-what was found, where, and whether a fix is ready — instead of a wall of stack
-traces. LLM-powered when `ANTHROPIC_API_KEY` is set, deterministic offline fallback
-otherwise (`--lang ru` for Russian).
-
-```bash
-npx aztrx-cli run http://localhost:3000 --explain
-```
-
-### 3. Live studio dashboard
-
-Inspect real-time telemetry events and triage findings in the built-in web UI:
-
-```bash
-npx aztrx-cli studio
-# → listening at http://localhost:7331
-```
-
-### 4. Cloud & CI ingest (`--upload`)
-
-Stream sanitized, deduplicated crash fingerprints and metrics to your team's ingest server:
-
-```bash
-npx aztrx-cli run http://localhost:3000 --upload --api-key <YOUR_API_KEY> --cloud-url http://localhost:8787
-```
-
-### 5. GitHub Action
-
-Ship a runtime gate on every PR — see [Continuous Integration](#continuous-integration-github-action) below.
-
-### 6. HTTP mutation fuzzing (`--http-fuzz`)
-
-The DOM fuzzer (`--fuzz`) breaks the *client*. `--http-fuzz` attacks the *server*: it harvests the endpoints your app actually calls, then throws hostile requests at them — query overflow, JSON type-confusion, header injection, method confusion — and turns every `5xx` into an executable repro.
-
-Every `5xx` finding also captures the server's *own* error response — its message and body — and, when the body leaks a stack trace, the server-side source line. So a finding reads "`HTTP 500 /api/cart` … `server: Cannot read properties of undefined` at `app/api/cart/route.ts:14`", not just "something 500'd".
-
-When the 500 body leaks that server stack, `--heal` can also *fix* it: it boots the patched app inside the worktree (via `--start-command`, or auto-detected `scripts.dev`/`scripts.start`), waits for an HTTP readiness signal, and replays the repro against the booted server — so a server patch is verified against a *running* app, not a static file. Server findings whose body does not leak a stack are still reported and repro'd but not healed (there is no file to patch).
-
-### 7. Authenticated testing (`--login`)
-
-Auto-login before the pass: Aztrx detects the login form (`input[type="password"]`),
-fills your credentials, and continues — the walk/fuzz and every repro then run
-authenticated. The session is saved to `.aztrx/auth-state.json` (gitignored) and
-reused for replays.
-
-```bash
-npx aztrx-cli run http://localhost:3000 --login \
-  --login-email you@example.com --login-password secret
-
-# or via env:
 AZTRX_AUTH_EMAIL=you@example.com AZTRX_AUTH_PASSWORD=secret \
   npx aztrx-cli run http://localhost:3000 --login
 ```
 
-Point `--login-url` at an explicit login page if the app doesn't redirect to one.
-If login posts to a third-party auth backend, add `--allow-host auth.example.com`.
+Or `--storage-state <path>` with a saved Playwright state. Use `--login-url` for an
+explicit login page, `--allow-host auth.example.com` for a third-party auth backend.
 
-### 8. Swarm — parallel detection (`--swarm` / `--workers`)
+### Code modernizer
+`npx aztrx-cli modernize src/legacy.js` rewrites legacy JS/TS into modern idiomatic syntax
+(`var` → `const`, callbacks → `async`/`await`), applied only after you confirm.
 
-Fan out detection into a swarm of workers that attack different sides at once — a
-deterministic walk, several chaos-fuzz seeds, and the server-side HTTP fuzzer —
-each in its own isolated context. Findings are merged by fingerprint (deduped,
-occurrences summed), then repro/heal run on the merged set as usual.
+### Live studio
+`npx aztrx-cli studio` — triage findings in a localhost dashboard (binds `127.0.0.1`).
 
-```bash
-npx aztrx-cli run http://localhost:3000 --swarm              # auto-size to CPU cores
-npx aztrx-cli run http://localhost:3000 --workers 4          # explicit count
-npx aztrx-cli run http://localhost:3000 --swarm --http-fuzz  # + server-side attacks
-```
+### Config & CI
+`npx aztrx-cli init` scaffolds `aztrx.config.ts` and gitignores `.aztrx/`. For a per-PR
+runtime gate, use the [GitHub Action](#continuous-integration-github-action). `--pr-comment`
+/ `--badge` write a PR comment / status badge; `--upload --api-key` streams findings to your
+cloud dashboard.
 
-### 9. Code modernizer (`modernize`)
-
-Rewrite a legacy JS/TS file into modern idiomatic syntax — `var` → `const`/`let`,
-callbacks and promise chains → `async`/`await`, arrow functions — while preserving
-behavior. The output is re-parsed before you ever see it, and applied only after you
-confirm (never automatically).
-
-```bash
-export ANTHROPIC_API_KEY="your-api-key"
-npx aztrx-cli modernize src/legacy.js            # review the changes, then y/N
-npx aztrx-cli modernize src/legacy.js --yes      # apply without prompting
-# → review with: git diff src/legacy.js
-```
+### Privacy
+Off by default and strictly opt-in. `--telemetry` collects an anonymized tuple locally;
+`--share-data` uploads it. `--upload` streams sanitized findings to the cloud. See
+[Security & data flow](#security--data-flow) for the invariants.
 
 ---
 
 ## CLI reference
 
-`aztrx-cli run --help` is grouped by intent (Detect / Prove / Fix / Report & ship /
-Auth); the table below is the complete reference — including flags hidden from
-`--help` (aliases and niche tuning knobs).
+`aztrx-cli run --help` is grouped by intent (Detect / Prove / Fix / Report & ship / Auth);
+the table below is the complete reference — including flags hidden from `--help` (aliases
+and niche tuning knobs).
 
 | Flag | Description | Default |
 | --- | --- | --- |
@@ -208,7 +151,7 @@ Auth); the table below is the complete reference — including flags hidden from
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
 | `--storage-state <path>` | Playwright storage-state for authenticated pages (`--auth` is a hidden alias) | — |
-| `--login` | Auto-login before the pass (needs `--login-email`/`--login-password`) | — |
+| `--login` | Auto-login before the pass (needs `AZTRX_AUTH_EMAIL`/`AZTRX_AUTH_PASSWORD`) | — |
 | `--login-email <email>` | Email for `--login` (hidden — prefer `$AZTRX_AUTH_EMAIL`) | `$AZTRX_AUTH_EMAIL` |
 | `--login-password <pass>` | Password for `--login` (hidden — prefer `$AZTRX_AUTH_PASSWORD`) | `$AZTRX_AUTH_PASSWORD` |
 | `--login-url <url>` | Explicit login page URL for `--login` (hidden) | current page |
@@ -235,37 +178,6 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 ├── pr-comment.md                # GitHub PR markdown (with --pr-comment)
 └── badge.svg                    # status badge (with --badge)
 ```
-
----
-
-## Architecture
-
-Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
-`EventBus`; the orchestrator wires them together.
-
-```
-[ CDP interceptor ] ──▶ [ action ring buffer ] ──▶ [ classifier (fingerprint) ]
-                                │
-[ verified .patch ] ◀── [ LLM healer ] ◀── [ ddmin minimizer ] ◀── [ sourcemap resolver ]
-                                │
-                   [ Playwright spec (.spec.ts) ] ──▶ [ flake-rate validator ]
-```
-
-| Stage | Module | Role |
-| --- | --- | --- |
-| F1 | `interceptor.ts` | CDP interceptor — captures raw runtime errors and console/network events |
-| F2 | `recorder.ts` | Ring buffer of the last 25 actions; selector cascade `data-testid → text → CSS path` |
-| F3 | `classifier.ts` | Fingerprints + dedups findings, assigns severity; suppresses `.aztrx/baseline.json` (input) |
-| F4 | `resolver.ts` | Maps minified frames to source files, lines, and snippets via sourcemaps |
-| F5 | `fuzzer.ts` + `domWalker.ts` | Seeded chaos fuzzer; `domWalker` (F5-lite) discovers interactive elements |
-| F6 | `networkGuard.ts` + `domWalker.ts` | Deny-by-default network policy + destructive-action deny-list |
-| F7 | `minimizer.ts` | ddmin delta-debugging — eliminates irrelevant actions |
-| F8 | `specCompiler.ts` | Emits standalone, clean Playwright `.spec.ts` repro |
-| F9 | `validator.ts` | Multi-pass replays → `deterministic` / `flaky` / `unreliable` |
-| F10 | `heal/` | Closed-loop healing — redact → generate → AST gate → sandbox → `tsc` → verify |
-| F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuple collection (data flywheel) |
-| F12 | `cloud/` | Opt-in cloud sync — streams sanitized findings to the ingest dashboard |
-| F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" report + opt-in apply of verified patches (`--fix`) |
 
 ---
 
@@ -374,16 +286,6 @@ aztrx falls back to `claude-sonnet-5` and tries again. Most one-line fixes never
 pay for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` /
 `AZTRX_MODEL` or `--heal-fast-model` / `--heal-model`.
 
-## Telemetry & privacy
-
-Off by default and strictly opt-in. `--telemetry` collects the anonymized tuple
-`[crash_fingerprint, min_repro_spec, verified_patch, framework_metadata,
-model_tier_used]` locally (nothing leaves the machine); `--share-data` uploads it
-to the telemetry endpoint. Every field passes a sanitizer that irreversibly
-strips secrets, anonymizes URLs to `<host>`, and scrubs repo paths to `<repo>`.
-Uploads are fire-and-forget, bounded by a 2s timeout, and never affect the exit
-code.
-
 ## Security & data flow
 
 **Local-first by default.** A run never phones home unless you pass an opt-in
@@ -421,6 +323,16 @@ LLM call.
 - **Pinned supply chain.** The GitHub Action pins `aztrx-cli@0.1.1` (never
   `@latest`).
 
+## Telemetry & privacy
+
+Off by default and strictly opt-in. `--telemetry` collects the anonymized tuple
+`[crash_fingerprint, min_repro_spec, verified_patch, framework_metadata,
+model_tier_used]` locally (nothing leaves the machine); `--share-data` uploads it
+to the telemetry endpoint. Every field passes a sanitizer that irreversibly
+strips secrets, anonymizes URLs to `<host>`, and scrubs repo paths to `<repo>`.
+Uploads are fire-and-forget, bounded by a 2s timeout, and never affect the exit
+code.
+
 ---
 
 ## Open benchmark
@@ -446,6 +358,37 @@ npm run bench:repro          # detection + repro scoring
 
 Full per-case table and scoring notes live in
 [`bench/frameworks/RESULTS.md`](bench/frameworks/RESULTS.md).
+
+---
+
+## Architecture
+
+Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
+`EventBus`; the orchestrator wires them together.
+
+```
+[ CDP interceptor ] ──▶ [ action ring buffer ] ──▶ [ classifier (fingerprint) ]
+                                │
+[ verified .patch ] ◀── [ LLM healer ] ◀── [ ddmin minimizer ] ◀── [ sourcemap resolver ]
+                                │
+                   [ Playwright spec (.spec.ts) ] ──▶ [ flake-rate validator ]
+```
+
+| Stage | Module | Role |
+| --- | --- | --- |
+| F1 | `interceptor.ts` | CDP interceptor — captures raw runtime errors and console/network events |
+| F2 | `recorder.ts` | Ring buffer of the last 25 actions; selector cascade `data-testid → text → CSS path` |
+| F3 | `classifier.ts` | Fingerprints + dedups findings, assigns severity; suppresses `.aztrx/baseline.json` (input) |
+| F4 | `resolver.ts` | Maps minified frames to source files, lines, and snippets via sourcemaps |
+| F5 | `fuzzer.ts` + `domWalker.ts` | Seeded chaos fuzzer; `domWalker` (F5-lite) discovers interactive elements |
+| F6 | `networkGuard.ts` + `domWalker.ts` | Deny-by-default network policy + destructive-action deny-list |
+| F7 | `minimizer.ts` | ddmin delta-debugging — eliminates irrelevant actions |
+| F8 | `specCompiler.ts` | Emits standalone, clean Playwright `.spec.ts` repro |
+| F9 | `validator.ts` | Multi-pass replays → `deterministic` / `flaky` / `unreliable` |
+| F10 | `heal/` | Closed-loop healing — redact → generate → AST gate → sandbox → `tsc` → verify |
+| F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuple collection (data flywheel) |
+| F12 | `cloud/` | Opt-in cloud sync — streams sanitized findings to the ingest dashboard |
+| F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" report + opt-in apply of verified patches (`--fix`) |
 
 ---
 
