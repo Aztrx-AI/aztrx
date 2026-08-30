@@ -19,6 +19,7 @@ import { flushTelemetry } from "./core/telemetry/index.js";
 import { flushCloud } from "./core/cloud/index.js";
 import { summarizeFindings } from "./core/summarize.js";
 import { applyVerifiedPatches } from "./core/heal/apply.js";
+import { openFixPr } from "./core/fixPr.js";
 import { promptYesNo } from "./core/prompt.js";
 import { modernizeFile } from "./core/modernize.js";
 
@@ -108,6 +109,7 @@ interface CliOptions {
   fix?: boolean;
   magicFix?: boolean;
   explain?: boolean;
+  pr?: boolean;
   yes?: boolean;
   lang?: string;
 }
@@ -194,6 +196,7 @@ program
   .addOption(opt("--start-command <cmd>", "command to boot the app for server healing (default: auto-detect scripts.dev/scripts.start)", "advanced"))
   .addOption(opt("--explain", "print a human-language summary of the findings (no healing)", "fix"))
   .addOption(opt("-y, --yes", "auto-apply verified fixes without prompting (with --fix)", "fix"))
+  .addOption(opt("--pr", "open a PR with the verified fixes (with --fix)", "fix"))
   .addOption(opt("--lang <en|ru>", "language for the human-language summary", "advanced").default("en"))
   .addOption(opt("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)", "ship"))
   .addOption(opt("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)", "ship"))
@@ -341,6 +344,15 @@ program
           } else {
             console.log(pc.dim("  Not applied — review the .patch files under .aztrx/heal/."));
           }
+        }
+      }
+
+      if (opts.pr) {
+        const prRes = await openFixPr(repoRoot, findings, url);
+        if (prRes.ok) {
+          console.log(pc.green("  ✓ PR opened") + ` ${prRes.url}`);
+        } else {
+          console.log(pc.yellow("  ◐ PR skipped") + `: ${prRes.error}`);
         }
       }
 
