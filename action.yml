@@ -34,7 +34,7 @@ inputs:
     required: false
   aztrx:
     description: "Command used to invoke aztrx-cli. Override to pin a version or a git ref."
-    default: "npx --yes aztrx-cli@0.2.2"
+    default: "npx --yes aztrx-cli@0.2.3"
     required: false
   start-command:
     description: >-

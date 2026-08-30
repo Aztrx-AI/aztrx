@@ -1,6 +1,6 @@
 {
   "name": "aztrx-cli",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "description": "Aztrx AI — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "license": "Apache-2.0",
