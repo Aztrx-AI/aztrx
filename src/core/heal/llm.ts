@@ -8,13 +8,8 @@
  */
 
 import { redact } from "./redact.js";
+import { complete, primaryModel, fastModel, hasLlmKey } from "../llm.js";
 import type { HealContext, Patch, PatchHunk } from "./types.js";
-
-const DEFAULT_MODEL = process.env.AZTRX_MODEL || "claude-sonnet-5";
-/** Cheap/fast first tier for the Smart Cloud Router. The idea: most one-line
- * fixes are trivial, so try the small model before paying for the big one. */
-const FAST_MODEL = process.env.AZTRX_FAST_MODEL || "claude-haiku-4-5-20251001";
-const API_URL = "https://api.anthropic.com/v1/messages";
 
 export interface ModelTier {
   model: string;
@@ -27,13 +22,14 @@ export interface ModelTier {
  * model (e.g. `AZTRX_FAST_MODEL=claude-sonnet-5`). Consumers loop over this in
  * order and stop at the first `healed` result.
  */
-export function modelTiers(fallbackModel?: string): ModelTier[] {
-  const fast = process.env.AZTRX_FAST_MODEL || FAST_MODEL;
-  const sonnet = fallbackModel || DEFAULT_MODEL;
-  if (fast === sonnet) return [{ model: sonnet, label: "sonnet" }];
+export function modelTiers(fallbackModel?: string, fastFallback?: string): ModelTier[] {
+  const fast = fastFallback || fastModel();
+  const primary = fallbackModel || primaryModel();
+  if (!primary) return []; // no model configured — the caller reports no-llm
+  if (!fast || fast === primary) return [{ model: primary, label: "sonnet" }];
   return [
     { model: fast, label: "fast" },
-    { model: sonnet, label: "sonnet" },
+    { model: primary, label: "sonnet" },
   ];
 }
 
@@ -97,36 +93,12 @@ export function parsePatch(raw: string): Patch {
 export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}): Promise<Patch> {
   if (opts.patchFn) return opts.patchFn(ctx);
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    throw new Error("heal: ANTHROPIC_API_KEY is not set (and no patchFn was injected)");
-  }
-
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: opts.model ?? DEFAULT_MODEL,
-      max_tokens: 2048,
-      temperature: 0,
-      system: SYSTEM,
-      messages: [{ role: "user", content: buildPrompt(ctx) }],
-    }),
+  const text = await complete({
+    system: SYSTEM,
+    prompt: buildPrompt(ctx),
+    model: opts.model,
+    maxTokens: 2048,
+    temperature: 0,
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`heal: LLM request failed (${res.status}): ${body.slice(0, 300)}`);
-  }
-
-  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-  const text = (data.content ?? [])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text ?? "")
-    .join("\n");
   return parsePatch(text);
 }

@@ -47,12 +47,22 @@ aztrx-cli run http://localhost:3000
 ## Fix it, not just find it
 
 The only feature that needs a key. `--fix` hands the crash to an LLM and applies a
-verified patch to your working tree. Set `ANTHROPIC_API_KEY` and run:
+verified patch to your working tree. Anthropic by default — set `ANTHROPIC_API_KEY`:
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
 npx aztrx-cli run http://localhost:3000 --fix          # find → explain → heal → apply
 npx aztrx-cli run http://localhost:3000 --fix --yes    # non-interactive (CI)
+```
+
+Or use **any model** — Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, or a
+local Ollama/vLLM. Point it at any OpenAI-compatible `/v1` endpoint:
+
+```bash
+export AZTRX_API_BASE="https://openrouter.ai/api/v1"   # or api.openai.com/v1, api.x.ai/v1, ...
+export AZTRX_API_KEY="your-key"
+export AZTRX_MODEL="anthropic/claude-sonnet-5"         # any model the provider serves
+npx aztrx-cli run http://localhost:3000 --fix
 ```
 
 `--fix` chains find → explain → heal, then asks *"Apply the fix?"* (`y/N`). On yes, the
@@ -138,8 +148,8 @@ and niche tuning knobs).
 | `--workers <n>` | Number of parallel detection workers | `1` |
 | `--swarm` | Hidden alias for `--workers auto` | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
-| `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` |
-| `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` |
+| `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` / `$AZTRX_MODEL` |
+| `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` / `$AZTRX_FAST_MODEL` |
 | `--test-command <cmd>` | Test command run against a healed patch | `npm test` (auto-detected) |
 | `--test-timeout <ms>` | Timeout for the heal test gate | `300000` |
 | `--no-test` | Skip the test gate during healing | — |
@@ -279,12 +289,13 @@ are, and the run still exits 0 so the commit step always runs. Swap `push` for a
 
 ## Smart Cloud Router
 
-`--heal` is backed by a two-tier router. The fast/cheap model
-(`claude-haiku-4-5`) generates first; its patch is gated, compiled, and replayed
-against the repro. If the bug still reproduces — or the patch fails a gate —
-aztrx falls back to `claude-sonnet-5` and tries again. Most one-line fixes never
-pay for the big model. Tiers are configurable via `AZTRX_FAST_MODEL` /
-`AZTRX_MODEL` or `--heal-fast-model` / `--heal-model`.
+`--heal` is backed by a two-tier router: a fast/cheap model generates first, its patch
+is gated, compiled, and replayed against the repro, and if the bug still reproduces (or
+the patch fails a gate) aztrx falls back to the stronger model and tries again. Most
+one-line fixes never pay for the big model. With Anthropic the defaults are
+`claude-haiku-4-5` → `claude-sonnet-5`; with any other provider you pick both via
+`AZTRX_FAST_MODEL` / `AZTRX_MODEL` (or `--heal-fast-model` / `--heal-model`). When only
+one model is set, the router collapses to a single tier.
 
 ## Security & data flow
 

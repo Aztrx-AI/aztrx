@@ -13,11 +13,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as ts from "typescript";
+import { complete, hasLlmKey } from "./llm.js";
 
 export type Lang = "ts" | "js";
-
-const MODEL = process.env.AZTRX_MODEL || "claude-sonnet-5";
-const API_URL = "https://api.anthropic.com/v1/messages";
 
 export function detectLang(filePath: string): Lang | null {
   const ext = path.extname(filePath).toLowerCase();
@@ -109,39 +107,20 @@ export async function modernizeFile(repoRoot: string, filePath: string): Promise
     return { ok: false, original: "", changes: [], error: `cannot read ${filePath}: ${(e as Error).message}` };
   }
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    return { ok: false, original, changes: [], lang, error: "ANTHROPIC_API_KEY is not set" };
+  if (!hasLlmKey()) {
+    return { ok: false, original, changes: [], lang, error: "no LLM API key is set (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)" };
   }
 
   let reply: string;
   try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 8192,
-        temperature: 0,
-        system: SYSTEM,
-        messages: [{ role: "user", content: buildPrompt(original, lang) }],
-      }),
+    reply = await complete({
+      system: SYSTEM,
+      prompt: buildPrompt(original, lang),
+      maxTokens: 8192,
+      temperature: 0,
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { ok: false, original, changes: [], lang, error: `LLM request failed (${res.status}): ${body.slice(0, 300)}` };
-    }
-    const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-    reply = (data.content ?? [])
-      .filter((c) => c.type === "text")
-      .map((c) => c.text ?? "")
-      .join("\n");
   } catch (e) {
-    return { ok: false, original, changes: [], lang, error: `LLM request failed: ${(e as Error).message}` };
+    return { ok: false, original, changes: [], lang, error: (e as Error).message };
   }
 
   let parsed: { modernized: string; changes: string[] };

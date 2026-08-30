@@ -21,6 +21,7 @@ import * as path from "path";
 import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
 import { generatePatch, modelTiers } from "./llm.js";
+import { hasLlmKey } from "../llm.js";
 import type { ModelTier } from "./llm.js";
 import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
 import { bootServer, detectStartCommand } from "./boot.js";
@@ -143,19 +144,19 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
 
   // No transport configured (and no injected generator) → nothing to try. A
   // higher model tier can't fix a missing key, so bail before paying anything.
-  if (!opts.patchFn && !process.env.ANTHROPIC_API_KEY) {
+  if (!opts.patchFn && !hasLlmKey()) {
     return {
       ...base,
       status: "no-llm",
-      error: "heal: ANTHROPIC_API_KEY is not set (and no patchFn was injected)",
+      error: "heal: no LLM API key is set (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)",
     };
   }
 
   // The Smart Cloud Router tier plan: fast/cheap first, Sonnet as the fallback.
   // An injected patchFn collapses to a single tier (there is no model to route).
   const tiers: ModelTier[] = opts.patchFn
-    ? [{ model: opts.model ?? "claude-sonnet-5", label: "sonnet" }]
-    : modelTiers(opts.model);
+    ? [{ model: opts.model ?? "default", label: "sonnet" }]
+    : modelTiers(opts.model, opts.fastModel);
 
   const wt = await createWorktree(opts.repoRoot, finding.id);
   // The winning (or last) patch + verification, held back for the final save.

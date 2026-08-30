@@ -13,11 +13,9 @@
  */
 
 import type { Finding, FindingType, Severity } from "./types.js";
+import { complete, hasLlmKey } from "./llm.js";
 
 export type Lang = "en" | "ru";
-
-const MODEL = process.env.AZTRX_MODEL || "claude-sonnet-5";
-const API_URL = "https://api.anthropic.com/v1/messages";
 
 function normalizeLang(lang?: string): Lang {
   return lang === "ru" ? "ru" : "en";
@@ -153,33 +151,14 @@ const SYSTEM =
 
 async function summarizeFindingsLlm(findings: Finding[], lang: Lang): Promise<string> {
   const hasHealed = findings.some((f) => f.heal?.status === "healed");
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY as string,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
-      temperature: 0.2,
+  const text = (
+    await complete({
       system: SYSTEM,
-      messages: [{ role: "user", content: buildLlmPrompt(findings, lang, hasHealed) }],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`summarize: LLM request failed (${res.status}): ${body.slice(0, 300)}`);
-  }
-
-  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-  const text = (data.content ?? [])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text ?? "")
-    .join("\n")
-    .trim();
+      prompt: buildLlmPrompt(findings, lang, hasHealed),
+      maxTokens: 1024,
+      temperature: 0.2,
+    })
+  ).trim();
   return text || summarizeFindingsTemplate(findings, lang);
 }
 
@@ -195,7 +174,7 @@ export interface SummarizeOptions {
 export async function summarizeFindings(findings: Finding[], opts: SummarizeOptions = {}): Promise<string> {
   const lang = normalizeLang(opts.lang);
   if (findings.length === 0) return summarizeFindingsTemplate(findings, lang);
-  if (!process.env.ANTHROPIC_API_KEY) return summarizeFindingsTemplate(findings, lang);
+  if (!hasLlmKey()) return summarizeFindingsTemplate(findings, lang);
   try {
     return await summarizeFindingsLlm(findings, lang);
   } catch {
