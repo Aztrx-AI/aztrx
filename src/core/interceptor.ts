@@ -96,9 +96,14 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
 
   page.on("requestfailed", (req) => {
     const f = req.failure();
+    const errText = f?.errorText ?? "unknown";
+    // Cancelled/blocked requests are not bugs — a video preload dropped when the
+    // walk navigates away, a `mailto:` click, or an adblocker all surface as
+    // `requestfailed`. Skip them so they don't become false-positive errors.
+    if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT|ERR_BLOCKED_BY_RESPONSE/.test(errText)) return;
     bus.emit("telemetry", {
       type: "network_timeout",
-      rawMessage: `Request failed: ${req.url()} (${f?.errorText ?? "unknown"})`,
+      rawMessage: `Request failed: ${req.url()} (${errText})`,
       rawStack: "",
     });
   });
