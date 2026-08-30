@@ -165,6 +165,10 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   let savedTest: TestGateResult | null = null;
   let savedGateOk = false;
   let last: HealResult = base;
+  // Multi-model consensus: with AZTRX_CONSENSUS, try every tier and keep the
+  // smallest-diff fix that actually heals, instead of the first one that works.
+  const consensus = Boolean(process.env.AZTRX_CONSENSUS);
+  let best: { result: HealResult; patch: Patch; verification: VerifyResult; gateOk: boolean; diffSize: number } | null = null;
 
   try {
     for (const tier of tiers) {
@@ -302,7 +306,20 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
         verification: v,
         model: tier.model,
       };
-      if (v.fixed) break;
+      if (v.fixed) {
+        const diffSize = hunks.reduce((s, h) => s + h.replace.length, 0);
+        if (!best || diffSize < best.diffSize) {
+          best = { result: last, patch, verification: v, gateOk: gate.ok, diffSize };
+        }
+        if (!consensus) break;
+      }
+    }
+
+    if (best) {
+      last = best.result;
+      savedPatch = best.patch;
+      savedVerification = best.verification;
+      savedGateOk = best.gateOk;
     }
 
     // 5. Hand off a reviewable patch (the winning — or last — attempt only).

@@ -26,11 +26,18 @@ export function modelTiers(fallbackModel?: string, fastFallback?: string): Model
   const fast = fastFallback || fastModel();
   const primary = fallbackModel || primaryModel();
   if (!primary) return []; // no model configured — the caller reports no-llm
-  if (!fast || fast === primary) return [{ model: primary, label: "sonnet" }];
-  return [
-    { model: fast, label: "fast" },
-    { model: primary, label: "sonnet" },
-  ];
+
+  const tiers: ModelTier[] = [];
+  if (fast && fast !== primary) tiers.push({ model: fast, label: "fast" });
+  tiers.push({ model: primary, label: "sonnet" });
+  // Extra models for multi-model consensus (`AZTRX_CONSENSUS_MODELS`), deduped.
+  for (const m of (process.env.AZTRX_CONSENSUS_MODELS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    if (!tiers.some((t) => t.model === m)) tiers.push({ model: m, label: "sonnet" });
+  }
+  return tiers;
 }
 
 const SYSTEM = `You are a meticulous bug-fixing engineer. You are given a single source file and a runtime error that occurs in it. Produce a MINIMAL fix as a Search & Replace diff.
