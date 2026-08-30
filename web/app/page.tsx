@@ -8,7 +8,7 @@ import { CopyButton } from "./components/CopyButton";
 const spring = { type: "spring" as const, stiffness: 70, damping: 20 };
 
 const INSTALL = "npx aztrx-cli run http://localhost:3000";
-const GITHUB = "https://github.com/DanisChaparov/aztrx";
+const GITHUB = "https://github.com/Aztrx-AI/aztrx";
 const SUPPORT = "https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs";
 
 /* ────────────────────────── primitives ────────────────────────── */

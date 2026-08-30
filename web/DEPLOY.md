@@ -14,10 +14,6 @@ git remote add origin git@github.com:<you>/<repo>.git
 git push -u origin main
 ```
 
-> Naming note: the retired tracker already owns `DanisChaparov/aztrx`. Either
-> rename that repo (e.g. `aztrx-tracker`) or name this one differently before
-> pushing, so GitHub doesn't reject the push.
-
 ## 2. Connect Vercel
 
 1. Vercel → **Add New Project** → import the repo.

@@ -226,7 +226,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: DanisChaparov/aztrx@ee586a4410240efb7ed211ab0e1bf9d188361efa
+      - uses: Aztrx-AI/aztrx@ee586a4410240efb7ed211ab0e1bf9d188361efa
         with:
           url: http://localhost:3000
           start-command: npm run dev          # optional — boot the app in the background
@@ -240,7 +240,7 @@ Or as a reusable workflow:
 on: pull_request
 jobs:
   aztrx:
-    uses: DanisChaparov/aztrx/.github/workflows/aztrx-pr.yml@ee586a4410240efb7ed211ab0e1bf9d188361efa
+    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@ee586a4410240efb7ed211ab0e1bf9d188361efa
     with:
       url: http://localhost:3000
       start-command: npm run dev
@@ -260,7 +260,7 @@ npx aztrx-cli run http://localhost:3000 --badge badge.svg
 ```
 
 ```markdown
-[![aztrx](badge.svg)](https://github.com/DanisChaparov/aztrx)
+[![aztrx](badge.svg)](https://github.com/Aztrx-AI/aztrx)
 ```
 
 The badge is a self-contained SVG generated from the run's findings — green
@@ -443,7 +443,7 @@ Aztrx AI is a decoupled, event-driven pipeline — modules talk only through an
 ## Contributing
 
 ```bash
-git clone https://github.com/DanisChaparov/aztrx
+git clone https://github.com/Aztrx-AI/aztrx
 cd aztrx
 npm install
 npx playwright install chromium
