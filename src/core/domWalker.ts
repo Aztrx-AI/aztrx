@@ -26,63 +26,92 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
   const max = opts.maxActions ?? 100;
   const startUrl = page.url();
   let actions = 0;
+  const seen = new Set<string>();
 
-  const handles = await page.$$(SELECTOR);
-  for (const handle of handles) {
-    if (actions >= max) break;
-    if (page.url() !== startUrl) break; // navigated — bail this pass
+  // Re-scan the DOM after every action (the page may have mutated or navigated)
+  // rather than walking a stale snapshot. Mirrors the fuzzer's recover-and-iterate
+  // loop, but deterministically (document order) and without re-clicking elements
+  // it has already acted on.
+  while (actions < max) {
+    if (page.url() !== startUrl) {
+      // A previous action navigated away — return to the starting page.
+      await page.goto(startUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await page.waitForTimeout(300);
+    }
 
-    const visible = await handle.isVisible().catch(() => false);
-    const enabled = await handle.isEnabled().catch(() => false);
-    if (!visible || !enabled) continue;
-
-    let tag: string;
+    let handles: Awaited<ReturnType<Page["$$"]>>;
     try {
-      tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+      handles = await page.$$(SELECTOR);
     } catch {
-      continue; // element unreadable mid-query — skip
+      // A navigation raced the re-scan — reset to the start page and retry.
+      await page.goto(startUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await page.waitForTimeout(300);
+      continue;
     }
-    let label = "";
-    try {
-      label = await handle.evaluate((el) => {
-        const t =
-          (el as HTMLElement).innerText ||
-          el.getAttribute("aria-label") ||
-          el.getAttribute("value") ||
-          el.getAttribute("placeholder") ||
-          "";
-        return t.trim();
-      });
-    } catch {
-      label = ""; // degraded — no label to filter on
+    let acted = false;
+
+    for (const handle of handles) {
+      if (actions >= max) break;
+
+      const visible = await handle.isVisible().catch(() => false);
+      const enabled = await handle.isEnabled().catch(() => false);
+      if (!visible || !enabled) continue;
+
+      let tag: string;
+      try {
+        tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+      } catch {
+        continue; // element unreadable mid-query — skip
+      }
+      let label = "";
+      try {
+        label = await handle.evaluate((el) => {
+          const t =
+            (el as HTMLElement).innerText ||
+            el.getAttribute("aria-label") ||
+            el.getAttribute("value") ||
+            el.getAttribute("placeholder") ||
+            "";
+          return t.trim();
+        });
+      } catch {
+        label = ""; // degraded — no label to filter on
+      }
+
+      if (DESTRUCTIVE.test(label)) continue;
+
+      if (tag === "a") {
+        const href = (await handle.getAttribute("href")) ?? "";
+        if (/^https?:\/\//.test(href) && !href.startsWith(originOf(startUrl))) continue;
+      }
+
+      if (tag === "input") {
+        const type = (await handle.getAttribute("type")) ?? "";
+        if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
+      }
+
+      const selectors = await selectorCascade(page, handle);
+      const signature = selectors.join("|") || `${tag}:${label}`;
+      if (seen.has(signature)) continue; // already acted on this element
+      seen.add(signature);
+
+      if (tag === "input" || tag === "textarea") {
+        const action: RecordedAction = { type: "input", selectors, value: "test", timestamp: Date.now() };
+        bus.emit("action", action);
+        if (!opts.dryRun) await handle.fill("test").catch(() => {});
+      } else {
+        const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
+        bus.emit("action", action);
+        if (!opts.dryRun) await handle.click({ timeout: 1500 }).catch(() => {});
+      }
+
+      actions++;
+      acted = true;
+      await page.waitForTimeout(120);
+      break; // re-scan next iteration — the DOM may have changed
     }
 
-    if (DESTRUCTIVE.test(label)) continue;
-
-    if (tag === "a") {
-      const href = (await handle.getAttribute("href")) ?? "";
-      if (/^https?:\/\//.test(href) && !href.startsWith(originOf(startUrl))) continue;
-    }
-
-    if (tag === "input") {
-      const type = (await handle.getAttribute("type")) ?? "";
-      if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
-    }
-
-    const selectors = await selectorCascade(page, handle);
-
-    if (tag === "input" || tag === "textarea") {
-      const action: RecordedAction = { type: "input", selectors, value: "test", timestamp: Date.now() };
-      bus.emit("action", action);
-      if (!opts.dryRun) await handle.fill("test").catch(() => {});
-    } else {
-      const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
-      bus.emit("action", action);
-      if (!opts.dryRun) await handle.click({ timeout: 1500 }).catch(() => {});
-    }
-
-    actions++;
-    await page.waitForTimeout(120);
+    if (!acted) break; // nothing left to act on
   }
 
   return actions;

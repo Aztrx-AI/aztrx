@@ -186,6 +186,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     baseline,
     guardOn,
     log: say,
+    forwardBus: bus,
   });
 
   // Replays reuse the swarm-captured auth state, or the explicit --storage-state.

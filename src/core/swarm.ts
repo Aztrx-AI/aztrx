@@ -265,6 +265,8 @@ export interface SwarmOptions {
   baseline: string[];
   guardOn: boolean;
   log: (msg: string) => void;
+  /** Forwarded to the orchestrator's bus so a live panel can aggregate action/route counts. */
+  forwardBus?: EventBus;
 }
 
 export interface SwarmResult {
@@ -302,7 +304,8 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
             baseline: opts.baseline,
             log: (m) => opts.log(strategies.length > 1 ? `[w${i}] ${m}` : m),
           },
-          strategy
+          strategy,
+          opts.forwardBus
         )
       )
     );
