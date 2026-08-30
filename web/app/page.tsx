@@ -327,8 +327,8 @@ function Magic() {
               <div>
                 <h3 className="text-xl font-semibold text-white">Chaos Fuzzing</h3>
                 <p className="mt-3 max-w-md text-zinc-400">
-                  Drives your app over the Chrome DevTools Protocol — clicking, typing garbage, and
-                  racing async UI faster than a human ever could.
+                  Drives your app over the Chrome DevTools Protocol — a coverage-guided fuzz that
+                  clicks, types garbage, and races async UI, steering toward code it hasn&apos;t reached yet.
                 </p>
               </div>
               <div className="hidden shrink-0 flex-col items-end gap-2 sm:flex">
@@ -460,7 +460,7 @@ const fixLines: { text: string; tone: "add" | "del" | "meta" | "pass" | "plain" 
   { text: "", tone: "plain" },
   { text: "✓ tsc: PASS", tone: "pass" },
   { text: "✓ replay: deterministic (3/3 reproductions)", tone: "pass" },
-  { text: "✓ patch → .aztrx/patches/checkout.ts.patch", tone: "pass" },
+  { text: "✓ patch → .aztrx/heal/fix.patch", tone: "pass" },
 ];
 
 function CodeLine({ text, tone, className }: { text: string; tone: string; className: string }) {
@@ -575,7 +575,7 @@ const trustItems = [
   {
     icon: Cpu,
     title: "Bring Your Own Model",
-    body: "Point healing at any Anthropic model — or keep it fully offline and never call an LLM at all.",
+    body: "Point healing at any model — Anthropic, OpenAI, Grok, DeepSeek, or any OpenAI-compatible endpoint. Or run fully offline and never call an LLM.",
   },
   {
     icon: GitBranch,
