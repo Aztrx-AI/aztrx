@@ -17,7 +17,7 @@ export async function attachNetworkGuard(page: Page, opts: NetworkGuardOptions):
     try {
       host = new URL(url).hostname.toLowerCase();
     } catch {
-      await route.abort();
+      await route.abort("blockedbyclient");
       return;
     }
 
@@ -32,7 +32,7 @@ export async function attachNetworkGuard(page: Page, opts: NetworkGuardOptions):
       }
     }
     opts.onBlock?.(url);
-    await route.abort();
+    await route.abort("blockedbyclient");
   });
 }
 
