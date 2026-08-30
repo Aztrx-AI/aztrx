@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { render, Box, Text, useApp } from "ink";
 import type { EventBus, ReproEvent, RunPhase } from "../core/eventBus.js";
 import type { Finding, RecordedAction } from "../core/types.js";
+import { VERSION } from "../core/version.js";
 
 // Palette — mirrors web/app/globals.css "crash seismograph" tokens, mapped to
 // the nearest ANSI colors so the terminal panel reads as the same instrument.
@@ -206,7 +207,7 @@ function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
           Aztrx AI
         </Text>
         <Text color={C.dim}> — Runtime Detector</Text>
-        <Text color={C.dim}>   v0.1.1</Text>
+        <Text color={C.dim}>   v{VERSION}</Text>
       </Box>
       <Text color={C.dim}>  target  {targetUrl}     repo  {repoRoot}</Text>
       <Text color={C.dim}>  mode    {mode}</Text>
