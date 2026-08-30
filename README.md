@@ -1,13 +1,29 @@
 # <img src="media/logo.svg" width="28" height="32" alt="Aztrx logo" align="absmiddle" /> Aztrx AI
 
-> **Autonomous runtime stress-tester, deterministic bug minimizer, human-language explainer, and self-healing engine for web applications.**
+> **Catch the runtime crash your Error Boundary hid — and prove it with a test, not a log line.**
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg?style=flat-square)](https://nodejs.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 
-Aztrx AI drives your web app like a hostile user — clicking, entering boundary data, and racing asynchronous UI states. When a runtime crash occurs (even one swallowed by a React Error Boundary), Aztrx AI intercepts it via the Chrome DevTools Protocol, maps it back to the exact source line, shrinks the interaction trace to the bare minimum with **ddmin**, and emits an executable, standalone **Playwright test** that proves the bug — not a log line.
+Aztrx AI finds **runtime** bugs — not security holes. It drives your web app like a
+hostile user (clicking, entering boundary data, racing async state) and catches the
+crashes that ship to real users, *including ones a React Error Boundary swallows* —
+the errors `window.onerror` never sees. Every crash comes back as an exact source line
+plus an executable **Playwright repro** that fails `3/3` times. Then it fixes it.
+
+This is the reliability layer — the bug that crashed a real user, not the vuln a hacker
+could exploit.
 
 ![aztrx demo](media/demo.gif)
+
+```bash
+npx aztrx-cli run http://localhost:3000          # find the crashes — zero setup
+npx aztrx-cli run http://localhost:3000 --fix    # …and fix them (needs a key)
+```
+
+| Find | Prove | Fix |
+| --- | --- | --- |
+| deterministic walk · coverage-guided fuzz · HTTP fuzz · swarm | ddmin → executable `.spec.ts` → `[deterministic 3/3]` | gated LLM patch → compile → test → replay → apply / `--pr` |
 
 ---
 
@@ -82,10 +98,12 @@ on your own test suite before you ever see it.
 Everything else is optional. One line each — the full table is in the [CLI reference](#cli-reference).
 
 ### Fuzz harder
-`--fuzz` breaks the *client*; `--http-fuzz` attacks the *server* — it harvests your app's
-real endpoints and throws hostile requests at them (query overflow, JSON type-confusion,
-header injection), turning every `5xx` into an executable repro. When a 500 body leaks a
-server stack, `--heal` can even fix it by booting the patched app and replaying the repro.
+`--fuzz` breaks the *client* — a seeded chaos walk that also reads **V8 JS coverage** and
+steers toward code it hasn't reached yet, so it explores rather than re-clicks. `--http-fuzz`
+attacks the *server* — it harvests your app's real endpoints and throws hostile requests at
+them (query overflow, JSON type-confusion, header injection), turning every `5xx` into an
+executable repro. When a 500 body leaks a server stack, `--heal` can even fix it by booting
+the patched app and replaying the repro.
 
 ### Parallel swarm
 `--workers 4` fans detection into parallel workers (walk + several fuzz seeds + http-fuzz),
@@ -139,6 +157,7 @@ and niche tuning knobs).
 | `--magic-fix` | Deprecated alias for `--fix` (hidden) | — |
 | `--explain` | Print a human-language summary of the findings | — |
 | `--yes` / `-y` | Auto-apply verified fixes without prompting (with `--fix`) | — |
+| `--pr` | Open a merge-ready PR with the verified fixes (with `--fix`) | — |
 | `--lang <code>` | Language for the human-language summary (`en`, `ru`) | `en` |
 | `--upload` | Stream run findings to the cloud ingest backend | — |
 | `--api-key <key>` | Auth key for `--upload` / `--share-data` | `$AZTRX_API_KEY` |
@@ -156,6 +175,7 @@ and niche tuning knobs).
 | `--start-command <cmd>` | Command to boot the app for server healing | `scripts.dev` → `scripts.start` (auto-detected) |
 | `--pr-comment [path]` | Write a GitHub PR markdown comment | `.aztrx/pr-comment.md` |
 | `--badge [path]` | Write a self-contained SVG status badge | `.aztrx/badge.svg` |
+| `--regression-test [dir]` | Copy validated repro specs into the project test dir | `e2e/` or `tests/` |
 | `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
