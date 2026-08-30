@@ -14,6 +14,7 @@ import { initProject } from "./core/init.js";
 import { startStudio } from "./core/studio.js";
 import { writePrComment } from "./core/pr.js";
 import { writeBadge } from "./core/badge.js";
+import { writeRegressionSpecs } from "./core/specCompiler.js";
 import { flushTelemetry } from "./core/telemetry/index.js";
 import { flushCloud } from "./core/cloud/index.js";
 import { summarizeFindings } from "./core/summarize.js";
@@ -92,6 +93,7 @@ interface CliOptions {
   startCommand?: string;
   prComment?: string | boolean;
   badge?: string | boolean;
+  regressionTest?: string | boolean;
   telemetry?: boolean;
   shareData?: boolean;
   upload?: boolean;
@@ -195,6 +197,7 @@ program
   .addOption(opt("--lang <en|ru>", "language for the human-language summary", "advanced").default("en"))
   .addOption(opt("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)", "ship"))
   .addOption(opt("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)", "ship"))
+  .addOption(opt("--regression-test [dir]", "copy validated repro specs into the project test dir (default: e2e/ or tests/)", "ship"))
   .addOption(opt("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)", "advanced"))
   .addOption(opt("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint", "advanced"))
   .addOption(opt("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)", "advanced"))
@@ -300,6 +303,14 @@ program
             : path.join(repoRoot, ".aztrx", "badge.svg");
         writeBadge(repoRoot, findings, badgePath);
         console.log(pc.dim(`Badge: ${path.relative(repoRoot, badgePath)}`));
+      }
+
+      if (opts.regressionTest) {
+        const regDir = typeof opts.regressionTest === "string" ? opts.regressionTest : undefined;
+        const written = writeRegressionSpecs(repoRoot, findings, regDir);
+        for (const w of written) {
+          console.log(pc.green("  ✓ regression test") + ` ${path.relative(repoRoot, w)}`);
+        }
       }
 
       // F13 — human-language summary + opt-in apply (the "Senior Rescuer" flow).

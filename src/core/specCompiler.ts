@@ -94,3 +94,38 @@ export function writeSpec(
   fs.writeFileSync(file, compileSpec(finding, actions, url), "utf-8");
   return file;
 }
+
+/**
+ * Install validated repro specs into the project's test directory so a fixed
+ * bug can't silently regress — the "immunity" step after find → prove → fix.
+ * Copies each deterministic/flaky repro into `<dir>/aztrx-<fingerprint>.spec.ts`
+ * and returns the written paths. `dir` defaults to an existing test dir, else a
+ * gitignored fallback.
+ */
+export function writeRegressionSpecs(
+  repoRoot: string,
+  findings: Finding[],
+  dir?: string
+): string[] {
+  const target = path.resolve(repoRoot, dir || detectTestDir(repoRoot));
+  fs.mkdirSync(target, { recursive: true });
+
+  const written: string[] = [];
+  for (const f of findings) {
+    if (!f.repro?.specPath || f.repro.verdict === "unreliable") continue;
+    const src = path.resolve(repoRoot, f.repro.specPath);
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(target, `aztrx-${f.fingerprint.slice(0, 8)}.spec.ts`);
+    fs.copyFileSync(src, dest);
+    written.push(dest);
+  }
+  return written;
+}
+
+/** Prefer an existing test dir, else a gitignored fallback. */
+function detectTestDir(repoRoot: string): string {
+  for (const d of ["e2e", "tests", "test", "__tests__"]) {
+    if (fs.existsSync(path.join(repoRoot, d))) return d;
+  }
+  return ".aztrx/regression";
+}
