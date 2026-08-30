@@ -63,6 +63,26 @@ export interface CompleteOptions {
   temperature?: number;
 }
 
+/** Human-readable description of the active provider + model, e.g. `grok-2 via https://api.x.ai/v1`. */
+export function describeLlm(model?: string): string {
+  const s = resolveSettings();
+  const m = model || primaryModel();
+  if (s.provider === "anthropic") return `${m} (Anthropic)`;
+  return `${m} via ${s.baseUrl}`;
+}
+
+// Announce the resolved model once per distinct (provider, model), so the two-tier
+// router shows each tier as it's tried without spamming. Written to stderr so it never
+// corrupts the Ink TUI (which renders on stdout).
+const announced = new Set<string>();
+function announce(model: string, provider: Provider, baseUrl?: string): void {
+  const key = `${provider}:${model}`;
+  if (announced.has(key)) return;
+  announced.add(key);
+  const label = provider === "anthropic" ? `${model} (Anthropic)` : `${model} via ${baseUrl}`;
+  process.stderr.write(`LLM: ${label}\n`);
+}
+
 /** Run one completion against the active provider and return the text. */
 export async function complete(opts: CompleteOptions): Promise<string> {
   const s = resolveSettings();
@@ -77,6 +97,7 @@ export async function complete(opts: CompleteOptions): Promise<string> {
         : "AZTRX_API_KEY (or OPENAI_API_KEY) is not set"
     );
   }
+  announce(model, s.provider, s.baseUrl);
   return s.provider === "anthropic"
     ? anthropicComplete(s, model, opts)
     : openaiComplete(s, model, opts);
