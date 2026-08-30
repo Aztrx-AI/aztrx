@@ -165,6 +165,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     findings,
     replayStorageState: swarmAuthState,
     totalActions,
+    totalCoverage,
     workerCount,
   } = await swarmDetect({
     url,
@@ -201,8 +202,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
 
   if (workerCount > 1) {
     say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} worker(s).\n`));
+  } else if (options.fuzz) {
+    say(pc.dim(`\nFuzzed ${totalActions} action(s) — covered ${totalCoverage} new code range(s).\n`));
   } else {
-    say(pc.dim(`\n${options.fuzz ? "Fuzzed" : "Walked"} ${totalActions} action(s).\n`));
+    say(pc.dim(`\nWalked ${totalActions} action(s).\n`));
   }
 
   // F7 → F8 → F9: minimize each finding, compile an executable spec, validate

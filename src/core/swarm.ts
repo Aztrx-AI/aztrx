@@ -34,6 +34,8 @@ export type WorkerStrategy =
 export interface DetectResult {
   findings: Finding[];
   actions: number;
+  /** New JS code ranges covered by this worker's fuzz pass (0 for walk/http-fuzz). */
+  newCoverage: number;
   /** Auth-state path saved by worker 0 (used to authenticate replays). */
   replayStorageState?: string;
 }
@@ -180,11 +182,14 @@ export async function detectWorker(
   }
 
   let actions = 0;
+  let newCoverage = 0;
   if (loaded) {
     if (strategy.kind === "walk") {
       actions = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun });
     } else if (strategy.kind === "fuzz") {
-      actions = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun });
+      const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun });
+      actions = fr.actions;
+      newCoverage = fr.newCoverage;
     } else {
       actions = await httpFuzz(page, opts.url, workerBus, {
         maxRequests: opts.maxActions,
@@ -198,7 +203,7 @@ export async function detectWorker(
   await page.waitForTimeout(500);
   await context.close();
 
-  return { findings: classifier.findings(), actions, replayStorageState };
+  return { findings: classifier.findings(), actions, newCoverage, replayStorageState };
 }
 
 /** Dedup findings across workers by fingerprint: sum occurrences, keep the richest. */
@@ -273,6 +278,7 @@ export interface SwarmResult {
   findings: Finding[];
   replayStorageState?: string;
   totalActions: number;
+  totalCoverage: number;
   workerCount: number;
 }
 
@@ -321,7 +327,8 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
 
     const findings = mergeFindings(results.map((r) => r.findings));
     const totalActions = results.reduce((sum, r) => sum + r.actions, 0);
-    return { findings, replayStorageState, totalActions, workerCount: strategies.length };
+    const totalCoverage = results.reduce((sum, r) => sum + r.newCoverage, 0);
+    return { findings, replayStorageState, totalActions, totalCoverage, workerCount: strategies.length };
   } finally {
     await browser.close();
   }

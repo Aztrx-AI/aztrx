@@ -11,6 +11,13 @@ export interface FuzzOptions {
   dryRun?: boolean;
 }
 
+export interface FuzzResult {
+  actions: number;
+  /** JS code ranges executed for the first time during this run — a coverage
+   * signal that this pass explored new code, not just re-clicked known paths. */
+  newCoverage: number;
+}
+
 const GARBAGE = [
   "<script>alert(1)</script>",
   "'; DROP TABLE users;--",
@@ -34,18 +41,69 @@ function pick<T>(rnd: () => number, arr: T[]): T {
   return arr[Math.floor(rnd() * arr.length)];
 }
 
+interface Actionable {
+  handle: Awaited<ReturnType<Page["$$"]>>[number];
+  tag: string;
+  label: string;
+}
+
 /**
- * F5 — chaos fuzzer. Seeded random walk with a richer vocabulary than the
- * deterministic walk: clicks (occasionally doubled), hover, keypresses, select
- * option changes, scrolls, and garbage-filled text inputs — tripping runtime
- * errors for the interceptor. Skips anything the destructive deny-list flags,
- * and never follows off-origin links.
+ * F5 — chaos fuzzer with coverage guidance. A seeded random walk (click/hover/
+ * keypress/select/garbage input) that also reads V8 JS coverage and biases its
+ * picks toward elements whose action previously uncovered new code — the same
+ * "prefer the input that reaches new code" idea behind libFuzzer/AFL, applied to
+ * the DOM. Returns how many brand-new JS ranges this pass executed.
  */
-export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): Promise<number> {
+export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): Promise<FuzzResult> {
   const max = opts.maxActions ?? 100;
   const rnd = mulberry32(opts.seed ?? 42);
   const startUrl = page.url();
   let acted = 0;
+  let newCoverage = 0;
+  const seenRanges = new Set<string>();
+  const interesting = new Set<string>(); // labels whose action uncovered new code
+
+  try {
+    await page.coverage.startJSCoverage();
+  } catch {
+    // coverage unsupported in this context — the fuzz still runs, just blind.
+  }
+
+  // Snapshot current JS coverage; returns the count of newly-seen ranges.
+  const snapshot = async (): Promise<number> => {
+    let fresh = 0;
+    try {
+      const entries = await page.coverage.stopJSCoverage();
+      for (const e of entries) {
+        const id = e.scriptId || e.url;
+        for (const fn of e.functions) {
+          for (const r of fn.ranges) {
+            const key = `${id}:${r.startOffset}:${r.endOffset}`;
+            if (!seenRanges.has(key)) {
+              seenRanges.add(key);
+              fresh++;
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      await page.coverage.startJSCoverage();
+    } catch {
+      // ignore
+    }
+    return fresh;
+  };
+
+  const recordCoverage = async (label: string): Promise<void> => {
+    const fresh = await snapshot();
+    if (fresh > 0) {
+      newCoverage += fresh;
+      if (label) interesting.add(label);
+    }
+  };
 
   for (let i = 0; i < max; i++) {
     if (page.url() !== startUrl) {
@@ -60,55 +118,65 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
       if (!opts.dryRun) await page.mouse.wheel(0, dir === "up" ? -600 : 600).catch(() => {});
       acted++;
       await page.waitForTimeout(40);
+      await recordCoverage("");
       continue;
     }
 
+    // Build the actionable list up front (skip destructive/external/non-text),
+    // so coverage guidance can bias the pick before we act.
     const handles = await page.$$(SELECTOR);
-    const visible: typeof handles[number][] = [];
+    const actionable: Actionable[] = [];
     for (const h of handles) {
       const v = await h.isVisible().catch(() => false);
       const e = await h.isEnabled().catch(() => false);
-      if (v && e) visible.push(h);
+      if (!v || !e) continue;
+
+      let tag: string;
+      try {
+        tag = await h.evaluate((el) => el.tagName.toLowerCase());
+      } catch {
+        continue; // element detached/unreadable mid-query — skip
+      }
+      let label = "";
+      try {
+        label = await h.evaluate((el) => {
+          const t =
+            (el as HTMLElement).innerText ||
+            el.getAttribute("aria-label") ||
+            el.getAttribute("value") ||
+            el.getAttribute("placeholder") ||
+            "";
+          return t.trim();
+        });
+      } catch {
+        label = ""; // degraded — no label to filter on
+      }
+
+      if (DESTRUCTIVE.test(label)) continue;
+
+      if (tag === "a") {
+        const href = (await h.getAttribute("href")) ?? "";
+        if (/^https?:\/\//.test(href) && !href.startsWith(originOf(startUrl))) continue;
+      }
+
+      if (tag === "input") {
+        const type = (await h.getAttribute("type")) ?? "";
+        if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
+      }
+
+      actionable.push({ handle: h, tag, label });
     }
-    if (visible.length === 0) break;
+    if (actionable.length === 0) break;
 
-    const handle = pick(rnd, visible);
+    // Coverage guidance: prefer elements that previously uncovered new code.
+    const known = actionable.filter((a) => a.label && interesting.has(a.label));
+    const chosen = known.length > 0 && rnd() < 0.5 ? pick(rnd, known) : pick(rnd, actionable);
+    const { handle, tag, label } = chosen;
+    const selectors = await selectorCascade(page, handle);
+    const roll = rnd();
+    let didAct = true;
 
-    let tag: string;
-    try {
-      tag = await handle.evaluate((el) => el.tagName.toLowerCase());
-    } catch {
-      continue; // element detached/unreadable mid-query — skip
-    }
-    let label = "";
-    try {
-      label = await handle.evaluate((el) => {
-        const t =
-          (el as HTMLElement).innerText ||
-          el.getAttribute("aria-label") ||
-          el.getAttribute("value") ||
-          el.getAttribute("placeholder") ||
-          "";
-        return t.trim();
-      });
-    } catch {
-      label = ""; // degraded — no label to filter on
-    }
-
-    if (DESTRUCTIVE.test(label)) continue;
-
-    if (tag === "a") {
-      const href = (await handle.getAttribute("href")) ?? "";
-      if (/^https?:\/\//.test(href) && !href.startsWith(originOf(startUrl))) continue;
-    }
-
-    // Text inputs — mostly pour garbage in, sometimes hit keys or hover.
     if (tag === "input" || tag === "textarea") {
-      const type = (await handle.getAttribute("type")) ?? "";
-      if (!TEXT_INPUT_TYPES.has(type)) continue;
-      const selectors = await selectorCascade(page, handle);
-      const roll = rnd();
-
       if (roll < 0.6) {
         const value = pick(rnd, GARBAGE);
         const action: RecordedAction = { type: "input", selectors, value, timestamp: Date.now() };
@@ -127,39 +195,24 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
         bus.emit("action", action);
         if (!opts.dryRun) await handle.hover().catch(() => {});
       }
-
-      acted++;
-      await page.waitForTimeout(60);
-      continue;
-    }
-
-    // Select — actually change the option, a common source of state bugs.
-    if (tag === "select") {
+    } else if (tag === "select") {
       let options: string[] = [];
       try {
         options = await handle.evaluate((el) =>
           Array.from((el as HTMLSelectElement).options).map((o) => o.value || o.textContent?.trim() || "")
         );
       } catch {
-        continue; // options unreadable — skip this select
+        didAct = false; // options unreadable — skip this select
       }
-      if (options.length > 0) {
+      if (didAct && options.length > 0) {
         const value = pick(rnd, options);
-        const selectors = await selectorCascade(page, handle);
         const action: RecordedAction = { type: "select", selectors, value, timestamp: Date.now() };
         bus.emit("action", action);
         if (!opts.dryRun) await handle.selectOption(value).catch(() => {});
-        acted++;
-        await page.waitForTimeout(60);
+      } else {
+        didAct = false;
       }
-      continue;
-    }
-
-    // Clickable — mostly click, otherwise hover or keyboard-navigate.
-    const selectors = await selectorCascade(page, handle);
-    const roll = rnd();
-
-    if (roll < 0.55) {
+    } else if (roll < 0.55) {
       const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
       bus.emit("action", action);
       if (!opts.dryRun) {
@@ -180,9 +233,12 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
       }
     }
 
-    acted++;
-    await page.waitForTimeout(60);
+    if (didAct) {
+      acted++;
+      await page.waitForTimeout(60);
+      await recordCoverage(label);
+    }
   }
 
-  return acted;
+  return { actions: acted, newCoverage };
 }
