@@ -196,7 +196,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: DanisChaparov/aztrx@14a187d686710cf59392505075a54b00838fceae
+      - uses: DanisChaparov/aztrx@40570783592a768b5e012a984eee1ff334850a5d
         with:
           url: http://localhost:3000
           start-command: npm run dev          # optional — boot the app in the background
@@ -210,7 +210,7 @@ Or as a reusable workflow:
 on: pull_request
 jobs:
   aztrx:
-    uses: DanisChaparov/aztrx/.github/workflows/aztrx-pr.yml@14a187d686710cf59392505075a54b00838fceae
+    uses: DanisChaparov/aztrx/.github/workflows/aztrx-pr.yml@40570783592a768b5e012a984eee1ff334850a5d
     with:
       url: http://localhost:3000
       start-command: npm run dev
