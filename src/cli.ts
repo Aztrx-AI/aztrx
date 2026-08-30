@@ -333,9 +333,9 @@ program
         }
       }
 
-      if (!useUi) {
-        suggestNext(findings, opts);
-      }
+      // Suggest the next flag (e.g. --fix) after the run, in both the live TUI
+      // and plain paths. In the TUI this prints after the panel has finished.
+      suggestNext(findings, opts);
 
       // Drain any in-flight telemetry uploads (each bounded) before exit, so a
       // pending `--share-data` dispatch isn't killed mid-flight. Never affects
