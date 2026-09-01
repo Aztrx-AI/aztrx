@@ -168,6 +168,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     totalCoverage,
     workerCount,
     roles,
+    sawLoginForm,
   } = await swarmDetect({
     url,
     repoRoot,
@@ -207,6 +208,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     say(pc.dim(`\nFuzzed ${totalActions} action(s) — covered ${totalCoverage} new code range(s).\n`));
   } else {
     say(pc.dim(`\nWalked ${totalActions} action(s).\n`));
+  }
+
+  if (sawLoginForm && !options.login) {
+    say(pc.yellow("Hint: this app has a login form — re-run with --login to test the authenticated app."));
   }
 
   // F7 → F8 → F9: minimize each finding, compile an executable spec, validate

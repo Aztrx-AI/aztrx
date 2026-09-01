@@ -36,6 +36,8 @@ export interface DetectResult {
   actions: number;
   /** New JS code ranges covered by this worker's fuzz pass (0 for walk/http-fuzz). */
   newCoverage: number;
+  /** Whether the walk encountered a login form (a password input). */
+  sawLoginForm: boolean;
   /** Auth-state path saved by worker 0 (used to authenticate replays). */
   replayStorageState?: string;
 }
@@ -183,9 +185,12 @@ export async function detectWorker(
 
   let actions = 0;
   let newCoverage = 0;
+  let sawLoginForm = false;
   if (loaded) {
     if (strategy.kind === "walk") {
-      actions = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun });
+      const wr = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun });
+      actions = wr.actions;
+      sawLoginForm = wr.sawLoginForm;
     } else if (strategy.kind === "fuzz") {
       const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun });
       actions = fr.actions;
@@ -203,7 +208,7 @@ export async function detectWorker(
   await page.waitForTimeout(500);
   await context.close();
 
-  return { findings: classifier.findings(), actions, newCoverage, replayStorageState };
+  return { findings: classifier.findings(), actions, newCoverage, sawLoginForm, replayStorageState };
 }
 
 /** Dedup findings across workers by fingerprint: sum occurrences, keep the richest. */
@@ -293,6 +298,7 @@ export interface SwarmResult {
   totalCoverage: number;
   workerCount: number;
   roles: string[];
+  sawLoginForm: boolean;
 }
 
 /** Launch one browser, run the worker roster concurrently, merge findings. */
@@ -348,6 +354,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
       totalCoverage,
       workerCount: strategies.length,
       roles: strategies.map(strategyLabel),
+      sawLoginForm: results.some((r) => r.sawLoginForm),
     };
   } finally {
     await browser.close();

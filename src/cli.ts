@@ -20,7 +20,7 @@ import { flushCloud } from "./core/cloud/index.js";
 import { summarizeFindings } from "./core/summarize.js";
 import { applyVerifiedPatches } from "./core/heal/apply.js";
 import { openFixPr } from "./core/fixPr.js";
-import { promptYesNo } from "./core/prompt.js";
+import { promptYesNo, promptInput } from "./core/prompt.js";
 import { modernizeFile } from "./core/modernize.js";
 
 function collect(value: string, prev: string[]): string[] {
@@ -234,6 +234,16 @@ program
               : opts.repro
                 ? "repro"
                 : "deterministic walk";
+
+      // Interactive login: if --login was passed without credentials, ask for them
+      // so the user never has to remember the AZTRX_AUTH_* env vars.
+      let loginEmail = opts.loginEmail ?? process.env.AZTRX_AUTH_EMAIL;
+      let loginPassword = opts.loginPassword ?? process.env.AZTRX_AUTH_PASSWORD;
+      if (opts.login && !loginEmail && !loginPassword) {
+        loginEmail = await promptInput("Email:");
+        loginPassword = await promptInput("Password:");
+      }
+
       const runOpts: RunOptions = {
         url,
         repoRoot,
@@ -262,8 +272,8 @@ program
         cloudUrl: opts.cloudUrl,
         storageState: opts.storageState ?? opts.auth,
         login: opts.login,
-        loginEmail: opts.loginEmail ?? process.env.AZTRX_AUTH_EMAIL,
-        loginPassword: opts.loginPassword ?? process.env.AZTRX_AUTH_PASSWORD,
+        loginEmail,
+        loginPassword,
         loginUrl: opts.loginUrl,
       };
       const failOn = Boolean(opts.failOn);

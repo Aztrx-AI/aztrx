@@ -22,11 +22,16 @@ export interface WalkOptions {
  * button" seed of the Chaos Fuzzer; rage-clicks, form fuzzing, and network
  * jitter come next.
  */
-export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {}): Promise<number> {
+export async function walkDom(
+  page: Page,
+  bus: EventBus,
+  opts: WalkOptions = {},
+): Promise<{ actions: number; sawLoginForm: boolean }> {
   const max = opts.maxActions ?? 100;
   const startUrl = page.url();
   const startOrigin = originOf(startUrl);
   let actions = 0;
+  let sawLoginForm = false;
   const visited = new Set<string>();
   const queue: string[] = [startUrl];
 
@@ -99,6 +104,7 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
 
       if (tag === "input") {
         const type = (await handle.getAttribute("type")) ?? "";
+        if (type === "password") sawLoginForm = true;
         if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
       }
 
@@ -136,7 +142,7 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
     await page.waitForTimeout(500);
   }
 
-  return actions;
+  return { actions, sawLoginForm };
 }
 
 export function originOf(url: string): string {
