@@ -97,8 +97,49 @@ export function parsePatch(raw: string): Patch {
   return { explanation: typeof data.explanation === "string" ? data.explanation : "", hunks };
 }
 
+/** Sentinel model name for the free, no-key rule-based fixer. */
+export const RULE_TIER = "__rule__";
+
+// Matches "Cannot read properties of undefined|null (reading 'X')".
+const NULL_DEREF = /Cannot read properties of (undefined|null)(?: \(reading '([^']+)'\))?/;
+
+/**
+ * Rule-based fix for the most common crash — a null/undefined property access.
+ * Adds `?.` (optional chaining) at the failing access. Returns null when the
+ * error isn't a null/undefined deref or the line can't be located. Free and
+ * offline: no LLM, no key, no network — so `--fix` works out of the box for the
+ * most frequent frontend crashes.
+ */
+export function generateRulePatch(ctx: HealContext): Patch | null {
+  const m = ctx.finding.rawMessage.match(NULL_DEREF);
+  if (!m) return null;
+  const kind = m[1]; // "undefined" | "null"
+  const prop = m[2]; // the property that was read
+  const line = ctx.finding.mappedLocation?.line;
+  if (!prop || line == null) return null;
+
+  const src = ctx.fileContent.split("\n")[line - 1];
+  if (!src || !src.includes("." + prop)) return null;
+
+  // Optional-chain every `.identifier` access on the line (not just the failing
+  // one) so a chain like `d.agents.map(…)` becomes `d?.agents?.map(…)`.
+  const replace = src.replace(/\.(?=[a-zA-Z_$])/g, "?.");
+  if (replace === src) return null;
+
+  return {
+    explanation: `Guard against a ${kind} access on \`.${prop}\` with optional chaining.`,
+    hunks: [{ search: src, replace }],
+  };
+}
+
 export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}): Promise<Patch> {
   if (opts.patchFn) return opts.patchFn(ctx);
+
+  if (opts.model === RULE_TIER) {
+    const rulePatch = generateRulePatch(ctx);
+    if (rulePatch) return rulePatch;
+    throw new Error("no rule-based fix applicable");
+  }
 
   const text = await complete({
     system: SYSTEM,

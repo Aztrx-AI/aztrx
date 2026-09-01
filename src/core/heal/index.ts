@@ -20,7 +20,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
-import { generatePatch, modelTiers } from "./llm.js";
+import { generatePatch, generateRulePatch, modelTiers, RULE_TIER } from "./llm.js";
 import { hasLlmKey } from "../llm.js";
 import type { ModelTier } from "./llm.js";
 import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
@@ -142,21 +142,26 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   const red = redact(original);
   const ctx: HealContext = { finding, filePath, fileContent: original, redactedContent: red.text };
 
-  // No transport configured (and no injected generator) → nothing to try. A
-  // higher model tier can't fix a missing key, so bail before paying anything.
-  if (!opts.patchFn && !hasLlmKey()) {
+  // A free, no-key rule-based fix (null/undefined deref) — tried before any LLM.
+  const rulePatch = !opts.patchFn ? generateRulePatch(ctx) : null;
+
+  // No transport configured, and no rule fix applies → nothing to try.
+  if (!opts.patchFn && !hasLlmKey() && !rulePatch) {
     return {
       ...base,
       status: "no-llm",
-      error: "heal: no LLM API key is set (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)",
+      error: "heal: no LLM API key is set, and no rule-based fix applies (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)",
     };
   }
 
-  // The Smart Cloud Router tier plan: fast/cheap first, Sonnet as the fallback.
-  // An injected patchFn collapses to a single tier (there is no model to route).
-  const tiers: ModelTier[] = opts.patchFn
-    ? [{ model: opts.model ?? "default", label: "sonnet" }]
-    : modelTiers(opts.model, opts.fastModel);
+  // The Smart Cloud Router tier plan: the free rule fix first, then fast/cheap,
+  // then Sonnet. An injected patchFn collapses to a single tier.
+  const tiers: ModelTier[] = [
+    ...(rulePatch ? [{ model: RULE_TIER, label: "fast" as const }] : []),
+    ...(opts.patchFn
+      ? [{ model: opts.model ?? "default", label: "sonnet" as const }]
+      : modelTiers(opts.model, opts.fastModel)),
+  ];
 
   const wt = await createWorktree(opts.repoRoot, finding.id);
   // The winning (or last) patch + verification, held back for the final save.
