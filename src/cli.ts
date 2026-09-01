@@ -34,6 +34,34 @@ function autoWorkers(): number {
   return Math.max(1, Math.min(n, 8));
 }
 
+/** Auto-detect the running dev server URL: `aztrx.config.ts`, the dev script's
+ * `--port`, then a probe of common ports. Returns null when nothing responds. */
+async function detectUrl(repoRoot: string): Promise<string | undefined> {
+  const configPath = path.join(repoRoot, "aztrx.config.ts");
+  if (fs.existsSync(configPath)) {
+    const m = fs.readFileSync(configPath, "utf-8").match(/url\s*[=:]\s*["']([^"']+)["']/);
+    if (m) return m[1];
+  }
+
+  const pkgPath = path.join(repoRoot, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    const dev = pkg.scripts?.dev || pkg.scripts?.start || "";
+    const pm = dev.match(/(?:--port|-p)\s*[= ]?\s*(\d+)/);
+    if (pm) return `http://localhost:${pm[1]}`;
+  }
+
+  for (const port of [3000, 5173, 8080, 3001, 4000, 8000]) {
+    try {
+      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(300) });
+      if (res.status < 500) return `http://localhost:${port}`;
+    } catch {
+      // not listening — try the next port
+    }
+  }
+  return undefined;
+}
+
 /** Print one low-key "next flag" hint after a run, so users learn the advanced
  * flags on demand instead of memorizing the whole surface. Fires only in the
  * plain-log path when there's a finding worth acting on. */
@@ -170,7 +198,7 @@ program
 program
   .command("run", { isDefault: true })
   .description("inspect a running app and prove its bugs with an executable repro")
-  .argument("<url>", "dev server to inspect, e.g. http://localhost:3000")
+  .argument("[url]", "dev server to inspect (auto-detected if omitted), e.g. http://localhost:3000")
   .configureHelp({ formatHelp })
   .addOption(opt("--repo <path>", "project root to inspect/watch (default: cwd)", "advanced"))
   .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
@@ -217,12 +245,22 @@ program
   .addOption(opt("--ui", "force the live terminal UI even when stdout is not a TTY", "advanced"))
   .action(
     async (
-      url: string,
+      url: string | undefined,
       opts: CliOptions
     ) => {
       // `--fix` is the memorable verb; `--magic-fix` is a hidden alias.
       const magicFix = opts.magicFix || opts.fix;
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      // Auto-detect the target when no URL is given — one less thing to type.
+      let targetUrl = url;
+      if (!targetUrl) {
+        targetUrl = await detectUrl(repoRoot);
+        if (!targetUrl) {
+          console.error(pc.red("No URL given and none auto-detected. Pass <url>, or run `aztrx-cli init` first."));
+          process.exit(1);
+        }
+        console.log(pc.dim(`Auto-detected ${targetUrl}`));
+      }
       const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
       const mode =
         (workers ?? 1) > 1 || opts.httpFuzz
@@ -245,7 +283,7 @@ program
       }
 
       const runOpts: RunOptions = {
-        url,
+        url: targetUrl,
         repoRoot,
         maxActions: parseInt(opts.maxActions, 10),
         dryRun: opts.dryRun,
@@ -286,7 +324,7 @@ program
         await renderTui({
           bus,
           done: runPromise,
-          targetUrl: url,
+          targetUrl,
           repoRoot,
           mode,
         });
@@ -305,7 +343,7 @@ program
           typeof opts.prComment === "string"
             ? opts.prComment
             : path.join(repoRoot, ".aztrx", "pr-comment.md");
-        writePrComment(repoRoot, url, findings, prPath);
+        writePrComment(repoRoot, targetUrl, findings, prPath);
         console.log(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
       }
 
@@ -358,7 +396,7 @@ program
       }
 
       if (opts.pr) {
-        const prRes = await openFixPr(repoRoot, findings, url);
+        const prRes = await openFixPr(repoRoot, findings, targetUrl);
         if (prRes.ok) {
           console.log(pc.green("  ✓ PR opened") + ` ${prRes.url}`);
         } else {
