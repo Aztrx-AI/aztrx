@@ -167,6 +167,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     totalActions,
     totalCoverage,
     workerCount,
+    roles,
   } = await swarmDetect({
     url,
     repoRoot,
@@ -201,7 +202,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   }
 
   if (workerCount > 1) {
-    say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} worker(s).\n`));
+    say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} worker(s) — ${roles.join(", ")}.\n`));
   } else if (options.fuzz) {
     say(pc.dim(`\nFuzzed ${totalActions} action(s) — covered ${totalCoverage} new code range(s).\n`));
   } else {

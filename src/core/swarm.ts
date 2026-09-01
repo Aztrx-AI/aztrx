@@ -250,6 +250,18 @@ function buildStrategies(opts: {
   return strategies;
 }
 
+/** Human-readable label for a worker's role in the swarm. */
+function strategyLabel(s: WorkerStrategy): string {
+  switch (s.kind) {
+    case "walk":
+      return "walk";
+    case "http-fuzz":
+      return "http-fuzz";
+    case "fuzz":
+      return `fuzz seed ${s.seed}`;
+  }
+}
+
 export interface SwarmOptions {
   url: string;
   repoRoot: string;
@@ -280,6 +292,7 @@ export interface SwarmResult {
   totalActions: number;
   totalCoverage: number;
   workerCount: number;
+  roles: string[];
 }
 
 /** Launch one browser, run the worker roster concurrently, merge findings. */
@@ -328,7 +341,14 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
     const findings = mergeFindings(results.map((r) => r.findings));
     const totalActions = results.reduce((sum, r) => sum + r.actions, 0);
     const totalCoverage = results.reduce((sum, r) => sum + r.newCoverage, 0);
-    return { findings, replayStorageState, totalActions, totalCoverage, workerCount: strategies.length };
+    return {
+      findings,
+      replayStorageState,
+      totalActions,
+      totalCoverage,
+      workerCount: strategies.length,
+      roles: strategies.map(strategyLabel),
+    };
   } finally {
     await browser.close();
   }
