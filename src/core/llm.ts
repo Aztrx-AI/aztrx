@@ -108,13 +108,18 @@ async function anthropicComplete(
   model: string,
   opts: CompleteOptions,
 ): Promise<string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-api-key": s.apiKey as string,
+    "anthropic-version": "2023-06-01",
+  };
+  // Identity-linked API keys must name the workspace they act in.
+  const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
+  if (workspaceId) headers["anthropic-workspace-id"] = workspaceId;
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": s.apiKey as string,
-      "anthropic-version": "2023-06-01",
-    },
+    headers,
     body: JSON.stringify({
       model,
       max_tokens: opts.maxTokens ?? 2048,
