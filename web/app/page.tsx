@@ -267,7 +267,7 @@ function Hero() {
         transition={{ delay: 0.5, duration: 0.8 }}
         className="mt-6 font-mono text-xs text-zinc-600"
       >
-        No config. No API key. Just point it at your dev server.
+        No config. No account. --fix works free for common crashes.
       </motion.p>
 
       <motion.div
@@ -334,7 +334,7 @@ function Magic() {
               <div className="hidden shrink-0 flex-col items-end gap-2 sm:flex">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 font-mono text-xs text-zinc-200">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-200" />
-                  100 actions/s
+                  coverage-guided
                 </div>
                 <div className="flex items-end gap-1 pt-4">
                   {[38, 62, 44, 78, 55, 90, 70, 100, 84].map((h, i) => (
@@ -378,7 +378,8 @@ function Magic() {
                 </div>
                 <h3 className="mt-6 text-xl font-semibold text-white">Self-Healing</h3>
                 <p className="mt-3 max-w-md text-zinc-400">
-                  AI-verified patches via your own LLM — generated, redacted, and replayed in a
+                  Fixes common crashes for free — a built-in rule patches null/undefined derefs
+                  with no key. Complex bugs hand off to your own LLM, gated and replayed in a
                   sandbox before you ever see a line of it.
                 </p>
               </div>
@@ -415,8 +416,9 @@ function Magic() {
             </div>
             <h3 className="mt-6 text-xl font-semibold text-white">One-Click Apply</h3>
             <p className="mt-3 text-zinc-400">
-              <span className="font-mono text-sm">--fix</span> applies the verified patch to your
-              working tree — <span className="font-mono text-sm">git diff</span> shows the result. No commit.
+              <span className="font-mono text-sm">--fix</span> finds, proves, and fixes — free for
+              common crashes, or via your own model. <span className="font-mono text-sm">git diff</span> shows
+              the result. No commit.
             </p>
           </BentoCard>
         </div>
