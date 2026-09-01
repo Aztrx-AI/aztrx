@@ -26,19 +26,27 @@ export interface RawFrame {
   message: string;
 }
 
+/** Framework-internal frames to skip when hunting the throw site. */
+const FRAMEWORK_FRAME = /node_modules|webpack-runtime|\.next[\\/]|next[\\/]dist[\\/]/;
+
 /**
- * Pulls the first `url:line:col` frame out of a stack string. Handles React
- * Error Boundary console text, which embeds the original stack in its body.
+ * Pulls the first *user-code* frame out of a stack string. Iterates every line,
+ * skips framework internals (webpack runtime, node_modules, next/dist), and
+ * returns the first frame in the user's own code — so a Next.js dev stack like
+ * `webpack-internal:///(app-pages-browser)/./app/page.tsx:29:21` resolves to the
+ * user's file, not `intercept-console-error.js`.
  */
 export function extractFrame(text: string): RawFrame | null {
-  const match = text.match(/(https?:\/\/[^\s)"']+?):(\d+):(\d+)/);
-  if (!match) return null;
-  return {
-    url: match[1],
-    line: parseInt(match[2], 10),
-    column: parseInt(match[3], 10),
-    message: text.split("\n")[0].trim().slice(0, 200),
-  };
+  const message = text.split("\n")[0].trim().slice(0, 200);
+  for (const raw of text.split("\n")) {
+    // V8 frame: "at fn (url:line:col)" or "at url:line:col".
+    const m = raw.trim().match(/^(?:at\s+)?(?:\S+\s+\()?(.+?):(\d+):(\d+)\)?$/);
+    if (!m) continue;
+    const url = m[1];
+    if (!url || FRAMEWORK_FRAME.test(url)) continue;
+    return { url, line: parseInt(m[2], 10), column: parseInt(m[3], 10), message };
+  }
+  return null;
 }
 
 /** True if `p` looks like an absolute source path — a `file://` URL, a POSIX
@@ -71,6 +79,21 @@ export function extractServerFrame(stack: string): ServerFrame | null {
 
 function stripQuery(url: string): string {
   return url.split("?")[0];
+}
+
+/** Normalize a stack-frame URL to a repo-relative source path. Handles the
+ * dev-server schemes (`webpack-internal:///(ns)/./src/…`, `webpack://ns/src/…`),
+ * `file://`, and plain `https://host/path` bundle URLs. */
+function normalizeFrameUrl(url: string): string {
+  return stripQuery(url)
+    .replace(/^webpack-internal:\/\/\/[^/]+\/\.\//, "")
+    .replace(/^webpack:\/\/[^/]+\//, "")
+    .replace(/^webpack:\/\//, "")
+    .replace(/^\/@fs\//, "")
+    .replace(/^file:\/\/\/([A-Za-z]:)/, "$1") // file:///C:/x → C:/x
+    .replace(/^file:\/\//, "")
+    .replace(/^https?:\/\/[^/]+\//, "")
+    .replace(/^\//, "");
 }
 
 /** True only for a real, readable regular file — directories and unreadable
@@ -162,11 +185,9 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
   const viaMap = await trySourceMap(frame, repoRoot);
   if (viaMap) return viaMap;
 
-  // Fallback: Vite dev serves real source files at their URL path, so the
-  // bundle URL is already the source path — no sourcemap needed.
-  const relative = stripQuery(frame.url)
-    .replace(/^https?:\/\/[^/]+\//, "")
-    .replace(/^\//, "");
+  // Fallback: dev servers (Vite, Next) serve real source files at their URL
+  // path, so the bundle URL is already the source path — no sourcemap needed.
+  const relative = normalizeFrameUrl(frame.url);
   const directPath = resolveWithin(repoRoot, relative);
   if (!directPath) {
     return {

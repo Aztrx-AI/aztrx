@@ -50,7 +50,9 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
         const s = await arg.evaluate((a) =>
           a instanceof Error ? a.stack || String(a) : String(a)
         );
-        if (s.includes("http")) {
+        // A stack has `url:line:col` frames — match on that, not on "http", so
+        // Next.js dev stacks (webpack-internal:///…) are recognised too.
+        if (/:\d+:\d+/.test(s)) {
           source = s;
           break;
         }
