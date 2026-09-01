@@ -37,29 +37,35 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
     if (msg.type() !== "error") return;
     const text = msg.text();
 
-    // The init script routes `unhandledrejection` through console.error with a
-    // fixed prefix; recover the true signal type so Server Action failures and
-    // other promise rejections classify as "error", not "warning".
-    const type = text.startsWith("Unhandled Promise Rejection:")
-      ? "unhandled_rejection"
-      : "console_error";
-
+    // Pull the real Error (and its stack) out of the console args. React 18 and
+    // Next.js log a thrown error as `console.error(error)` — the Error object is
+    // an argument, not part of `msg.text()`. Match on `:line:col` (not "http")
+    // so Next.js dev stacks (`webpack-internal:///…`) are recognised too.
     let source = text;
+    let hasErrorArg = false;
     for (const arg of msg.args()) {
       try {
-        const s = await arg.evaluate((a) =>
-          a instanceof Error ? a.stack || String(a) : String(a)
+        const info = await arg.evaluate((a) =>
+          a instanceof Error
+            ? { isError: true, value: a.stack || String(a) }
+            : { isError: false, value: String(a) }
         );
-        // A stack has `url:line:col` frames — match on that, not on "http", so
-        // Next.js dev stacks (webpack-internal:///…) are recognised too.
-        if (/:\d+:\d+/.test(s)) {
-          source = s;
+        if (info.isError) hasErrorArg = true;
+        if (/:\d+:\d+/.test(info.value)) {
+          source = info.value;
           break;
         }
       } catch {
         // non-serializable arg — keep msg.text()
       }
     }
+
+    // A rejection the init script forwarded, or a thrown Error logged by React —
+    // both are real errors, not benign console warnings.
+    const type =
+      text.startsWith("Unhandled Promise Rejection:") || hasErrorArg
+        ? "unhandled_rejection"
+        : "console_error";
 
     const loc = msg.location();
     const frame =
