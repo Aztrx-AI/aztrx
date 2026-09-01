@@ -150,7 +150,7 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
     return {
       ...base,
       status: "no-llm",
-      error: "heal: no LLM API key is set, and no rule-based fix applies (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)",
+      error: "this crash needs a model — the free fixer only handles null/undefined derefs. Add a key: Anthropic → ANTHROPIC_API_KEY, or any provider → AZTRX_API_BASE + AZTRX_API_KEY + AZTRX_MODEL (no Aztrx account needed)",
     };
   }
 

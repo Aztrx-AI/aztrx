@@ -108,7 +108,7 @@ export async function modernizeFile(repoRoot: string, filePath: string): Promise
   }
 
   if (!hasLlmKey()) {
-    return { ok: false, original, changes: [], lang, error: "no LLM API key is set (set ANTHROPIC_API_KEY, AZTRX_API_KEY, or AZTRX_API_BASE)" };
+    return { ok: false, original, changes: [], lang, error: "modernize needs a model. Add a key: Anthropic → ANTHROPIC_API_KEY, or any provider → AZTRX_API_BASE + AZTRX_API_KEY + AZTRX_MODEL" };
   }
 
   let reply: string;

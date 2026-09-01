@@ -395,14 +395,18 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   // F12 — opt-in cloud sync. Streams the sanitized run results to the ingest
   // API for the team dashboard; dedup happens server-side by fingerprint.
   if (options.upload) {
-    submitRun(findings, {
-      repoRoot,
-      url,
-      apiKey: options.apiKey,
-      endpoint: options.cloudUrl,
-      mode: runMode(options),
-      counts,
-    });
+    if (options.apiKey || process.env.AZTRX_API_KEY) {
+      submitRun(findings, {
+        repoRoot,
+        url,
+        apiKey: options.apiKey,
+        endpoint: options.cloudUrl,
+        mode: runMode(options),
+        counts,
+      });
+    } else {
+      say(pc.yellow("Upload skipped: no API key. Set --api-key or AZTRX_API_KEY to stream findings to the dashboard."));
+    }
   }
 
   runLog.append({ type: "run_end", counts, ts: Date.now() });
