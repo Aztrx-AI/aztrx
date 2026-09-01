@@ -130,6 +130,10 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
         break;
       }
     }
+
+    // Give in-flight async work (fetches, timers) a moment to reject before we
+    // navigate to the next crawled page — otherwise a 300ms-later throw is lost.
+    await page.waitForTimeout(500);
   }
 
   return actions;

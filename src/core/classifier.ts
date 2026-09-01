@@ -43,6 +43,7 @@ const HYDRATION_NOISE = [
 
 function normalize(message: string): string {
   return message
+    .replace(/^(?:TypeError|ReferenceError|RangeError|SyntaxError|URIError|EvalError|Error):\s*/g, "")
     .replace(/\b\d+\b/g, "<N>")
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<UUID>")
     .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g, "<TS>")
