@@ -25,30 +25,31 @@ export interface WalkOptions {
 export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {}): Promise<number> {
   const max = opts.maxActions ?? 100;
   const startUrl = page.url();
+  const startOrigin = originOf(startUrl);
   let actions = 0;
-  const seen = new Set<string>();
+  const visited = new Set<string>();
+  const queue: string[] = [startUrl];
 
-  // Re-scan the DOM after every action (the page may have mutated or navigated)
-  // rather than walking a stale snapshot. Mirrors the fuzzer's recover-and-iterate
-  // loop, but deterministically (document order) and without re-clicking elements
-  // it has already acted on.
-  while (actions < max) {
-    if (page.url() !== startUrl) {
-      // A previous action navigated away — return to the starting page.
-      await page.goto(startUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+  // Breadth-first crawl: visit each internal page, walk its in-place controls
+  // (buttons/inputs/selects), and queue any internal links it reveals. This finds
+  // bugs on every route, not just the one you pointed at.
+  while (queue.length > 0 && actions < max) {
+    const url = queue.shift()!;
+    if (visited.has(url)) continue;
+    visited.add(url);
+    if (page.url() !== url) {
+      await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
       await page.waitForTimeout(300);
     }
 
+    // Per-page "seen" set — the same button label on two pages is two targets.
+    const seen = new Set<string>();
     let handles: Awaited<ReturnType<Page["$$"]>>;
     try {
       handles = await page.$$(SELECTOR);
     } catch {
-      // A navigation raced the re-scan — reset to the start page and retry.
-      await page.goto(startUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
-      await page.waitForTimeout(300);
-      continue;
+      continue; // mid-navigation — the next queued URL is visited anyway
     }
-    let acted = false;
 
     for (const handle of handles) {
       if (actions >= max) break;
@@ -81,8 +82,19 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
       if (DESTRUCTIVE.test(label)) continue;
 
       if (tag === "a") {
+        // Don't click links directly — queue internal ones for the crawl.
         const href = (await handle.getAttribute("href")) ?? "";
-        if (/^https?:\/\//.test(href) && !href.startsWith(originOf(startUrl))) continue;
+        if (href && !/^(javascript:|mailto:|tel:|#)/.test(href)) {
+          try {
+            const target = new URL(href, url).href.split("#")[0];
+            if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 20) {
+              queue.push(target);
+            }
+          } catch {
+            // unparseable href — ignore
+          }
+        }
+        continue;
       }
 
       if (tag === "input") {
@@ -106,12 +118,18 @@ export async function walkDom(page: Page, bus: EventBus, opts: WalkOptions = {})
       }
 
       actions++;
-      acted = true;
       await page.waitForTimeout(120);
-      break; // re-scan next iteration — the DOM may have changed
-    }
 
-    if (!acted) break; // nothing left to act on
+      // A click may navigate (e.g. a submit) — queue the new URL and stop this
+      // page's walk; the queue visits it next.
+      if (page.url() !== url) {
+        const target = page.url().split("#")[0];
+        if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 20) {
+          queue.push(target);
+        }
+        break;
+      }
+    }
   }
 
   return actions;
