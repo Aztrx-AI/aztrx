@@ -79,20 +79,23 @@ function suggestNext(
 ): void {
   if (opts.dryRun || opts.crashTest || findings.length === 0) return;
 
-  const crashOrError = findings.some((f) => f.severity === "crash" || f.severity === "error");
   const alreadyFixing = opts.heal || opts.fix || opts.magicFix;
+
+  // Server-side 5xx → point at the server fuzzer. `--fix` patches frontend code,
+  // so it can't help with a 502/500 from the server.
+  const serverError = findings.some((f) => f.type === "network_5xx");
+  if (serverError && !opts.httpFuzz) {
+    console.log(pc.dim("Tip: these are server-side 5xx — run with --http-fuzz to map the server attack surface"));
+    return;
+  }
+
+  const crashOrError = findings.some((f) => f.severity === "crash" || f.severity === "error");
   if (crashOrError && !alreadyFixing) {
     if (opts.repro) {
       console.log(pc.dim("Tip: run with --fix to attempt a closed-loop fix"));
     } else {
       console.log(pc.dim("Tip: run with --repro to prove these with a runnable spec, or --fix to fix them end-to-end"));
     }
-    return;
-  }
-
-  const serverError = findings.some((f) => f.type === "network_5xx");
-  if (serverError && !opts.httpFuzz) {
-    console.log(pc.dim("Tip: run with --http-fuzz to map the server-side attack surface"));
   }
 }
 
