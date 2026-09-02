@@ -114,7 +114,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: Aztrx-AI/aztrx@dc90680bca73343863da6e98c46e64be0223c6ee
+      - uses: Aztrx-AI/aztrx@98dbad0f7b6681c7670f7068d01dc0d54813a55f
         with:
           url: http://localhost:3000
           start-command: npm run dev          # optional — boot the app in the background
