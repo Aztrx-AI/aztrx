@@ -307,7 +307,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   // it in a sandboxed worktree, and verify the bug stops reproducing. Opt-in;
   // the patch is only ever handed to a human for review, never committed.
   if (options.heal) {
-    const healTargets = findings.filter(
+    const reproducible = findings.filter(
       (f) =>
         (f.severity === "crash" || f.severity === "error") &&
         // A `network_5xx` finding heals only when its 500 body leaked a server
@@ -315,10 +315,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         // to verify. `network_timeout` stays excluded — it needs a time-based
         // repro first.
         f.type !== "network_timeout" &&
-        f.mappedLocation?.isOwnCode &&
         f.repro &&
         f.repro.verdict !== "unreliable"
     );
+    const healTargets = reproducible.filter((f) => f.mappedLocation?.isOwnCode);
     if (healTargets.length) {
       say(pc.cyan("— Closed-loop healing (redact → generate → gate → sandbox → test → verify) —"));
       emitPhase("heal");
@@ -376,6 +376,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
           say(pc.dim(`  ✗ heal error: ${(e as Error).message}`));
         }
       }
+    } else if (reproducible.length > 0) {
+      // Reproducible crashes, but none mapped to source (wrong --repo?) — tell the
+      // user rather than silently doing nothing.
+      say(pc.yellow(`Found ${reproducible.length} reproducible crash(es) but couldn't map them to source files. Run from your project root (or pass --repo <dir>) so --fix can read the code.`));
     }
   }
 
