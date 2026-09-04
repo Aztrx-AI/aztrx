@@ -114,7 +114,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: Aztrx-AI/aztrx@98dbad0f7b6681c7670f7068d01dc0d54813a55f
+      - uses: Aztrx-AI/aztrx@v0.4.3
         with:
           url: http://localhost:3000
           start-command: npm run dev          # optional — boot the app in the background
@@ -137,9 +137,11 @@ niche tuning knobs).
 | --- | --- | --- |
 | `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
 | `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
+| `--http-fuzz-mutations` | With `--http-fuzz`: also send POST/PUT body mutations (default: GET-only) | — |
 | `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
 | `--heal` | Generate + verify a fix (implies `--repro`) | — |
 | `--fix` | Find → explain → heal → apply — the one-command fix (free for null/undefined derefs) | — |
+| `--magic-fix` | Hidden alias for `--fix` (deprecated) | — |
 | `--explain` | Print a human-language summary of the findings | — |
 | `--yes` / `-y` | Auto-apply verified fixes without prompting (with `--fix`) | — |
 | `--pr` | Open a merge-ready PR with the verified fixes (with `--fix`) | — |
@@ -150,10 +152,10 @@ niche tuning knobs).
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
 | `--workers <n>` | Number of parallel detection workers | `1` |
-| `--swarm` | Hidden alias for `--workers auto` | — |
+| `--swarm` | Auto-size the swarm to CPU cores (capped at 8) | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` / `$AZTRX_MODEL` |
-| `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5` / `$AZTRX_FAST_MODEL` |
+| `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5-20251001` / `$AZTRX_FAST_MODEL` |
 | `--test-command <cmd>` | Test command run against a healed patch | `npm test` (auto-detected) |
 | `--test-timeout <ms>` | Timeout for the heal test gate | `300000` |
 | `--no-test` | Skip the test gate during healing | — |
@@ -166,7 +168,11 @@ niche tuning knobs).
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
 | `--storage-state <path>` | Playwright storage-state for authenticated pages | — |
+| `--auth <path>` | Hidden alias for `--storage-state` | — |
 | `--login` | Auto-login before the pass (needs `AZTRX_AUTH_EMAIL`/`AZTRX_AUTH_PASSWORD`) | — |
+| `--login-email <email>` | Email for `--login` (default: `$AZTRX_AUTH_EMAIL`) | — |
+| `--login-password <pass>` | Password for `--login` (default: `$AZTRX_AUTH_PASSWORD`) | — |
+| `--login-url <url>` | Explicit login page URL for `--login` (default: current page) | — |
 | `--fail-on` | Exit `1` if any crash/error finding is present | — |
 | `--dry-run` | Log planned actions without executing them | — |
 | `--crash-test` | Throw a deliberate error to verify capture | — |
@@ -182,7 +188,7 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 .aztrx/
 ├── report.html                  # interactive triage report
 ├── repro/<id>.spec.ts           # minimal, executable Playwright repro
-├── heal/fix.patch               # gated, compiler-checked fix
+├── heal/<id>.patch              # gated, compiler-checked fix (one per finding)
 ├── events.jsonl                 # run log (streamed by `aztrx-cli studio`)
 ├── pr-comment.md                # GitHub PR markdown (with --pr-comment)
 └── badge.svg                    # status badge (with --badge)
