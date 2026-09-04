@@ -12,8 +12,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { chromium } from "playwright";
 import type { Browser } from "playwright";
+import { launchChromium } from "./browser.js";
 import { EventBus } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
 import { establishLogin } from "./auth.js";
@@ -304,7 +304,7 @@ export interface SwarmResult {
 /** Launch one browser, run the worker roster concurrently, merge findings. */
 export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
   const strategies = buildStrategies(opts);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium();
 
   try {
     const settled = await Promise.allSettled(

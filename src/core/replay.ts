@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page } from "playwright";
-import { chromium } from "playwright";
 import { EventBus } from "./eventBus.js";
+import { launchChromium } from "./browser.js";
 import { attachInterceptor } from "./interceptor.js";
 import { fingerprintOf } from "./classifier.js";
 import type { FindingType, RecordedAction } from "./types.js";
@@ -89,7 +89,7 @@ export class ReplayEngine {
   constructor(private opts: ReplayEngineOptions = {}) {}
 
   private async getBrowser(): Promise<Browser> {
-    if (!this.browser) this.browser = await chromium.launch({ headless: true });
+    if (!this.browser) this.browser = await launchChromium();
     return this.browser;
   }
 
