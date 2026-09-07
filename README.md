@@ -196,6 +196,22 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 
 ---
 
+## Benchmarks
+
+Aztrx is scored against two corpora — a framework-agnostic archetype baseline and a
+corpus of real **Next.js 16 App Router** apps (Turbopack, client components), each with
+one seeded runtime bug:
+
+| corpus | detection | deterministic repro |
+| --- | --- | --- |
+| 13 Next.js 16 apps | **13/13 · 100% recall** | **12/12 · 100%** |
+| 12 vanilla archetypes | **12/12 · 100% recall** | **10/11 · 91%** |
+
+Reproduce it yourself: `npm run bench` (archetypes) and `cd bench/frameworks && npm run bench`
+(Next.js corpus). Per-case results and scope notes live in
+[`bench/frameworks/RESULTS.md`](bench/frameworks/RESULTS.md) and
+[`bench/RESULTS.md`](bench/RESULTS.md).
+
 ## Contributing
 
 ```bash

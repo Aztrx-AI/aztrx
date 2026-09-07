@@ -84,8 +84,9 @@ extras point at the **same root cause**:
 
 "False positive" in the scorer means "matched no seeded bug message", not
 "wrong". These are correct findings of a real fault — just not collapsed across
-signal paths. Deduplicating distinct capture paths that share a root cause into
-a single finding is the next Stage-2 hardening item.
+signal paths. Cross-signal dedup (collapsing distinct capture paths of the same
+fault into one finding) was implemented after this run, so a re-run now reports
+fewer "extras" for these two apps.
 
 ## What this corpus forced us to fix
 
@@ -139,8 +140,7 @@ Stage 2 hardening then added two more, each pinned by a benchmark target:
 5. **Own-code attribution for Server Actions.** The Server Action's throw site is
    served as `about://React/Server/…`, which the sourcemap resolver does not yet
    map to own code, so a Server Action failure is `error` rather than `crash`.
-   Cross-signal dedup and Server-Action sourcemapping are the next hardening
-   items.
+   Server-Action sourcemapping is the next hardening item.
 
 ## Reproduce
 
