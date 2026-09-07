@@ -3,6 +3,7 @@ import { render, Box, Text, useApp } from "ink";
 import type { EventBus, ReproEvent, RunPhase } from "../core/eventBus.js";
 import type { Finding, RecordedAction } from "../core/types.js";
 import { VERSION } from "../core/version.js";
+import { diagnoseFinding } from "../core/diagnose.js";
 
 // Palette — mirrors web/app/globals.css "crash seismograph" tokens, mapped to
 // the nearest ANSI colors so the terminal panel reads as the same instrument.
@@ -148,6 +149,7 @@ function ReproBadge({ repro }: { repro: ReproEvent }) {
 }
 
 function FindingRow({ finding, repro }: { finding: Finding; repro?: ReproEvent }) {
+  const dx = diagnoseFinding(finding);
   return (
     <Box flexDirection="column">
       <Box>
@@ -159,6 +161,12 @@ function FindingRow({ finding, repro }: { finding: Finding; repro?: ReproEvent }
         <Text color={C.dim}>
           {"   "}
           {finding.mappedLocation.filePath}:{finding.mappedLocation.line}:{finding.mappedLocation.column}
+        </Text>
+      ) : null}
+      {dx ? (
+        <Text color={C.azure}>
+          {"   ↳ "}
+          {dx}
         </Text>
       ) : null}
       {repro ? (

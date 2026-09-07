@@ -4,7 +4,7 @@
 
 **12 / 12 interaction bugs repro deterministically · 100% repro rate**
 
-**1 / 1 hydration mismatch triaged as noise (0 leaks) · 1 / 1 Server Action failure escalated to `error`**
+**1 / 1 hydration mismatch triaged as noise (0 leaks) · 1 / 1 Server Action failure attributed to own code and escalated to `crash`**
 
 This corpus runs the real `run()` against thirteen self-contained **Next.js 16 App
 Router** apps — not the vanilla fixtures of the earlier stage. Each target is a
@@ -20,9 +20,9 @@ Stage 2 hardening, signals the scorer expects to be **triaged away**.
 | seeded bugs | 13 |
 | found | 13 |
 | detection recall | **100%** |
-| unseeded findings | 5 — two root causes (`/api/cart` → 500, Server Action → 500) |
+| unseeded findings | 2 — one per app (`/api/cart` → 500, Server Action → 500) |
 | hydration triage | 1 suppressed signal · 0 leaks |
-| Server Action severity | `error` (escalated from `warning`) ✓ |
+| Server Action severity | `crash` (own-code, escalated from `warning`) ✓ |
 | deterministic repro | **12 / 12 (100%)** |
 | repro not attempted | 1 (mount-time bug, empty action history) |
 | fuzz | seed 42 · maxActions 80 · `repro: true` |
@@ -59,9 +59,9 @@ The corpus grew two targets that pin down the Stage 2 hardening work:
 2. **Server Action escalation (13).** A `"use server"` action throws on submit.
    The rejection surfaces through two capture paths — `pageerror`
    (`uncaught_exception`) and the console `unhandledrejection` hook
-   (`unhandled_rejection`) — and is classified `error`, not `warning`. The scorer
-   now asserts severity per seeded bug, so a regression back to `warning` fails
-   the target.
+   (`unhandled_rejection`) — and, now that its throw site maps to own code, is
+   classified `crash`, not `warning`. The scorer asserts severity per seeded bug,
+   so a regression back to `warning`/`error` fails the target.
 
 ## The "extras" are one bug per app, seen across capture paths
 
@@ -86,7 +86,8 @@ extras point at the **same root cause**:
 "wrong". These are correct findings of a real fault — just not collapsed across
 signal paths. Cross-signal dedup (collapsing distinct capture paths of the same
 fault into one finding) was implemented after this run, so a re-run now reports
-fewer "extras" for these two apps.
+exactly one `extra` per app (2 total): `HTTP 500 /api/cart` on 03 and
+`HTTP 500 /` on 13.
 
 ## What this corpus forced us to fix
 
@@ -119,6 +120,13 @@ Stage 2 hardening then added two more, each pinned by a benchmark target:
    typed `unhandled_rejection` → `error` rather than `console_error` → `warning`,
    so Server Action failures escalate correctly. The scorer asserts severity, so
    a regression fails the target. (13)
+7. **Server Action sourcemapping.** The Server Action's throw site is served to
+   the browser as `about://React/Server/…` — an encoded path to the compiled
+   Turbopack chunk. The resolver now decodes that path, follows the chunk's
+   *sectioned* sourcemap (`@jridgewell/trace-mapping`'s `FlattenMap`), and maps
+   the throw back to the original `actions.ts`. Combined with own-frame detection
+   for `about://` frames, a Server Action failure is now `crash` and points at
+   the real source line. (13)
 
 ## Scope and caveats (read before citing)
 
@@ -131,16 +139,15 @@ Stage 2 hardening then added two more, each pinned by a benchmark target:
    All 12 interaction findings replay deterministically at 3/3. The one
    mount-time bug (03, unhandled rejection) has no action history, so no repro is
    attempted for it.
-3. **The destructive deny-list (F6) is a real coverage gap.** The fuzzer refuses
-   `pay`/`checkout`/`delete`/`logout` controls by design, so bugs behind those
-   flows are invisible to it.
+3. **The destructive deny-list (F6) is opt-in, not a hard gap.** The fuzzer
+   still refuses `pay`/`checkout`/`delete`/`logout` controls by default (and the
+   HTTP fuzzer the matching `delete`/`pay`/`logout`/… paths), so a default run
+   stays non-destructive. Passing `--allow-destructive` — which prints a loud
+   warning — lifts the deny-list so those flows are covered. The corpus runs
+   without it, so revenue/account flows remain untested here by design.
 4. **V8 error text is version-sensitive.** `JSON.parse("oops")` reads `"oops" is
    not valid JSON` in current Chromium. Manifests match the pinned Chromium; a
    browser bump can shift these strings.
-5. **Own-code attribution for Server Actions.** The Server Action's throw site is
-   served as `about://React/Server/…`, which the sourcemap resolver does not yet
-   map to own code, so a Server Action failure is `error` rather than `crash`.
-   Server-Action sourcemapping is the next hardening item.
 
 ## Reproduce
 

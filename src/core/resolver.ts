@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
-  TraceMap,
+  FlattenMap,
   originalPositionFor,
   type DecodedSourceMap,
 } from "@jridgewell/trace-mapping";
@@ -165,6 +165,8 @@ function sourceCandidates(source: string, repoRoot: string): string[] {
     .replace(/^webpack:\/\/[^/]+\//, "") // webpack://namespace/src/...
     .replace(/^webpack:\/\//, "")
     .replace(/^\/@fs\//, "")
+    .replace(/^file:\/\/\/([A-Za-z]:)/, "$1") // file:///C:/x → C:/x
+    .replace(/^file:\/\//, "")
     .replace(/^\//, "")
     .split("?")[0];
 
@@ -182,6 +184,9 @@ function locateFile(candidates: string[]): string | null {
 }
 
 export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<MappedError> {
+  const viaServerAction = await tryServerActionSourceMap(frame, repoRoot);
+  if (viaServerAction) return viaServerAction;
+
   const viaMap = await trySourceMap(frame, repoRoot);
   if (viaMap) return viaMap;
 
@@ -262,6 +267,43 @@ function isLoopback(host: string): boolean {
   return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0.0.0.0";
 }
 
+/** Shared tail of sourcemap resolution: run `originalPositionFor` through a
+ * (possibly sectioned) map, resolve the `source` it names to a repo file, and
+ * build the `MappedError`. Returns null when the position maps to no known
+ * source. */
+function resolveFromMap(
+  rawMap: DecodedSourceMap,
+  line: number,
+  column: number,
+  message: string,
+  repoRoot: string
+): MappedError | null {
+  const map = new FlattenMap(rawMap);
+  const pos = originalPositionFor(map, { line, column });
+  if (!pos.source || pos.line == null) return null;
+
+  const absolute = locateFile(sourceCandidates(pos.source, repoRoot));
+  if (!absolute) {
+    return {
+      message,
+      sourceFile: pos.source,
+      line: pos.line,
+      column: pos.column ?? 0,
+      codeSnippet: `<file not accessible locally: ${pos.source}>`,
+      resolvedFrom: "unresolved",
+    };
+  }
+
+  return {
+    message,
+    sourceFile: path.relative(repoRoot, absolute),
+    line: pos.line,
+    column: pos.column ?? 0,
+    codeSnippet: extractSnippet(absolute, pos.line),
+    resolvedFrom: "sourcemap",
+  };
+}
+
 async function trySourceMap(frame: RawFrame, repoRoot: string): Promise<MappedError | null> {
   const mapUrl = stripQuery(frame.url) + ".map";
   // SSRF guard: the sourcemap URL is derived from an untrusted stack frame, so
@@ -285,30 +327,40 @@ async function trySourceMap(frame: RawFrame, repoRoot: string): Promise<MappedEr
   }
 
   try {
-    const map = new TraceMap(rawMap);
-    const pos = originalPositionFor(map, { line: frame.line, column: frame.column });
-    if (!pos.source || pos.line == null) return null;
+    return resolveFromMap(rawMap, frame.line, frame.column, frame.message, repoRoot);
+  } catch {
+    return null;
+  }
+}
 
-    const absolute = locateFile(sourceCandidates(pos.source, repoRoot));
-    if (!absolute) {
-      return {
-        message: frame.message,
-        sourceFile: pos.source,
-        line: pos.line,
-        column: pos.column ?? 0,
-        codeSnippet: `<file not accessible locally: ${pos.source}>`,
-        resolvedFrom: "unresolved",
-      };
-    }
+/**
+ * Map a Next.js Server Action throw site to its original source. The browser
+ * sees the throw as `about://React/Server/<url-encoded chunk path>?<n>:<line>:<col>`,
+ * where the encoded path is the compiled Turbopack chunk on disk. That chunk's
+ * `.map` is a *sectioned* (indexed) sourcemap whose sections point at the real
+ * source (e.g. `app/actions.ts`); `FlattenMap` walks the sections for us.
+ */
+async function tryServerActionSourceMap(
+  frame: RawFrame,
+  repoRoot: string
+): Promise<MappedError | null> {
+  const marker = "about://React/Server/";
+  if (!frame.url.startsWith(marker)) return null;
 
-    return {
-      message: frame.message,
-      sourceFile: path.relative(repoRoot, absolute),
-      line: pos.line,
-      column: pos.column ?? 0,
-      codeSnippet: extractSnippet(absolute, pos.line),
-      resolvedFrom: "sourcemap",
-    };
+  let chunkPath: string;
+  try {
+    chunkPath = stripQuery(decodeURIComponent(frame.url.slice(marker.length)));
+  } catch {
+    return null;
+  }
+  if (!isFile(chunkPath)) return null;
+
+  const mapPath = chunkPath + ".map";
+  if (!isFile(mapPath) || isSensitive(mapPath)) return null;
+
+  try {
+    const rawMap = JSON.parse(fs.readFileSync(mapPath, "utf-8")) as DecodedSourceMap;
+    return resolveFromMap(rawMap, frame.line, frame.column, frame.message, repoRoot);
   } catch {
     return null;
   }

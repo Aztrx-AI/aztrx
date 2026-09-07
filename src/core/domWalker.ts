@@ -14,6 +14,10 @@ export const SELECTOR = 'a, button, input, select, textarea, [role="button"], [o
 export interface WalkOptions {
   maxActions?: number;
   dryRun?: boolean;
+  /** Opt-in: include controls the deny-list skips (delete/pay/logout/checkout…).
+   * Off by default — these can mutate real state, so they're refused unless the
+   * caller explicitly accepts the risk. */
+  allowDestructive?: boolean;
 }
 
 /**
@@ -84,7 +88,7 @@ export async function walkDom(
         label = ""; // degraded — no label to filter on
       }
 
-      if (DESTRUCTIVE.test(label)) continue;
+      if (!opts.allowDestructive && DESTRUCTIVE.test(label)) continue;
 
       if (tag === "a") {
         // Don't click links directly — queue internal ones for the crawl.

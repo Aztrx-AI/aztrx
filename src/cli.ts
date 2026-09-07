@@ -107,6 +107,7 @@ interface CliOptions {
   fuzz?: boolean;
   httpFuzz?: boolean;
   httpFuzzMutations?: boolean;
+  allowDestructive?: boolean;
   seed: string;
   workers?: string;
   swarm?: boolean;
@@ -211,6 +212,7 @@ program
   .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)", "detect"))
   .addOption(opt("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)", "detect"))
   .addOption(opt("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)", "advanced"))
+  .addOption(opt("--allow-destructive", "opt-in: test destructive controls/endpoints (delete/pay/logout/checkout) — can mutate real data", "advanced"))
   .addOption(opt("--seed <n>", "RNG seed for fuzz", "advanced").default("42"))
   .addOption(opt("--workers <n>", "number of parallel detection workers (default 1)", "detect"))
   .addOption(opt("--swarm", "auto-size the swarm to the machine's CPU cores (alias: --workers auto)").hideHelp())
@@ -294,6 +296,8 @@ program
         fuzz: opts.fuzz,
         httpFuzz: opts.httpFuzz,
         httpFuzzMutations: opts.httpFuzzMutations,
+        allowDestructive: opts.allowDestructive,
+        lang: opts.lang,
         repro: opts.repro || opts.heal || magicFix,
         seed: parseInt(opts.seed, 10),
         workers,

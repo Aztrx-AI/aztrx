@@ -15,6 +15,9 @@ export interface HttpFuzzOptions {
    * server state. Set this to also probe JSON-body type-confusion and method
    * confusion — only on endpoints you own and trust to be non-destructive. */
   mutations?: boolean;
+  /** Opt-in: also probe endpoints the deny-list skips (delete/pay/logout/…).
+   * Off by default — these can mutate real state. */
+  allowDestructive?: boolean;
 }
 
 // Static assets carry no server-side logic worth mutating — skip them so we
@@ -108,7 +111,7 @@ function hostAllowed(url: string, allowHosts: Set<string>): boolean {
 }
 
 /** Harvest candidate endpoints the app actually uses — not blind probing. */
-async function collectEndpoints(page: Page, origin: string): Promise<URL[]> {
+async function collectEndpoints(page: Page, origin: string, allowDestructive: boolean): Promise<URL[]> {
   const seen = new Map<string, URL>();
   const push = (raw: string) => {
     let u: URL;
@@ -119,7 +122,7 @@ async function collectEndpoints(page: Page, origin: string): Promise<URL[]> {
     }
     if (u.origin !== origin) return;
     if (STATIC_EXT.test(u.pathname)) return;
-    if (DESTRUCTIVE_PATH.test(u.pathname)) return;
+    if (!allowDestructive && DESTRUCTIVE_PATH.test(u.pathname)) return;
     if (!seen.has(u.pathname)) seen.set(u.pathname, u);
   };
 
@@ -221,7 +224,7 @@ export async function httpFuzz(
     await page.waitForTimeout(500);
   }
 
-  const endpoints = await collectEndpoints(page, new URL(targetUrl).origin);
+  const endpoints = await collectEndpoints(page, new URL(targetUrl).origin, Boolean(opts.allowDestructive));
   endpoints.sort((a, b) => a.pathname.localeCompare(b.pathname));
 
   let sent = 0;

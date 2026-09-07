@@ -22,6 +22,7 @@ npx aztrx-cli run http://localhost:3000 --fix    # fix them — free for common 
 ## Why Aztrx AI
 
 - **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx reads the real throw-site stack off the `Error` object — a crash you've never seen in your logs becomes a finding you can't ignore.
+- **Explains the crash in one line.** Every crash/error ships with a one-sentence diagnosis — why it happened and what to change (e.g. `the value before `.cart` is undefined — guard with `?.`). Free, no key, right in the terminal and `report.html`.
 - **Proves, not reports.** Every crash ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 3/3]`, `[flaky 3/5]`, or `[unreliable]`.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
 
@@ -138,6 +139,7 @@ niche tuning knobs).
 | `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
 | `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
 | `--http-fuzz-mutations` | With `--http-fuzz`: also send POST/PUT body mutations (default: GET-only) | — |
+| `--allow-destructive` | Opt-in: test destructive controls/endpoints (delete/pay/logout/checkout) — can mutate real data | — |
 | `--repro` | Minimize (ddmin) → emit Playwright spec → validate flake rate | — |
 | `--heal` | Generate + verify a fix (implies `--repro`) | — |
 | `--fix` | Find → explain → heal → apply — the one-command fix (free for null/undefined derefs) | — |

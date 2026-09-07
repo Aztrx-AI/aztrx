@@ -51,11 +51,15 @@ function normalize(message: string): string {
     .replace(/\s+/g, " ");
 }
 
+// Frame URLs in a V8 stack. `http(s)://` covers normal bundles; `about://React/Server/`
+// is Next.js's client-side render of a Server Action throw site, whose URL encodes
+// the compiled Turbopack chunk. Both carry a trailing `:line:col`.
+const FRAME_URL_RE = /(?:https?:\/\/|about:\/\/React\/Server\/)[^\s)"']+?:\d+:\d+/g;
+
 function extractFrameUrls(stack: string): string[] {
   const urls: string[] = [];
-  const re = /https?:\/\/[^\s)"']+?:\d+:\d+/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(stack)) !== null) urls.push(m[0]);
+  while ((m = FRAME_URL_RE.exec(stack)) !== null) urls.push(m[0]);
   return urls;
 }
 

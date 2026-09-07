@@ -38,6 +38,7 @@
     "build": "tsc",
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
+    "test": "tsx --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",
     "server": "tsx server/index.ts",
     "server:typecheck": "tsc -p server/tsconfig.json",

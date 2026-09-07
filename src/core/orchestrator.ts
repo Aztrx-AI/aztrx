@@ -4,6 +4,7 @@ import { VERSION } from "./version.js";
 import { EventBus } from "./eventBus.js";
 import type { RunPhase } from "./eventBus.js";
 import { loadBaseline } from "./classifier.js";
+import { diagnoseFinding } from "./diagnose.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
 import { swarmDetect } from "./swarm.js";
 import { ReplayEngine } from "./replay.js";
@@ -29,6 +30,12 @@ export interface RunOptions {
   httpFuzz?: boolean;
   /** With `httpFuzz`, also send POST/PUT body mutations (default: GET-only). */
   httpFuzzMutations?: boolean;
+  /** Opt-in: include destructive controls/endpoints (delete/pay/logout/checkout…).
+   * Off by default — these can mutate real state, so they're refused unless the
+   * caller explicitly accepts the risk (loudly warned). */
+  allowDestructive?: boolean;
+  /** Language for the per-finding diagnosis headline (en/ru). Default: en. */
+  lang?: string;
   repro?: boolean;
   seed?: number;
   /** F-swarm: number of parallel detection workers (default 1). `--swarm` = auto. */
@@ -85,7 +92,7 @@ const SEVERITY_MARK = {
   noise: pc.dim("○ noise "),
 } as const;
 
-function printFinding(f: Finding, write: (s: string) => void): void {
+function printFinding(f: Finding, write: (s: string) => void, lang?: string): void {
   write(SEVERITY_MARK[f.severity] + pc.bold(f.rawMessage));
   if (f.mappedLocation) {
     write(
@@ -93,6 +100,9 @@ function printFinding(f: Finding, write: (s: string) => void): void {
     );
     write(pc.dim(f.mappedLocation.codeContext));
   }
+  // F14 — the one-line "why + fix" diagnosis, inline with every crash/error.
+  const dx = diagnoseFinding(f, lang);
+  if (dx) write(pc.cyan(`   ↳ ${dx}`));
   if (f.serverError) {
     write(pc.dim(`   server: ${f.serverError.message}`));
   }
@@ -139,6 +149,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (options.repro) say(pc.dim(`Mode:   repro (${options.reproRuns ?? 3} runs)`));
   if (guardOn) say(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
   if (options.storageState) say(pc.dim(`Auth:   ${options.storageState}`));
+  if (options.allowDestructive) {
+    say(pc.yellow(pc.bold("⚠ DESTRUCTIVE MODE — delete/pay/logout/checkout controls are ENABLED.")));
+    say(pc.yellow("  This can mutate real data. Run only against a disposable/dev instance you own."));
+  }
   say("");
 
   emitPhase("launch", url);
@@ -177,6 +191,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     fuzz: options.fuzz,
     httpFuzz: options.httpFuzz,
     httpFuzzMutations: options.httpFuzzMutations,
+    allowDestructive: options.allowDestructive,
     seed: options.seed ?? 42,
     workers,
     allowHosts,
@@ -199,7 +214,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   for (const f of findings) {
     bus.emit("finding", f);
     runLog.append({ type: "finding", finding: f });
-    printFinding(f, say);
+    printFinding(f, say, options.lang);
   }
 
   if (workerCount > 1) {
@@ -383,7 +398,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     }
   }
 
-  const reportPath = writeReport(repoRoot, url, findings);
+  const reportPath = writeReport(repoRoot, url, findings, options.lang);
   say(pc.dim(`Report: ${path.relative(repoRoot, reportPath)}`));
 
   const counts: Record<string, number> = {};

@@ -57,6 +57,8 @@ export interface DetectWorkerOptions {
   crashTest?: boolean;
   saveAuthState?: boolean;
   httpFuzzMutations?: boolean;
+  /** Opt-in: include destructive controls/endpoints (delete/pay/logout/…). */
+  allowDestructive?: boolean;
   baseline: string[];
   log: (msg: string) => void;
 }
@@ -188,11 +190,11 @@ export async function detectWorker(
   let sawLoginForm = false;
   if (loaded) {
     if (strategy.kind === "walk") {
-      const wr = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun });
+      const wr = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
       actions = wr.actions;
       sawLoginForm = wr.sawLoginForm;
     } else if (strategy.kind === "fuzz") {
-      const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun });
+      const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
       actions = fr.actions;
       newCoverage = fr.newCoverage;
     } else {
@@ -201,6 +203,7 @@ export async function detectWorker(
         dryRun: opts.dryRun,
         allowHosts: opts.allowHosts,
         mutations: opts.httpFuzzMutations,
+        allowDestructive: opts.allowDestructive,
       });
     }
   }
@@ -284,6 +287,8 @@ export interface SwarmOptions {
   loginPassword?: string;
   loginUrl?: string;
   crashTest?: boolean;
+  /** Opt-in: include destructive controls/endpoints (delete/pay/logout/…). */
+  allowDestructive?: boolean;
   baseline: string[];
   guardOn: boolean;
   log: (msg: string) => void;
@@ -326,6 +331,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
             crashTest: i === 0 ? opts.crashTest : false,
             saveAuthState: i === 0,
             httpFuzzMutations: opts.httpFuzzMutations,
+            allowDestructive: opts.allowDestructive,
             baseline: opts.baseline,
             log: (m) => opts.log(strategies.length > 1 ? `[w${i}] ${m}` : m),
           },

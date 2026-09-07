@@ -9,6 +9,9 @@ export interface FuzzOptions {
   seed?: number;
   maxActions?: number;
   dryRun?: boolean;
+  /** Opt-in: include controls the deny-list skips (delete/pay/logout/checkout…).
+   * Off by default — these can mutate real state. */
+  allowDestructive?: boolean;
 }
 
 export interface FuzzResult {
@@ -152,7 +155,7 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
         label = ""; // degraded — no label to filter on
       }
 
-      if (DESTRUCTIVE.test(label)) continue;
+      if (!opts.allowDestructive && DESTRUCTIVE.test(label)) continue;
 
       if (tag === "a") {
         const href = (await h.getAttribute("href")) ?? "";

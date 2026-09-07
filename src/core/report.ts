@@ -3,6 +3,7 @@ import * as path from "path";
 import type { Finding } from "./types.js";
 import { BASE_CSS, SEVERITY_COLOR, seismograph } from "./ui.js";
 import { sanitizeSecrets } from "./heal/redact.js";
+import { diagnoseFinding } from "./diagnose.js";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -21,7 +22,7 @@ const SEV_ORDER = ["crash", "error", "warning", "noise"] as const;
  * CDN), rendered in the shared "crash seismograph" identity: one red spike per
  * crash, severity chips, and colored repro verdicts.
  */
-export function renderReport(targetUrl: string, findings: Finding[]): string {
+export function renderReport(targetUrl: string, findings: Finding[], lang?: string): string {
   const sorted = [...findings].sort(
     (a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity)
   );
@@ -35,6 +36,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
         ? `${clean(f.mappedLocation.filePath)}:${f.mappedLocation.line}:${f.mappedLocation.column}`
         : "";
       const snippet = f.mappedLocation ? clean(f.mappedLocation.codeContext) : "";
+      const dx = diagnoseFinding(f, lang);
       const serverErr = f.serverError
         ? `<div class="server">server: ${clean(f.serverError.message)}</div>` +
           (f.serverError.body
@@ -60,6 +62,7 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
         <h2>${clean(f.rawMessage.split("\n")[0])}</h2>
       </header>
       ${loc ? `<div class="loc">${loc}</div>` : ""}
+      ${dx ? `<div class="dx">↳ ${clean(dx)}</div>` : ""}
       ${snippet ? `<pre class="snippet">${snippet}</pre>` : ""}
       ${serverErr}
       ${f.occurrences > 1 ? `<div class="occ">seen ×${f.occurrences}</div>` : ""}
@@ -97,10 +100,10 @@ export function renderReport(targetUrl: string, findings: Finding[]): string {
 </html>`;
 }
 
-export function writeReport(repoRoot: string, targetUrl: string, findings: Finding[]): string {
+export function writeReport(repoRoot: string, targetUrl: string, findings: Finding[], lang?: string): string {
   const dir = path.join(repoRoot, ".aztrx");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "report.html");
-  fs.writeFileSync(file, renderReport(targetUrl, findings), "utf-8");
+  fs.writeFileSync(file, renderReport(targetUrl, findings, lang), "utf-8");
   return file;
 }
