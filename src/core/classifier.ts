@@ -80,6 +80,45 @@ export function fingerprintOf(payload: TelemetryErrorPayload): string {
   return createHash("sha1").update(key).digest("hex").slice(0, 12);
 }
 
+/** Pull the resource URL out of a network finding's message ("HTTP 500 <url>"
+ * or "Request failed: <url> (...)"). Fragment is stripped; the URL is the root
+ * cause's identity, not its fragment. */
+function extractUrlFromMessage(msg: string): string | null {
+  const m = msg.match(/https?:\/\/[^\s)"']+/);
+  return m ? m[0].split("#")[0] : null;
+}
+
+/**
+ * Cross-signal root-cause key. Distinct capture paths for the SAME fault
+ * collapse onto one key even though their `type` differs:
+ *
+ *   - a thrown JS error surfaces via `pageerror` (`uncaught_exception`) AND the
+ *     forwarded `unhandledrejection` hook (`unhandled_rejection`) → keyed by the
+ *     type-independent fingerprint (normalized message + own frames). The
+ *     leading `Error:` prefix is normalized away, so the two channels match.
+ *   - a failed request surfaces via `response` (`network_5xx`), `requestfailed`
+ *     (`network_timeout`), and the console's "Failed to load resource"
+ *     (`console_error`) → keyed by the resource URL (for `console_error`, the
+ *     URL is `msg.location().url`, the failed resource).
+ *
+ * Falls back to the exact fingerprint when no cross-signal rule applies, so a
+ * finding with no natural group still dedups only against itself.
+ */
+export function rootKeyOf(payload: TelemetryErrorPayload): string {
+  if (payload.type === "uncaught_exception" || payload.type === "unhandled_rejection") {
+    const frames = extractFrameUrls(payload.rawStack);
+    const own = frames.filter((f) => !isDepFrame(f)).slice(0, 3).map(stripPos);
+    return `throw:${normalize(payload.rawMessage)}|${own.join("|")}`;
+  }
+  if (payload.type === "network_5xx" || payload.type === "network_timeout") {
+    const url = extractUrlFromMessage(payload.rawMessage);
+    if (url) return `net:${url}`;
+  } else if (payload.type === "console_error" && /Failed to load resource/i.test(payload.rawMessage)) {
+    if (payload.url) return `net:${payload.url.split("#")[0]}`;
+  }
+  return fingerprintOf(payload);
+}
+
 function classifySeverity(payload: TelemetryErrorPayload, isOwnCode: boolean): Severity {
   if (DEV_TOOLING_NOISE.some((n) => payload.rawMessage.includes(n))) return "noise";
   if (HYDRATION_NOISE.some((n) => payload.rawMessage.includes(n))) return "noise";
@@ -123,6 +162,7 @@ export class SignalClassifier {
     const finding: Finding = {
       id: fingerprint,
       fingerprint,
+      rootKey: rootKeyOf(payload),
       occurrences: 1,
       severity: classifySeverity(payload, isOwnCode),
       type: payload.type,
@@ -138,6 +178,56 @@ export class SignalClassifier {
   findings(): Finding[] {
     return [...this.seen.values()].filter((f) => f.severity !== "noise");
   }
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { crash: 3, error: 2, warning: 1, noise: 0 };
+
+/** The richer of two findings: higher severity wins; ties break toward an
+ * own-code source location, then the longer action history. */
+function richer(a: Finding, b: Finding): Finding {
+  if (SEVERITY_RANK[a.severity] !== SEVERITY_RANK[b.severity]) {
+    return SEVERITY_RANK[a.severity] > SEVERITY_RANK[b.severity] ? a : b;
+  }
+  const aOwn = a.mappedLocation?.isOwnCode === true;
+  const bOwn = b.mappedLocation?.isOwnCode === true;
+  if (aOwn !== bOwn) return aOwn ? a : b;
+  return a.actionHistory.length >= b.actionHistory.length ? a : b;
+}
+
+/**
+ * Collapse findings that share a root cause across capture paths into a single
+ * finding. Runs after fingerprint dedup + worker merge; groups by `rootKey`,
+ * keeps the richest representative, and sums occurrences. Safe by construction:
+ * the key only groups paths that are the same underlying fault (the same thrown
+ * error, or the same failing URL), never distinct bugs.
+ */
+export function collapseSignals(findings: Finding[]): Finding[] {
+  const groups = new Map<string, Finding>();
+  for (const f of findings) {
+    const key = f.rootKey ?? f.fingerprint;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { ...f, actionHistory: [...f.actionHistory] });
+      continue;
+    }
+    const winner = richer(existing, f);
+    const merged: Finding = {
+      ...winner,
+      occurrences: existing.occurrences + f.occurrences,
+      actionHistory:
+        existing.actionHistory.length >= f.actionHistory.length
+          ? existing.actionHistory
+          : f.actionHistory,
+      rawStack:
+        (existing.rawStack?.length ?? 0) >= (f.rawStack?.length ?? 0)
+          ? existing.rawStack
+          : f.rawStack,
+      mappedLocation: existing.mappedLocation ?? f.mappedLocation,
+      serverError: existing.serverError ?? f.serverError,
+    };
+    groups.set(key, merged);
+  }
+  return [...groups.values()];
 }
 
 export async function loadBaseline(repoRoot: string): Promise<string[]> {

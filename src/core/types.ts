@@ -89,6 +89,9 @@ export interface ReproReport {
 export interface Finding {
   id: string;
   fingerprint: string;
+  /** Cross-signal root-cause key (see `rootKeyOf` in classifier.ts). Grouped by
+   * `collapseSignals` so distinct capture paths of one fault merge into one. */
+  rootKey?: string;
   occurrences: number;
   severity: Severity;
   type: FindingType;

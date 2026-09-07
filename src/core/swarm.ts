@@ -17,7 +17,7 @@ import { launchChromium } from "./browser.js";
 import { EventBus } from "./eventBus.js";
 import { attachInterceptor } from "./interceptor.js";
 import { establishLogin } from "./auth.js";
-import { SignalClassifier } from "./classifier.js";
+import { SignalClassifier, collapseSignals } from "./classifier.js";
 import { ActionRecorder } from "./recorder.js";
 import { walkDom } from "./domWalker.js";
 import { fuzz } from "./fuzzer.js";
@@ -344,7 +344,9 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
     let replayStorageState: string | undefined;
     for (const r of results) if (r.replayStorageState) replayStorageState = r.replayStorageState;
 
-    const findings = mergeFindings(results.map((r) => r.findings));
+    // Merge identical fingerprints across workers, then collapse distinct
+    // capture paths of the same fault (5xx + console + timeout + throw) into one.
+    const findings = collapseSignals(mergeFindings(results.map((r) => r.findings)));
     const totalActions = results.reduce((sum, r) => sum + r.actions, 0);
     const totalCoverage = results.reduce((sum, r) => sum + r.newCoverage, 0);
     return {
