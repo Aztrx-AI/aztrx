@@ -29,12 +29,14 @@ interface PatrolFile {
 
 export class PatrolState {
   private readonly file: string;
+  private readonly cooldownMs: number;
   private data: PatrolFile;
 
-  constructor(repoRoot: string, url: string) {
+  constructor(repoRoot: string, url: string, cooldownMs = 30 * 60 * 1000) {
     const dir = path.join(repoRoot, ".aztrx");
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, "patrol.json");
+    this.cooldownMs = cooldownMs;
     this.data = this.read();
     this.data.url = url;
   }
@@ -48,14 +50,22 @@ export class PatrolState {
     }
   }
 
-  /** A fingerprint is "handled" once a PR is open or it's been marked unfixable. */
-  isHandled(fp: string): boolean {
-    return this.data.fingerprints[fp] !== undefined;
+  /**
+   * A fingerprint is "handled" while its PR is open, or while an `unfixed` mark
+   * is still within its cooldown. Once the cooldown lapses, an `unfixed` bug
+   * becomes retry-eligible again — it stops being "handled" and `run()` heals it
+   * afresh rather than skipping it forever.
+   */
+  isHandled(fp: string, now = Date.now()): boolean {
+    const e = this.data.fingerprints[fp];
+    if (!e) return false;
+    if (e.status === "pr-opened") return true;
+    return now - Date.parse(e.lastSeen) < this.cooldownMs;
   }
 
-  /** Every handled fingerprint, so the supervisor can tell `run()` to skip healing them. */
-  handled(): string[] {
-    return Object.keys(this.data.fingerprints);
+  /** Every currently-handled fingerprint, so the supervisor can tell `run()` to skip healing them. */
+  handled(now = Date.now()): string[] {
+    return Object.keys(this.data.fingerprints).filter((fp) => this.isHandled(fp, now));
   }
 
   markPr(fp: string, prUrl: string, branch: string): void {

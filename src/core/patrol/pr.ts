@@ -14,6 +14,7 @@
 
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { createHash } from "crypto";
 import type { Finding } from "../types.js";
 
 const exec = promisify(execFile);
@@ -29,6 +30,30 @@ export interface PatrolPrResult {
 export function branchFor(fp: string): string {
   return `aztrx/fix-${fp.slice(0, 8)}`;
 }
+
+/** Stable branch name for a *set* of fingerprints — the same set always maps to
+ * the same branch, so a re-scan of an unchanged batch doesn't open a duplicate PR. */
+export function branchForSet(fps: string[]): string {
+  const h = createHash("sha1").update([...fps].sort().join("\n")).digest("hex").slice(0, 8);
+  return `aztrx/fix-batch-${h}`;
+}
+
+function headTitle(f: Finding): string {
+  return f.rawMessage.split("\n")[0].slice(0, 60);
+}
+
+function findingLine(f: Finding): string {
+  const loc = f.mappedLocation
+    ? `${f.mappedLocation.filePath}:${f.mappedLocation.line}`
+    : "unknown location";
+  const repro = f.repro?.verdict
+    ? `repro: ${f.repro.verdict} ${f.repro.reproductions}/${f.repro.runs}`
+    : "";
+  return `- **${f.rawMessage.split("\n")[0].slice(0, 120)}** — \`${loc}\` ${repro}`.trim();
+}
+
+const VERIFIED_NOTE =
+  "Verified: AST-gated, compiled, run against the test suite, and replayed against the repro before this PR. Opened automatically by `aztrx patrol`.";
 
 async function hasOpenPr(repoRoot: string, branch: string): Promise<boolean> {
   try {
@@ -58,35 +83,16 @@ async function safeCheckout(repoRoot: string, branch: string): Promise<void> {
   await exec("git", ["-C", repoRoot, "checkout", branch]).catch(() => {});
 }
 
-export async function openPatrolPr(
+/** Shared git plumbing: (re)create the branch at HEAD, stage only the touched
+ * files, commit, open the PR, and return to the original branch. The caller has
+ * already done its own dedup + title/body. */
+async function createPr(
   repoRoot: string,
-  finding: Finding,
-  url: string,
+  branch: string,
+  title: string,
+  body: string,
   files: string[]
 ): Promise<PatrolPrResult> {
-  const branch = branchFor(finding.fingerprint);
-  if (await hasOpenPr(repoRoot, branch)) {
-    return { ok: false, skipped: true, branch, error: "PR already open for this finding" };
-  }
-
-  const head = finding.rawMessage.split("\n")[0].slice(0, 60);
-  const title = `fix: ${head}`;
-  const loc = finding.mappedLocation
-    ? `${finding.mappedLocation.filePath}:${finding.mappedLocation.line}`
-    : "unknown location";
-  const repro = finding.repro?.verdict
-    ? `repro: ${finding.repro.verdict} ${finding.repro.reproductions}/${finding.repro.runs}`
-    : "";
-  const body = [
-    "## Aztrx AI — autonomous fix",
-    "",
-    `Found against ${url}:`,
-    "",
-    `- **${finding.rawMessage.split("\n")[0].slice(0, 120)}** — \`${loc}\` ${repro}`.trim(),
-    "",
-    "Verified: AST-gated, compiled, run against the test suite, and replayed against the repro before this PR. Opened automatically by `aztrx patrol`.",
-  ].join("\n");
-
   const originalBranch = await currentBranch(repoRoot);
 
   try {
@@ -118,4 +124,54 @@ export async function openPatrolPr(
       error: `gh pr create failed (is gh installed and authenticated?): ${(e as Error).message}`,
     };
   }
+}
+
+export async function openPatrolPr(
+  repoRoot: string,
+  finding: Finding,
+  url: string,
+  files: string[]
+): Promise<PatrolPrResult> {
+  const branch = branchFor(finding.fingerprint);
+  if (await hasOpenPr(repoRoot, branch)) {
+    return { ok: false, skipped: true, branch, error: "PR already open for this finding" };
+  }
+
+  const body = [
+    "## Aztrx AI — autonomous fix",
+    "",
+    `Found against ${url}:`,
+    "",
+    findingLine(finding),
+    "",
+    VERIFIED_NOTE,
+  ].join("\n");
+  return createPr(repoRoot, branch, `fix: ${headTitle(finding)}`, body, files);
+}
+
+/** One PR carrying a whole batch of fixes. Branch is stable across the *set*, so
+ * an unchanged batch re-scan dedups to the same PR. */
+export async function openPatrolBatchPr(
+  repoRoot: string,
+  findings: Finding[],
+  url: string,
+  files: string[]
+): Promise<PatrolPrResult> {
+  const branch = branchForSet(findings.map((f) => f.fingerprint));
+  if (await hasOpenPr(repoRoot, branch)) {
+    return { ok: false, skipped: true, branch, error: "batch PR already open" };
+  }
+
+  const n = findings.length;
+  const body = [
+    "## Aztrx AI — autonomous fix (batch)",
+    "",
+    `Found ${n} bug${n === 1 ? "" : "s"} against ${url}:`,
+    "",
+    ...findings.map(findingLine),
+    "",
+    VERIFIED_NOTE,
+  ].join("\n");
+  const title = `fix: ${n} bug${n === 1 ? "" : "s"} (${headTitle(findings[0])})`;
+  return createPr(repoRoot, branch, title, body, files);
 }

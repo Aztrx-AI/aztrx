@@ -51,3 +51,23 @@ test("handled() survives a save/load round-trip", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("unfixed is retried after the cooldown; pr-opened never expires", () => {
+  const dir = tmpRepo();
+  try {
+    const state = new PatrolState(dir, "https://app.example.com", 60_000);
+    state.markUnfixed("fp-bbb");
+    const t = Date.now();
+    // Freshly marked → still within the 60s cooldown.
+    assert.equal(state.isHandled("fp-bbb", t), true);
+    // Cooldown lapsed → retry-eligible again (no longer "handled").
+    assert.equal(state.isHandled("fp-bbb", t + 120_000), false);
+    assert.deepEqual(state.handled(t + 120_000), []);
+
+    // A PR stays handled no matter how much time passes.
+    state.markPr("fp-aaa", "https://github.com/x/y/pull/9", "aztrx/fix-fp-aaa");
+    assert.equal(state.isHandled("fp-aaa", t + 1_000_000), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

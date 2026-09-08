@@ -17,7 +17,7 @@ import { applyVerifiedPatches } from "../heal/apply.js";
 import type { Finding } from "../types.js";
 import type { SpendBudget } from "../heal/types.js";
 import { PatrolState } from "./state.js";
-import { openPatrolPr } from "./pr.js";
+import { openPatrolPr, openPatrolBatchPr } from "./pr.js";
 
 export interface PatrolOptions {
   url: string;
@@ -27,6 +27,10 @@ export interface PatrolOptions {
   maxActions?: number;
   /** Hard cap on paid LLM generations across the whole session (0/undefined = unlimited). */
   maxSpend?: number;
+  /** Cooldown before an `unfixed` fingerprint is retried, ms. Default 30 min. */
+  retryAfterMs?: number;
+  /** Group all of a cycle's fixes into one PR instead of one PR per bug. */
+  batch?: boolean;
   once?: boolean;
   // Pass-through to run():
   fuzz?: boolean;
@@ -67,9 +71,12 @@ function head(f: Finding): string {
 }
 
 export async function patrol(opts: PatrolOptions): Promise<void> {
-  const state = new PatrolState(opts.repoRoot, opts.url);
+  const retryAfterMs = opts.retryAfterMs ?? 30 * 60 * 1000;
+  const state = new PatrolState(opts.repoRoot, opts.url, retryAfterMs);
   const maxFixes = opts.maxFixes ?? 5;
   let sessionFixes = 0;
+  let sessionPrs = 0;
+  const seenFp = new Set<string>();
   // One budget object is shared across every cycle so the cap spans the session,
   // not just a single run.
   const budget: SpendBudget | undefined =
@@ -79,6 +86,7 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
   console.log(
     pc.dim(
       `Target: ${opts.url}   interval: ${Math.round(opts.intervalMs / 1000)}s   max fixes/session: ${maxFixes}` +
+        `   retry unfixed after: ${Math.round(retryAfterMs / 1000)}s` +
         (budget ? `   spend cap: ${budget.remaining} generations` : "")
     )
   );
@@ -137,10 +145,15 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
       continue;
     }
 
-    // Reproducible but not healed → mark unfixable so we don't re-burn the LLM
-    // on it every cycle. (Phase 2 will back off and retry on a cooldown.)
-    // `budget-exhausted` / `no-llm` are NOT unfixable — they mean we never got a
-    // real attempt, so they must not be written into memory as "won't fix".
+    // "found" = distinct crash/error fingerprints ever seen this session.
+    for (const f of findings) {
+      if (f.severity === "crash" || f.severity === "error") seenFp.add(f.fingerprint);
+    }
+
+    // Reproducible but not healed → mark unfixable so we don't re-burn the LLM on
+    // it every cycle; `PatrolState` backs off and retries it once the cooldown
+    // lapses. `budget-exhausted` / `no-llm` are NOT unfixable — they mean we never
+    // got a real attempt, so they must not be written into memory as "won't fix".
     for (const f of findings) {
       if (
         (f.severity === "crash" || f.severity === "error") &&
@@ -159,45 +172,81 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
       (f) => f.heal?.status === "healed" && !state.isHandled(f.fingerprint)
     );
 
-    if (newHealed.length === 0) {
-      console.log(pc.dim(`[cycle ${cycle}] ${findings.length} finding(s) — nothing new to fix.`));
+    const toFix = newHealed.slice(0, Math.max(0, maxFixes - sessionFixes));
+    if (toFix.length === 0 && sessionFixes >= maxFixes && newHealed.length > 0) {
+      console.log(pc.yellow(`[cycle ${cycle}] reached max fixes (${maxFixes}) — no more this session.`));
     }
 
-    for (const f of newHealed) {
-      if (sessionFixes >= maxFixes) {
-        console.log(
-          pc.yellow(`[cycle ${cycle}] reached max fixes (${maxFixes}) — no more PRs this session.`)
-        );
-        break;
+    if (opts.batch) {
+      // Batch: apply each patch, then open one PR carrying every fix that landed.
+      const landed: Finding[] = [];
+      const files: string[] = [];
+      for (const f of toFix) {
+        const applied = applyVerifiedPatches(opts.repoRoot, [f]);
+        if (applied.applied.length === 0) {
+          state.markUnfixed(f.fingerprint);
+          console.log(pc.yellow(`  ◐ ${head(f)} — apply conflict, marked unfixable.`));
+          continue;
+        }
+        landed.push(f);
+        for (const a of applied.applied) files.push(a.filePath);
       }
 
-      const applied = applyVerifiedPatches(opts.repoRoot, [f]);
-      if (applied.applied.length === 0) {
-        state.markUnfixed(f.fingerprint);
-        console.log(pc.yellow(`  ◐ ${head(f)} — apply conflict, marked unfixable.`));
-        continue;
+      if (landed.length > 0) {
+        const pr = await openPatrolBatchPr(opts.repoRoot, landed, opts.url, [...new Set(files)]);
+        if (pr.ok && pr.url) {
+          sessionPrs++;
+          sessionFixes += landed.length;
+          for (const f of landed) state.markPr(f.fingerprint, pr.url, pr.branch ?? "");
+          console.log(pc.green(`  ✓ batch PR opened ${pr.url} — ${landed.length} fix(es)`));
+        } else if (pr.skipped) {
+          for (const f of landed) state.markPr(f.fingerprint, "existing", pr.branch ?? "");
+          console.log(pc.dim(`  — batch PR already exists (${pr.branch})`));
+        } else {
+          for (const f of landed) state.markUnfixed(f.fingerprint);
+          console.log(pc.red(`  ✗ batch PR failed: ${pr.error}`));
+        }
       }
+    } else {
+      for (const f of toFix) {
+        const applied = applyVerifiedPatches(opts.repoRoot, [f]);
+        if (applied.applied.length === 0) {
+          state.markUnfixed(f.fingerprint);
+          console.log(pc.yellow(`  ◐ ${head(f)} — apply conflict, marked unfixable.`));
+          continue;
+        }
 
-      const files = applied.applied.map((a) => a.filePath);
-      const pr = await openPatrolPr(opts.repoRoot, f, opts.url, files);
+        const files = applied.applied.map((a) => a.filePath);
+        const pr = await openPatrolPr(opts.repoRoot, f, opts.url, files);
 
-      if (pr.ok && pr.url) {
-        sessionFixes++;
-        state.markPr(f.fingerprint, pr.url, pr.branch ?? "");
-        console.log(pc.green(`  ✓ PR opened ${pr.url} — ${head(f)}`));
-      } else if (pr.skipped) {
-        state.markPr(f.fingerprint, "existing", pr.branch ?? "");
-        console.log(pc.dim(`  — already has a PR (${pr.branch})`));
-      } else {
-        state.markUnfixed(f.fingerprint);
-        console.log(pc.red(`  ✗ PR failed: ${pr.error}`));
+        if (pr.ok && pr.url) {
+          sessionPrs++;
+          sessionFixes++;
+          state.markPr(f.fingerprint, pr.url, pr.branch ?? "");
+          console.log(pc.green(`  ✓ PR opened ${pr.url} — ${head(f)}`));
+        } else if (pr.skipped) {
+          state.markPr(f.fingerprint, "existing", pr.branch ?? "");
+          console.log(pc.dim(`  — already has a PR (${pr.branch})`));
+        } else {
+          state.markUnfixed(f.fingerprint);
+          console.log(pc.red(`  ✗ PR failed: ${pr.error}`));
+        }
       }
     }
+
+    // Rolling status — the "found / fixed / PRs" tally that makes the loop read
+    // as alive rather than a stream of isolated lines.
+    console.log(
+      pc.dim(
+        `[cycle ${cycle}] found ${seenFp.size} · fixed ${sessionFixes} · PRs ${sessionPrs}` +
+          (newHealed.length === 0 ? " · nothing new to fix" : "")
+      )
+    );
 
     // Once the session's paid budget is spent there's nothing left to fix — stop
     // rather than silently re-detecting without healing.
     if (budget && budget.remaining <= 0) {
-      console.log(pc.yellow(`\nSpend budget exhausted — ${sessionFixes} PR(s) opened this session.`));
+      console.log(pc.yellow(`\nSpend budget exhausted — ${sessionPrs} PR(s) opened this session.`));
       break;
     }
 
@@ -207,5 +256,5 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
     await sleep(opts.intervalMs);
   }
 
-  console.log(pc.dim(`patrol session done — ${sessionFixes} PR(s) opened.`));
+  console.log(pc.cyan(`patrol session done — found ${seenFp.size} bug(s) · fixed ${sessionFixes} · PRs ${sessionPrs}`));
 }

@@ -439,6 +439,8 @@ program
   .addOption(opt("--interval <s>", "seconds between scans", "advanced").default("600"))
   .addOption(opt("--max-fixes <n>", "max PRs to open per session", "advanced").default("5"))
   .addOption(opt("--max-spend <n>", "hard cap on paid LLM generations per session", "advanced"))
+  .addOption(opt("--retry-after <s>", "cooldown before an unfixed bug is retried", "advanced").default("1800"))
+  .addOption(opt("--batch", "group all fixes of a cycle into one PR", "advanced"))
   .addOption(opt("--once", "run a single scan then exit (no loop)", "advanced"))
   .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
   .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk", "detect"))
@@ -458,6 +460,8 @@ program
         interval: string;
         maxFixes: string;
         maxSpend?: string;
+        retryAfter: string;
+        batch?: boolean;
         once?: boolean;
         maxActions: string;
         fuzz?: boolean;
@@ -488,6 +492,8 @@ program
         intervalMs: parseInt(opts.interval, 10) * 1000,
         maxFixes: parseInt(opts.maxFixes, 10),
         maxSpend: opts.maxSpend ? parseInt(opts.maxSpend, 10) : undefined,
+        retryAfterMs: parseInt(opts.retryAfter, 10) * 1000,
+        batch: Boolean(opts.batch),
         once: Boolean(opts.once),
         maxActions: parseInt(opts.maxActions, 10),
         fuzz: opts.fuzz,
