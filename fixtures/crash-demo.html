@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Checkout — Demo Store</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #eef1f6; color: #1a1d23;
+  }
+  .card {
+    width: 560px; background: #fff; border: 1px solid #e5e8ee; border-radius: 14px;
+    padding: 28px 30px; box-shadow: 0 16px 50px -20px rgba(20,30,60,.4);
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 14px; margin: 0 0 22px; }
+  .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f1f5; font-size: 14px; }
+  .row .amt { font-weight: 600; }
+  .total { font-size: 16px; font-weight: 700; margin-top: 14px; display: flex; justify-content: space-between; }
+  button {
+    margin-top: 22px; width: 100%; padding: 13px; border: 0; border-radius: 10px;
+    background: #2563eb; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  .crash {
+    display: none; margin-top: 20px; padding: 16px 18px; border-radius: 10px;
+    background: #fef2f2; border: 1px solid #fecaca;
+  }
+  .crash .tag { color: #dc2626; font-weight: 700; font-size: 13px; letter-spacing: .04em; }
+  .crash .msg { margin-top: 6px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; color: #7f1d1d; white-space: pre-wrap; }
+  .crash .hint { margin-top: 8px; font-size: 13px; color: #b91c1c; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Checkout</h1>
+    <p class="sub">Demo Store — order #1042</p>
+    <div class="row"><span>Wireless Mouse</span><span class="amt">$29.00</span></div>
+    <div class="row"><span>USB-C Cable</span><span class="amt">$12.50</span></div>
+    <div class="row"><span>Shipping</span><span class="amt">$4.99</span></div>
+    <div class="total"><span>Total</span><span>$46.49</span></div>
+    <button id="pay" data-testid="pay">Pay now</button>
+    <div class="crash" id="crash">
+      <div class="tag">💥 Runtime crash</div>
+      <div class="msg" id="msg"></div>
+      <div class="hint" id="hint"></div>
+    </div>
+  </div>
+  <script>
+    // The bug: `window.customer` is never set, so `.address` derefs `undefined`.
+    // The error handler below acts like a production error boundary — it renders
+    // the crash visibly so the recorded repro can show it, then lets it propagate.
+    window.addEventListener("error", function (e) {
+      document.getElementById("crash").style.display = "block";
+      document.getElementById("msg").textContent = e.message;
+      document.getElementById("hint").textContent = "The value before `.address` is undefined.";
+    });
+    document.getElementById("pay").addEventListener("click", function () {
+      const customer = window.customer; // undefined
+      customer.address.city; // 💥 Cannot read properties of undefined (reading 'address')
+    });
+  </script>
+</body>
+</html>

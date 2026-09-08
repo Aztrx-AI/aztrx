@@ -116,6 +116,23 @@ async function safeCheckout(repoRoot: string, branch: string): Promise<void> {
   await exec("git", ["-C", repoRoot, "checkout", branch]).catch(() => {});
 }
 
+/**
+ * Builds a raw-content URL for a repo-relative path so the PR body can inline an
+ * image (`![…](https://github.com/<owner>/<repo>/raw/<branch>/<path>)`). Returns
+ * "" when the `origin` remote isn't GitHub — then the media is still committed to
+ * the branch, just not inlined.
+ */
+async function rawUrlFor(repoRoot: string, branch: string, repoPath: string): Promise<string> {
+  try {
+    const { stdout } = await exec("git", ["-C", repoRoot, "remote", "get-url", "origin"]);
+    const m = /github\.com[:/]([^/]+)\/([^/\s]+?)(?:\.git)?$/.exec(stdout.trim());
+    if (!m) return "";
+    return `https://github.com/${m[1]}/${m[2]}/raw/${branch}/${repoPath}`;
+  } catch {
+    return "";
+  }
+}
+
 /** Shared git plumbing: (re)create the branch at HEAD, stage only the touched
  * files, commit, open the PR, and return to the original branch. The caller has
  * already done its own dedup + title/body. */
@@ -163,24 +180,33 @@ export async function openPatrolPr(
   repoRoot: string,
   finding: Finding,
   url: string,
-  files: string[]
+  files: string[],
+  mediaPath?: string | null
 ): Promise<PatrolPrResult> {
   const branch = branchFor(finding.fingerprint);
   if (await hasOpenPr(repoRoot, branch)) {
     return { ok: false, skipped: true, branch, error: "PR already open for this finding" };
   }
 
+  const mediaBody = mediaPath ? await rawUrlFor(repoRoot, branch, mediaPath) : "";
+  const block = findingBlock(finding, 1);
   const body = [
     "## Aztrx AI — autonomous fix",
     "",
     ...(isLocalUrl(url) ? [] : [PROD_BANNER, ""]),
     `Found against ${url}:`,
     "",
-    findingBlock(finding, 1),
+    mediaBody ? `${block}\n\n![Recorded repro](${mediaBody})` : block,
     "",
     VERIFIED_NOTE,
   ].join("\n");
-  return createPr(repoRoot, branch, `fix: ${headTitle(finding)}`, body, files);
+  return createPr(
+    repoRoot,
+    branch,
+    `fix: ${headTitle(finding)}`,
+    body,
+    mediaPath ? [...files, mediaPath] : files
+  );
 }
 
 /** One PR carrying a whole batch of fixes. Branch is stable across the *set*, so
@@ -189,7 +215,8 @@ export async function openPatrolBatchPr(
   repoRoot: string,
   findings: Finding[],
   url: string,
-  files: string[]
+  files: string[],
+  mediaPaths?: (string | null)[]
 ): Promise<PatrolPrResult> {
   const branch = branchForSet(findings.map((f) => f.fingerprint));
   if (await hasOpenPr(repoRoot, branch)) {
@@ -197,16 +224,31 @@ export async function openPatrolBatchPr(
   }
 
   const n = findings.length;
+  // Resolve each finding's media to a raw URL ("" when absent / non-GitHub), kept
+  // parallel to `findings` so each inline image lands under its own bug's block.
+  const mediaBodies: string[] = [];
+  for (let i = 0; i < findings.length; i++) {
+    const mp = mediaPaths?.[i];
+    mediaBodies.push(mp ? await rawUrlFor(repoRoot, branch, mp) : "");
+  }
+  const blocks = findings.map((f, i) => {
+    const block = findingBlock(f, i + 1);
+    return mediaBodies[i] ? `${block}\n\n![Recorded repro](${mediaBodies[i]})` : block;
+  });
+
   const body = [
     "## Aztrx AI — autonomous fix (batch)",
     "",
     ...(isLocalUrl(url) ? [] : [PROD_BANNER, ""]),
     `Found ${n} bug${n === 1 ? "" : "s"} against ${url}:`,
     "",
-    findings.map((f, i) => findingBlock(f, i + 1)).join("\n\n"),
+    blocks.join("\n\n"),
     "",
     VERIFIED_NOTE,
   ].join("\n");
+  const staged = mediaPaths
+    ? [...files, ...mediaPaths.filter((p): p is string => !!p)]
+    : files;
   const title = `fix: ${n} bug${n === 1 ? "" : "s"} (${headTitle(findings[0])})`;
-  return createPr(repoRoot, branch, title, body, files);
+  return createPr(repoRoot, branch, title, body, staged);
 }

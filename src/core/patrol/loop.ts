@@ -18,6 +18,7 @@ import type { Finding } from "../types.js";
 import type { SpendBudget } from "../heal/types.js";
 import { PatrolState } from "./state.js";
 import { openPatrolPr, openPatrolBatchPr } from "./pr.js";
+import { recordFindingGif } from "./record.js";
 
 export interface PatrolOptions {
   url: string;
@@ -68,6 +69,16 @@ async function isAlive(url: string): Promise<boolean> {
 
 function head(f: Finding): string {
   return f.rawMessage.split("\n")[0].slice(0, 50);
+}
+
+/** Best-effort GIF recording — a failed capture must never block a PR. */
+async function recordGif(repoRoot: string, url: string, f: Finding): Promise<string | null> {
+  try {
+    return await recordFindingGif(repoRoot, url, f);
+  } catch (e) {
+    console.log(pc.dim(`  · recorded repro skipped: ${(e as Error).message}`));
+    return null;
+  }
 }
 
 export async function patrol(opts: PatrolOptions): Promise<void> {
@@ -193,7 +204,9 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
       }
 
       if (landed.length > 0) {
-        const pr = await openPatrolBatchPr(opts.repoRoot, landed, opts.url, [...new Set(files)]);
+        const mediaPaths: (string | null)[] = [];
+        for (const f of landed) mediaPaths.push(await recordGif(opts.repoRoot, opts.url, f));
+        const pr = await openPatrolBatchPr(opts.repoRoot, landed, opts.url, [...new Set(files)], mediaPaths);
         if (pr.ok && pr.url) {
           sessionPrs++;
           sessionFixes += landed.length;
@@ -217,7 +230,8 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
         }
 
         const files = applied.applied.map((a) => a.filePath);
-        const pr = await openPatrolPr(opts.repoRoot, f, opts.url, files);
+        const mediaPath = await recordGif(opts.repoRoot, opts.url, f);
+        const pr = await openPatrolPr(opts.repoRoot, f, opts.url, files, mediaPath);
 
         if (pr.ok && pr.url) {
           sessionPrs++;
