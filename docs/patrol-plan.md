@@ -84,13 +84,15 @@ feeds the skip-set into `run()`, and the heal pass filters it out before any
 generation. A re-scan still re-detects (to confirm the bug stays gone) without
 re-paying to re-fix it.
 
-### Phase 2 — reliability (in progress)
+### Phase 2 — reliability (done)
 Makes the autonomy trustworthy before it's shown off:
 
-- **Unfixable backoff** — retry `unfixed` fingerprints on a cooldown instead of
-  skipping forever.
-- **Batch PRs** — one PR with N fixes (branch from the sorted fingerprint set).
-- **Live status** — a rolling `found N / fixed M / PRs K` summary (reuse EventBus).
+- ~~**Unfixable backoff**~~ — shipped: `--retry-after <s>` (default 30 min) makes
+  `PatrolState.isHandled()` expire an `unfixed` mark once the cooldown lapses, so
+  a retried bug is healed afresh instead of skipped forever.
+- ~~**Batch PRs**~~ — shipped: `--batch` groups a cycle's fixes into one PR;
+  `openPatrolBatchPr` branches from a SHA1 of the sorted fingerprint set.
+- ~~**Live status**~~ — shipped: a rolling `found N · fixed M · PRs K` tally per cycle.
 - ~~**Skip-set threading**~~ — shipped (see Phase 1.5).
 - ~~**Spend cap**~~ — shipped: `--max-spend <n>` threads one `SpendBudget` through
   every `run()`/`heal()` of the session; `generatePatch` charges it per paid
@@ -98,14 +100,16 @@ Makes the autonomy trustworthy before it's shown off:
   rule fixes are never charged, and budget-exhausted/no-llm findings are not
   marked unfixable.
 
-### Phase 3 — the proof artifact (not started)
+### Phase 3 — the proof artifact (in progress)
 The public "wow":
 
 - **Recorded repro** — Playwright `page.video()` / trace → GIF in the PR body.
-- **Plain-language report** — a per-finding before/after narrative
-  (extend `summarizeFindings`, already Markdown-rendered).
-- **"Live in prod" flag** — compare the target URL to `localhost`; if deployed,
-  annotate "this crash is live in production right now".
+  *(parked: recording/encoding approach undecided)*
+- ~~**Plain-language report**~~ — shipped: the PR body renders each finding as a
+  before/after narrative — crash headline, location, a one-line `diagnoseFinding`
+  "why", and the healed fix explanation.
+- ~~**"Live in prod" flag**~~ — shipped: `isLocalUrl()` detects loopback/localhost;
+  a non-local target gets a "this crash is live in production" banner in the PR.
 
 ## 5. Guardrails
 
@@ -116,7 +120,7 @@ The public "wow":
 | Scoped `git add` (no unrelated changes) | ✅ |
 | Per-session fix cap | ✅ (`--max-fixes`, default 5) |
 | Idempotent (memory + PR dedup) | ✅ |
-| Unfixable backoff / spend cap | Phase 2 |
+| Unfixable backoff / spend cap | ✅ |
 
 ## 6. The 30-second demo
 
