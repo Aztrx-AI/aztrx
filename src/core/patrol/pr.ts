@@ -16,6 +16,8 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { createHash } from "crypto";
 import type { Finding } from "../types.js";
+import { diagnoseFinding } from "../diagnose.js";
+import { sanitizeSecrets } from "../heal/redact.js";
 
 const exec = promisify(execFile);
 
@@ -42,15 +44,46 @@ function headTitle(f: Finding): string {
   return f.rawMessage.split("\n")[0].slice(0, 60);
 }
 
-function findingLine(f: Finding): string {
-  const loc = f.mappedLocation
-    ? `${f.mappedLocation.filePath}:${f.mappedLocation.line}`
-    : "unknown location";
-  const repro = f.repro?.verdict
-    ? `repro: ${f.repro.verdict} ${f.repro.reproductions}/${f.repro.runs}`
-    : "";
-  return `- **${f.rawMessage.split("\n")[0].slice(0, 120)}** — \`${loc}\` ${repro}`.trim();
+/** A `localhost`/loopback target is a dev box; anything else is a deployed app,
+ * so a crash there is "live in production" and worth flagging loudly. */
+export function isLocalUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (host === "localhost" || host === "::1" || host === "::" || host === "0.0.0.0") return true;
+    return /^127\.\d+\.\d+\.\d+$/.test(host);
+  } catch {
+    return true; // unparseable target → assume local, don't scare-monger
+  }
 }
+
+/** Per-finding "before/after" narrative: the crash ("before"), a one-line *why*
+ * from the deterministic diagnosis, and the healed fix explanation ("after").
+ * Plain words rather than a stack trace, so a reviewer who never ran the scan
+ * still understands the PR at a glance. Untrusted text is secret-scrubbed. */
+function findingBlock(f: Finding, i: number): string {
+  const head = sanitizeSecrets(f.rawMessage.split("\n")[0].trim());
+  const loc = f.mappedLocation
+    ? `\`${f.mappedLocation.filePath}:${f.mappedLocation.line}\``
+    : "unknown location";
+  const why = diagnoseFinding(f);
+  const fix =
+    f.heal?.status === "healed" && f.heal.explanation
+      ? sanitizeSecrets(f.heal.explanation.trim())
+      : "";
+  const repro = f.repro?.verdict
+    ? `_repro: ${f.repro.verdict} ${f.repro.reproductions}/${f.repro.runs}_`
+    : "";
+
+  const lines: string[] = [`### ${i}. ${head.length > 96 ? head.slice(0, 93) + "…" : head}`];
+  lines.push(`- **Where:** ${loc}`);
+  if (why) lines.push(`- **Why:** ${why}`);
+  if (fix) lines.push(`- **The fix:** ${fix.length > 400 ? fix.slice(0, 397) + "…" : fix}`);
+  if (repro) lines.push(`- ${repro}`);
+  return lines.join("\n");
+}
+
+const PROD_BANNER =
+  "> ⚠️ **This crash is live in production right now** — the target isn't a local dev server.";
 
 const VERIFIED_NOTE =
   "Verified: AST-gated, compiled, run against the test suite, and replayed against the repro before this PR. Opened automatically by `aztrx patrol`.";
@@ -140,9 +173,10 @@ export async function openPatrolPr(
   const body = [
     "## Aztrx AI — autonomous fix",
     "",
+    ...(isLocalUrl(url) ? [] : [PROD_BANNER, ""]),
     `Found against ${url}:`,
     "",
-    findingLine(finding),
+    findingBlock(finding, 1),
     "",
     VERIFIED_NOTE,
   ].join("\n");
@@ -166,9 +200,10 @@ export async function openPatrolBatchPr(
   const body = [
     "## Aztrx AI — autonomous fix (batch)",
     "",
+    ...(isLocalUrl(url) ? [] : [PROD_BANNER, ""]),
     `Found ${n} bug${n === 1 ? "" : "s"} against ${url}:`,
     "",
-    ...findings.map(findingLine),
+    findings.map((f, i) => findingBlock(f, i + 1)).join("\n\n"),
     "",
     VERIFIED_NOTE,
   ].join("\n");
