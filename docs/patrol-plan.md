@@ -100,11 +100,13 @@ Makes the autonomy trustworthy before it's shown off:
   rule fixes are never charged, and budget-exhausted/no-llm findings are not
   marked unfixable.
 
-### Phase 3 — the proof artifact (in progress)
+### Phase 3 — the proof artifact (done)
 The public "wow":
 
-- **Recorded repro** — Playwright `page.video()` / trace → GIF in the PR body.
-  *(parked: recording/encoding approach undecided)*
+- ~~**Recorded repro**~~ — shipped: `recordFindingGif` replays the repro through
+  `replayActions` (skipping `navigate`), captures a frame per step, and encodes an
+  animated GIF in pure JS (`gifenc` + `pngjs`, no ffmpeg) to `aztrx-media/<fp8>.gif`;
+  the PR body inlines it via a `raw.githubusercontent` URL.
 - ~~**Plain-language report**~~ — shipped: the PR body renders each finding as a
   before/after narrative — crash headline, location, a one-line `diagnoseFinding`
   "why", and the healed fix explanation.
