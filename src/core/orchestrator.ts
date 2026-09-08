@@ -16,6 +16,7 @@ import { RunLog } from "./events.js";
 import { heal } from "./heal/index.js";
 import { submitTelemetry } from "./telemetry/index.js";
 import { submitRun } from "./cloud/index.js";
+import { formatDiff } from "./diff.js";
 import type { Finding } from "./types.js";
 
 export interface RunOptions {
@@ -375,6 +376,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
                 ? pc.yellow("  ◐ unfixed")
                 : pc.red(`  ✗ ${result.status}`);
           say(`${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}`);
+          if (result.status === "healed" && result.hunks.length > 0) {
+            say(pc.dim(`        ${result.filePath}`));
+            say(formatDiff(result.hunks));
+          }
           if (result.patchPath) say(pc.dim(`        patch: ${path.relative(repoRoot, result.patchPath)}`));
           if (result.error) say(pc.dim(`        ${result.error}`));
         } catch (e) {

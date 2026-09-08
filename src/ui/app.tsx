@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { render, Box, Text, useApp } from "ink";
-import type { EventBus, ReproEvent, RunPhase } from "../core/eventBus.js";
+import type { EventBus, HealEvent, ReproEvent, RunPhase } from "../core/eventBus.js";
 import type { Finding, RecordedAction } from "../core/types.js";
+import type { PatchHunk } from "../core/heal/types.js";
 import { VERSION } from "../core/version.js";
 import { diagnoseFinding } from "../core/diagnose.js";
+import { diffHunks } from "../core/diff.js";
 
 // Palette — mirrors web/app/globals.css "crash seismograph" tokens, mapped to
 // the nearest ANSI colors so the terminal panel reads as the same instrument.
@@ -50,7 +52,8 @@ type Msg =
   | { type: "finding"; finding: Finding }
   | { type: "noise" }
   | { type: "route"; url: string }
-  | { type: "repro"; repro: ReproEvent };
+  | { type: "repro"; repro: ReproEvent }
+  | { type: "heal"; heal: HealEvent };
 
 function reducer(state: UiState, msg: Msg): UiState {
   switch (msg.type) {
@@ -73,6 +76,13 @@ function reducer(state: UiState, msg: Msg): UiState {
     }
     case "repro":
       return { ...state, repros: { ...state.repros, [msg.repro.finding.fingerprint]: msg.repro } };
+    case "heal":
+      return {
+        ...state,
+        findings: state.findings.map((f) =>
+          f.fingerprint === msg.heal.finding.fingerprint ? msg.heal.finding : f
+        ),
+      };
     default:
       return state;
   }
@@ -106,6 +116,7 @@ function useAztrx(bus: EventBus) {
       bus.on("noise", () => dispatch({ type: "noise" })),
       bus.on("route", (r) => dispatch({ type: "route", url: r.url })),
       bus.on("repro", (r) => dispatch({ type: "repro", repro: r })),
+      bus.on("heal", (h) => dispatch({ type: "heal", heal: h })),
     ];
     return () => offs.forEach((off) => off());
   }, [bus]);
@@ -178,6 +189,44 @@ function FindingRow({ finding, repro }: { finding: Finding; repro?: ReproEvent }
           </Text>
         </Box>
       ) : null}
+      {finding.heal ? (
+        <Box flexDirection="column">
+          <Text color={finding.heal.status === "healed" ? C.green : C.amber}>
+            {"   "}{finding.heal.status === "healed" ? "✓" : "◐"} {finding.heal.status}
+            {finding.heal.model ? ` · ${finding.heal.model}` : ""}
+          </Text>
+          {finding.heal.status === "healed" && finding.heal.hunks.length > 0 ? (
+            <DiffView hunks={finding.heal.hunks} filePath={finding.heal.filePath} />
+          ) : null}
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function DiffView({ hunks, filePath }: { hunks: PatchHunk[]; filePath: string }) {
+  const groups = diffHunks(hunks);
+  return (
+    <Box flexDirection="column">
+      <Text color={C.dim}>{"   "}{filePath}</Text>
+      {groups.map((group, gi) => (
+        <Box key={gi} flexDirection="column">
+          {group.map((l, i) => (
+            <Box key={i}>
+              <Text color={l.type === "add" ? C.green : C.red}>{"     "}{l.type === "add" ? "+" : "-"} </Text>
+              <Text>
+                {l.tokens.map((t, j) => {
+                  if (t.kind === "del") return <Text key={j} backgroundColor="red" color="white">{t.text}</Text>;
+                  if (t.kind === "add") return <Text key={j} backgroundColor="green" color="black">{t.text}</Text>;
+                  return <Text key={j} color={l.type === "add" ? C.green : C.red}>{t.text}</Text>;
+                })}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -193,6 +242,12 @@ export interface AztrxAppProps {
 function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
   const { exit } = useApp();
   const { state, rate } = useAztrx(bus);
+  const [spin, setSpin] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setSpin((s) => (s + 1) % SPINNER.length), 80);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,7 +277,9 @@ function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
       <Text color={C.dim}>──────────────────────────────────────────────</Text>
 
       <Box marginTop={1}>
-        <Text color={phase.color}>{phase.text}</Text>
+        <Text color={phase.color}>
+          {state.phase === "done" ? "✓" : SPINNER[spin]}  {phase.text.replace(/^[◉✓]\s*/, "")}
+        </Text>
         <Text color={C.dim}>  </Text>
         <Text color={C.azureBright} bold>
           {rate.toFixed(1)}

@@ -141,13 +141,13 @@ function buildLlmPrompt(findings: Finding[], lang: Lang, hasHealed: boolean): st
     `A QA tool scanned a web app and found the following findings:`,
     rows,
     "",
-    `Write a short, friendly, plain-language summary for a developer (${lang}): what was found, what each problem means in simple words, and — per the note below — whether fixes are ready. Do not invent details that are not listed. Keep it to a few short paragraphs or a tight bullet list.`,
+    `Write a short, friendly summary for a developer (${lang}) in Markdown — use headings, bold, bullet lists, and short \`\`\`code\`\`\` snippets where helpful. Explain what was found, what each problem means in simple words, and — per the note below — whether fixes are ready. Do not invent details that are not listed. Keep it concise.`,
     fixLine,
   ].join("\n");
 }
 
 const SYSTEM =
-  "You are the plain-spoken explainer for a QA tool called Aztrx AI. You turn raw runtime-finding data into a concise, human-language summary for a developer. Never invent details absent from the data. Respond in the requested language only.";
+  "You are the plain-spoken explainer for a QA tool called Aztrx AI. You turn raw runtime-finding data into a concise Markdown summary for a developer (headings, bold, bullet lists, short code snippets). Never invent details absent from the data. Respond in the requested language only.";
 
 async function summarizeFindingsLlm(findings: Finding[], lang: Lang): Promise<string> {
   const hasHealed = findings.some((f) => f.heal?.status === "healed");

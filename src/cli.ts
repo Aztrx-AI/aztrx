@@ -22,6 +22,8 @@ import { applyVerifiedPatches } from "./core/heal/apply.js";
 import { openFixPr } from "./core/fixPr.js";
 import { promptYesNo, promptInput } from "./core/prompt.js";
 import { modernizeFile } from "./core/modernize.js";
+import { renderMarkdown } from "./core/renderMarkdown.js";
+import { patrol } from "./core/patrol/loop.js";
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -377,7 +379,7 @@ program
       // shows the result. Never commits.
       if (magicFix || opts.explain) {
         const summary = await summarizeFindings(findings, { lang: opts.lang });
-        console.log("\n" + summary);
+        console.log("\n" + renderMarkdown(summary));
       }
 
       if (magicFix) {
@@ -424,6 +426,77 @@ program
       if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
         process.exit(1);
       }
+      process.exit(0);
+    }
+  );
+
+program
+  .command("patrol")
+  .description("autonomously re-scan the app, fix new bugs, and open a PR per bug")
+  .argument("[url]", "app to patrol (auto-detected if omitted), e.g. http://localhost:3000")
+  .configureHelp({ formatHelp })
+  .addOption(opt("--repo <path>", "project root to inspect/watch (default: cwd)", "advanced"))
+  .addOption(opt("--interval <s>", "seconds between scans", "advanced").default("600"))
+  .addOption(opt("--max-fixes <n>", "max PRs to open per session", "advanced").default("5"))
+  .addOption(opt("--once", "run a single scan then exit (no loop)", "advanced"))
+  .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
+  .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk", "detect"))
+  .addOption(opt("--workers <n>", "number of parallel detection workers", "detect"))
+  .addOption(opt("--lang <en|ru>", "language for the diagnosis", "advanced").default("en"))
+  .addOption(opt("--login", "auto-login before each pass", "auth"))
+  .addOption(opt("--storage-state <path>", "Playwright storage-state JSON for authenticated pages", "auth"))
+  .addOption(opt("--heal-model <model>", "LLM model for healing (default: claude-sonnet-5)", "advanced"))
+  .addOption(opt("--test-command <cmd>", "test command run against a healed patch", "advanced"))
+  .addOption(opt("--no-test", "skip the test gate during healing", "advanced"))
+  .addOption(opt("--start-command <cmd>", "command to boot the app for server healing", "advanced"))
+  .action(
+    async (
+      url: string | undefined,
+      opts: {
+        repo?: string;
+        interval: string;
+        maxFixes: string;
+        once?: boolean;
+        maxActions: string;
+        fuzz?: boolean;
+        workers?: string;
+        lang: string;
+        login?: boolean;
+        storageState?: string;
+        healModel?: string;
+        testCommand?: string;
+        test?: boolean;
+        startCommand?: string;
+      }
+    ) => {
+      const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      let targetUrl = url;
+      if (!targetUrl) {
+        targetUrl = await detectUrl(repoRoot);
+        if (!targetUrl) {
+          console.error(pc.red("No URL given and none auto-detected. Pass <url>, or run `aztrx-cli init` first."));
+          process.exit(1);
+        }
+        console.log(pc.dim(`Auto-detected ${targetUrl}`));
+      }
+
+      await patrol({
+        url: targetUrl,
+        repoRoot,
+        intervalMs: parseInt(opts.interval, 10) * 1000,
+        maxFixes: parseInt(opts.maxFixes, 10),
+        once: Boolean(opts.once),
+        maxActions: parseInt(opts.maxActions, 10),
+        fuzz: opts.fuzz,
+        workers: opts.workers ? parseInt(opts.workers, 10) : undefined,
+        lang: opts.lang,
+        login: opts.login,
+        storageState: opts.storageState,
+        healModel: opts.healModel,
+        testCommand: opts.testCommand,
+        skipTest: opts.test === false,
+        startCommand: opts.startCommand,
+      });
       process.exit(0);
     }
   );
