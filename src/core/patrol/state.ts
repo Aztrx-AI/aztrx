@@ -53,6 +53,11 @@ export class PatrolState {
     return this.data.fingerprints[fp] !== undefined;
   }
 
+  /** Every handled fingerprint, so the supervisor can tell `run()` to skip healing them. */
+  handled(): string[] {
+    return Object.keys(this.data.fingerprints);
+  }
+
   markPr(fp: string, prUrl: string, branch: string): void {
     this.data.fingerprints[fp] = {
       status: "pr-opened",

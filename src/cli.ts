@@ -438,6 +438,7 @@ program
   .addOption(opt("--repo <path>", "project root to inspect/watch (default: cwd)", "advanced"))
   .addOption(opt("--interval <s>", "seconds between scans", "advanced").default("600"))
   .addOption(opt("--max-fixes <n>", "max PRs to open per session", "advanced").default("5"))
+  .addOption(opt("--max-spend <n>", "hard cap on paid LLM generations per session", "advanced"))
   .addOption(opt("--once", "run a single scan then exit (no loop)", "advanced"))
   .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
   .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk", "detect"))
@@ -456,6 +457,7 @@ program
         repo?: string;
         interval: string;
         maxFixes: string;
+        maxSpend?: string;
         once?: boolean;
         maxActions: string;
         fuzz?: boolean;
@@ -485,6 +487,7 @@ program
         repoRoot,
         intervalMs: parseInt(opts.interval, 10) * 1000,
         maxFixes: parseInt(opts.maxFixes, 10),
+        maxSpend: opts.maxSpend ? parseInt(opts.maxSpend, 10) : undefined,
         once: Boolean(opts.once),
         maxActions: parseInt(opts.maxActions, 10),
         fuzz: opts.fuzz,

@@ -15,6 +15,7 @@ import pc from "picocolors";
 import { run } from "../orchestrator.js";
 import { applyVerifiedPatches } from "../heal/apply.js";
 import type { Finding } from "../types.js";
+import type { SpendBudget } from "../heal/types.js";
 import { PatrolState } from "./state.js";
 import { openPatrolPr } from "./pr.js";
 
@@ -24,6 +25,8 @@ export interface PatrolOptions {
   intervalMs: number;
   maxFixes?: number;
   maxActions?: number;
+  /** Hard cap on paid LLM generations across the whole session (0/undefined = unlimited). */
+  maxSpend?: number;
   once?: boolean;
   // Pass-through to run():
   fuzz?: boolean;
@@ -67,11 +70,16 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
   const state = new PatrolState(opts.repoRoot, opts.url);
   const maxFixes = opts.maxFixes ?? 5;
   let sessionFixes = 0;
+  // One budget object is shared across every cycle so the cap spans the session,
+  // not just a single run.
+  const budget: SpendBudget | undefined =
+    opts.maxSpend && opts.maxSpend > 0 ? { remaining: opts.maxSpend } : undefined;
 
   console.log(pc.cyan("Aztrx AI — patrol"));
   console.log(
     pc.dim(
-      `Target: ${opts.url}   interval: ${Math.round(opts.intervalMs / 1000)}s   max fixes/session: ${maxFixes}`
+      `Target: ${opts.url}   interval: ${Math.round(opts.intervalMs / 1000)}s   max fixes/session: ${maxFixes}` +
+        (budget ? `   spend cap: ${budget.remaining} generations` : "")
     )
   );
   console.log("");
@@ -115,6 +123,11 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
         testTimeoutMs: opts.testTimeoutMs,
         skipTest: opts.skipTest,
         startCommand: opts.startCommand,
+        // Already-handled fingerprints from a prior cycle get skipped before heal,
+        // so a re-scan re-detects (to confirm they're still gone) without re-paying
+        // the LLM to re-fix them.
+        skipHealFingerprints: state.handled(),
+        budget,
         ui: true,
       });
     } catch (e) {
@@ -126,12 +139,16 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
 
     // Reproducible but not healed → mark unfixable so we don't re-burn the LLM
     // on it every cycle. (Phase 2 will back off and retry on a cooldown.)
+    // `budget-exhausted` / `no-llm` are NOT unfixable — they mean we never got a
+    // real attempt, so they must not be written into memory as "won't fix".
     for (const f of findings) {
       if (
         (f.severity === "crash" || f.severity === "error") &&
         f.repro &&
         f.heal &&
         f.heal.status !== "healed" &&
+        f.heal.status !== "budget-exhausted" &&
+        f.heal.status !== "no-llm" &&
         !state.isHandled(f.fingerprint)
       ) {
         state.markUnfixed(f.fingerprint);
@@ -175,6 +192,13 @@ export async function patrol(opts: PatrolOptions): Promise<void> {
         state.markUnfixed(f.fingerprint);
         console.log(pc.red(`  ✗ PR failed: ${pr.error}`));
       }
+    }
+
+    // Once the session's paid budget is spent there's nothing left to fix — stop
+    // rather than silently re-detecting without healing.
+    if (budget && budget.remaining <= 0) {
+      console.log(pc.yellow(`\nSpend budget exhausted — ${sessionFixes} PR(s) opened this session.`));
+      break;
     }
 
     state.save();

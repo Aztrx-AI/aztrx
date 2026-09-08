@@ -8,7 +8,8 @@ export type HealStatus =
   | "apply-failed" // hunks did not match exactly (or were ambiguous)
   | "test-failed" // the repo's test suite failed against the patched code
   | "skipped" // no healable target (no own-code location / no deterministic repro)
-  | "no-llm"; // no LLM configured and no injected patch generator
+  | "no-llm" // no LLM configured and no injected patch generator
+  | "budget-exhausted"; // the session's paid-generation cap was reached
 
 /** One Search & Replace edit. `search` is an exact, unique substring of the
  * source file; `replace` is its replacement. */
@@ -41,6 +42,15 @@ export interface HealContext {
   redactedContent: string;
 }
 
+/** Shared, mutable cap on paid LLM generations across a whole patrol session.
+ * `generatePatch` decrements `remaining` each time it pays for a completion; once
+ * it hits 0 generation stops and heal reports `budget-exhausted`. The free
+ * rule-based fixer never touches it. One object is threaded through every
+ * `run()`/`heal()` of a session so the cap spans cycles, not just one run. */
+export interface SpendBudget {
+  remaining: number;
+}
+
 export interface VerifyResult {
   runs: number;
   reproductions: number;
@@ -69,6 +79,8 @@ export interface HealOptions {
   fastModel?: string;
   /** Inject a patch generator for testing/demo (bypasses the network LLM). */
   patchFn?: (ctx: HealContext) => Promise<Patch>;
+  /** Shared session budget for paid generations (see `SpendBudget`). */
+  budget?: SpendBudget;
   /** Inject an app server for the patched code. Default: static file server. */
   serve?: (worktreeDir: string, filePath: string) => Promise<{ url: string; close: () => Promise<void> }>;
   /** How to boot the patched app for server (network_5xx) findings. Auto-detected

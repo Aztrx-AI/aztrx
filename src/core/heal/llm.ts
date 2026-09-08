@@ -9,7 +9,7 @@
 
 import { redact } from "./redact.js";
 import { complete, primaryModel, fastModel, hasLlmKey } from "../llm.js";
-import type { HealContext, Patch, PatchHunk } from "./types.js";
+import type { HealContext, Patch, PatchHunk, SpendBudget } from "./types.js";
 
 export interface ModelTier {
   model: string;
@@ -56,6 +56,16 @@ Hard rules:
 export interface GenerateOptions {
   model?: string;
   patchFn?: (ctx: HealContext) => Promise<Patch>;
+  budget?: SpendBudget;
+}
+
+/** Thrown when the shared session budget has no paid generations left. Heal
+ * maps this to a `budget-exhausted` status rather than a transport error. */
+export class BudgetExhaustedError extends Error {
+  constructor() {
+    super("spend budget exhausted");
+    this.name = "BudgetExhaustedError";
+  }
 }
 
 function buildPrompt(ctx: HealContext): string {
@@ -141,6 +151,12 @@ export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}
     throw new Error("no rule-based fix applicable");
   }
 
+  // Paid path — enforce the shared session budget before spending, and charge it
+  // on success. The free rule tier above never reaches this, so a spent budget
+  // still lets free fixes through.
+  if (opts.budget && opts.budget.remaining <= 0) {
+    throw new BudgetExhaustedError();
+  }
   const text = await complete({
     system: SYSTEM,
     prompt: buildPrompt(ctx),
@@ -148,5 +164,6 @@ export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}
     maxTokens: 2048,
     temperature: 0,
   });
+  if (opts.budget) opts.budget.remaining -= 1;
   return parsePatch(text);
 }

@@ -18,6 +18,7 @@ import { submitTelemetry } from "./telemetry/index.js";
 import { submitRun } from "./cloud/index.js";
 import { formatDiff } from "./diff.js";
 import type { Finding } from "./types.js";
+import type { SpendBudget } from "./heal/types.js";
 
 export interface RunOptions {
   url: string;
@@ -55,6 +56,14 @@ export interface RunOptions {
   /** F10: attempt closed-loop healing for crash/error findings. Needs
    * `ANTHROPIC_API_KEY` (or an injected patchFn) and `repro: true`. */
   heal?: boolean;
+  /** Fingerprints already handled (PR opened / marked unfixable) by an
+   * autonomous supervisor — skip healing them so a re-scan doesn't re-burn the
+   * LLM on a bug we've already acted on. */
+  skipHealFingerprints?: string[];
+  /** Shared, mutable session cap on paid LLM generations (see `SpendBudget`).
+   * Passed through to every heal call; a patrol session creates one budget and
+   * reuses it across cycles. */
+  budget?: SpendBudget;
   /** LLM model override for healing (the fallback tier). */
   healModel?: string;
   /** Fast/cheap first tier for the Smart Cloud Router (`AZTRX_FAST_MODEL`). */
@@ -334,7 +343,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         f.repro &&
         f.repro.verdict !== "unreliable"
     );
-    const healTargets = reproducible.filter((f) => f.mappedLocation?.isOwnCode);
+    const skip = new Set(options.skipHealFingerprints ?? []);
+    const candidates = reproducible.filter((f) => !skip.has(f.fingerprint));
+    const healTargets = candidates.filter((f) => f.mappedLocation?.isOwnCode);
     if (healTargets.length) {
       say(pc.cyan("— Closed-loop healing (redact → generate → gate → sandbox → test → verify) —"));
       emitPhase("heal");
@@ -353,6 +364,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
             testTimeoutMs: options.testTimeoutMs,
             skipTest: options.skipTest,
             startCommand: options.startCommand,
+            budget: options.budget,
           });
           f.heal = result;
           bus.emit("heal", {
@@ -374,7 +386,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
               ? pc.green("  ✓ healed")
               : result.status === "unfixed"
                 ? pc.yellow("  ◐ unfixed")
-                : pc.red(`  ✗ ${result.status}`);
+                : result.status === "budget-exhausted"
+                  ? pc.dim("  ⏹ budget exhausted")
+                  : pc.red(`  ✗ ${result.status}`);
           say(`${mark}  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}`);
           if (result.status === "healed" && result.hunks.length > 0) {
             say(pc.dim(`        ${result.filePath}`));
@@ -396,10 +410,11 @@ export async function run(options: RunOptions): Promise<Finding[]> {
           say(pc.dim(`  ✗ heal error: ${(e as Error).message}`));
         }
       }
-    } else if (reproducible.length > 0) {
+    } else if (candidates.length > 0) {
       // Reproducible crashes, but none mapped to source (wrong --repo?) — tell the
-      // user rather than silently doing nothing.
-      say(pc.yellow(`Found ${reproducible.length} reproducible crash(es) but couldn't map them to source files. Run from your project root (or pass --repo <dir>) so --fix can read the code.`));
+      // user rather than silently doing nothing. Already-handled fingerprints are
+      // excluded above, so this only fires for genuinely new findings.
+      say(pc.yellow(`Found ${candidates.length} reproducible crash(es) but couldn't map them to source files. Run from your project root (or pass --repo <dir>) so --fix can read the code.`));
     }
   }
 

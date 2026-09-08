@@ -20,7 +20,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { redact, unredact } from "./redact.js";
 import { auditPatch } from "./gates.js";
-import { generatePatch, generateRulePatch, modelTiers, RULE_TIER } from "./llm.js";
+import { generatePatch, generateRulePatch, modelTiers, RULE_TIER, BudgetExhaustedError } from "./llm.js";
 import { hasLlmKey } from "../llm.js";
 import type { ModelTier } from "./llm.js";
 import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
@@ -180,11 +180,13 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
       // 2. Generate (this tier).
       let patch: Patch;
       try {
-        patch = await generatePatch(ctx, { model: tier.model, patchFn: opts.patchFn });
+        patch = await generatePatch(ctx, { model: tier.model, patchFn: opts.patchFn, budget: opts.budget });
       } catch (e) {
-        // A transport/config failure isn't a model-quality failure — a pricier
-        // tier won't fix a dead endpoint or a missing key, so stop here.
-        last = { ...base, status: "no-llm", error: (e as Error).message, model: tier.model };
+        // A spent session budget stops everything paid; a transport/config failure
+        // won't be fixed by a pricier tier either, so both break out here.
+        last = e instanceof BudgetExhaustedError
+          ? { ...base, status: "budget-exhausted", error: e.message, model: tier.model }
+          : { ...base, status: "no-llm", error: (e as Error).message, model: tier.model };
         break;
       }
 

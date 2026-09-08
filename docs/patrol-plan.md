@@ -77,20 +77,26 @@ The core "automatic" story. Delivered:
 - Cross-run memory (`PatrolState`), PR dedup, scoped staging, liveness check,
   per-session fix cap.
 
-**Known limitation (Phase 2):** `run()` heals internally, so an already-handled
-bug is still *re-healed* before patrol skips the PR. The LLM spend on repeats is
-wasted — thread a fingerprint skip-set into heal to avoid it.
+**Re-heal avoidance (shipped in Phase 1.5):** `run()` used to heal internally, so
+an already-handled bug got *re-healed* before patrol skipped the PR — wasted LLM
+spend per cycle. Fixed by `RunOptions.skipHealFingerprints`: `PatrolState.handled()`
+feeds the skip-set into `run()`, and the heal pass filters it out before any
+generation. A re-scan still re-detects (to confirm the bug stays gone) without
+re-paying to re-fix it.
 
-### Phase 2 — reliability (not started)
+### Phase 2 — reliability (in progress)
 Makes the autonomy trustworthy before it's shown off:
 
 - **Unfixable backoff** — retry `unfixed` fingerprints on a cooldown instead of
   skipping forever.
 - **Batch PRs** — one PR with N fixes (branch from the sorted fingerprint set).
-- **Spend cap** — hard limit on LLM calls per session, with a visible counter.
 - **Live status** — a rolling `found N / fixed M / PRs K` summary (reuse EventBus).
-- **Skip-set threading** — pass already-handled fingerprints into `run()`/heal so
-  they aren't re-healed (fixes the Phase 1 limitation).
+- ~~**Skip-set threading**~~ — shipped (see Phase 1.5).
+- ~~**Spend cap**~~ — shipped: `--max-spend <n>` threads one `SpendBudget` through
+  every `run()`/`heal()` of the session; `generatePatch` charges it per paid
+  completion, throws `budget-exhausted` at 0, and patrol ends the session. Free
+  rule fixes are never charged, and budget-exhausted/no-llm findings are not
+  marked unfixable.
 
 ### Phase 3 — the proof artifact (not started)
 The public "wow":
