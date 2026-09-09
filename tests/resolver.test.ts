@@ -74,3 +74,35 @@ test("resolveFrame maps a Server Action throw site through its sourcemap", async
   assert.equal(resolved.line, 5);
   assert.match(resolved.codeSnippet, /quota exceeded/);
 });
+
+test("resolveFrame maps an inline-script frame (root URL) to index.html", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aztrx-resolve-"));
+  const lines = [
+    "<!doctype html>",
+    "<html>",
+    "<body>",
+    "  <div id=\"app\"></div>",
+    "  <script>",
+    "    async function loadUsers() {",
+    "      const res = await fetch('/api/users');",
+    "      const json = await res.json();",
+    "      json.users.map(u => u.name);",
+    "    }",
+    "    loadUsers();",
+    "  </script>",
+    "</body>",
+    "</html>",
+    "",
+  ];
+  fs.writeFileSync(path.join(root, "index.html"), lines.join("\n"), "utf-8");
+
+  // V8 reports an inline <script> throw with the page URL as the frame URL.
+  const resolved = await resolveFrame(
+    { url: "http://localhost:3000/", line: 9, column: 6, message: "Cannot read properties of undefined (reading 'map')" },
+    root
+  );
+
+  assert.equal(resolved.resolvedFrom, "direct");
+  assert.equal(path.normalize(resolved.sourceFile), "index.html");
+  assert.match(resolved.codeSnippet, /json\.users\.map/);
+});

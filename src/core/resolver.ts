@@ -106,6 +106,15 @@ function isFile(p: string): boolean {
   }
 }
 
+/** True only for a real directory. */
+function isDirectory(p: string): boolean {
+  try {
+    return fs.existsSync(p) && fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Secret-bearing filenames that must never be read, even inside the repo — a
  * hostile sourcemap could otherwise point `source` at `.env`, an npmrc, or a
  * private key and exfiltrate it into the report / PR comment. */
@@ -193,7 +202,15 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
   // Fallback: dev servers (Vite, Next) serve real source files at their URL
   // path, so the bundle URL is already the source path — no sourcemap needed.
   const relative = normalizeFrameUrl(frame.url);
-  const directPath = resolveWithin(repoRoot, relative);
+  let directPath = resolveWithin(repoRoot, relative);
+  // A frame URL pointing at a directory — e.g. an inline `<script>` whose V8
+  // frame carries the page URL (`http://localhost:3000/`, normalized to "") —
+  // resolves to the repo root. Map it to `index.html`, mirroring the static
+  // serve fallback, so the crash gets a real filename + snippet + own-code flag.
+  if (directPath && isDirectory(directPath)) {
+    const withIndex = resolveWithin(repoRoot, relative, "index.html");
+    if (withIndex) directPath = withIndex;
+  }
   if (!directPath) {
     return {
       message: frame.message,
