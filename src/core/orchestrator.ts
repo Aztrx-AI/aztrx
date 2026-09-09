@@ -174,10 +174,11 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const baseline = await loadBaseline(repoRoot);
   const workers = options.workers ?? 1;
 
-  // F-swarm — parallel detection. One worker is the legacy pass; `--http-fuzz`
-  // or `workers > 1` fan out into a swarm. Findings come back merged by
+  // F-swarm — parallel detection. One worker is the legacy pass; `workers > 1`
+  // fans out into a swarm. `--http-fuzz` folds into the walk/fuzz pass as a
+  // post-pass on the same page (no extra worker). Findings come back merged by
   // fingerprint, with per-worker action history already attached.
-  if (workers > 1 || options.httpFuzz) {
+  if (workers > 1) {
     emitPhase("swarm", `${workers} worker(s)`);
   } else if (options.fuzz) {
     emitPhase("fuzz");

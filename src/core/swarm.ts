@@ -28,13 +28,12 @@ import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js"
 
 export type WorkerStrategy =
   | { kind: "walk" }
-  | { kind: "fuzz"; seed: number }
-  | { kind: "http-fuzz" };
+  | { kind: "fuzz"; seed: number };
 
 export interface DetectResult {
   findings: Finding[];
   actions: number;
-  /** New JS code ranges covered by this worker's fuzz pass (0 for walk/http-fuzz). */
+  /** New JS code ranges covered by this worker's fuzz pass (0 for walk). */
   newCoverage: number;
   /** Whether the walk encountered a login form (a password input). */
   sawLoginForm: boolean;
@@ -57,6 +56,8 @@ export interface DetectWorkerOptions {
   crashTest?: boolean;
   saveAuthState?: boolean;
   httpFuzzMutations?: boolean;
+  /** Fold the HTTP fuzzer in as a post-pass on this worker's page. */
+  httpFuzz?: boolean;
   /** Opt-in: include destructive controls/endpoints (delete/pay/logout/…). */
   allowDestructive?: boolean;
   baseline: string[];
@@ -129,6 +130,20 @@ export async function detectWorker(
   );
   const page = await context.newPage();
   attachInterceptor(page, workerBus);
+
+  // Collect every same-origin URL the page issues — including `fetch()` fired
+  // from click handlers — so the folded HTTP fuzzer can probe endpoints a fresh
+  // page never sees (performance resources only capture on-load fetches).
+  const observedUrls = new Set<string>();
+  const targetOrigin = new URL(opts.url).origin;
+  page.on("request", (req) => {
+    try {
+      if (new URL(req.url()).origin === targetOrigin) observedUrls.add(req.url());
+    } catch {
+      // malformed URL — skip
+    }
+  });
+
   if (opts.guardOn) {
     await attachNetworkGuard(page, {
       allowHosts: opts.allowHosts,
@@ -150,10 +165,9 @@ export async function detectWorker(
     await page.waitForTimeout(2000);
   }
 
-  // Auto-login (best-effort). The server-side HTTP fuzzer uses Node-side fetch,
-  // so it doesn't benefit from a browser session — skip it there.
+  // Auto-login (best-effort).
   let replayStorageState: string | undefined;
-  if (loaded && strategy.kind !== "http-fuzz" && opts.login && opts.loginEmail && opts.loginPassword) {
+  if (loaded && opts.login && opts.loginEmail && opts.loginPassword) {
     const res = await establishLogin(page, {
       email: opts.loginEmail,
       password: opts.loginPassword,
@@ -193,17 +207,24 @@ export async function detectWorker(
       const wr = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
       actions = wr.actions;
       sawLoginForm = wr.sawLoginForm;
-    } else if (strategy.kind === "fuzz") {
+    } else {
       const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
       actions = fr.actions;
       newCoverage = fr.newCoverage;
-    } else {
-      actions = await httpFuzz(page, opts.url, workerBus, {
+    }
+
+    // Folded HTTP fuzzer: post-pass on this same page, seeded with every URL the
+    // walk/fuzz actually issued — including JS-fetch-only endpoints a standalone
+    // worker (snapshot before clicks) would never discover.
+    if (opts.httpFuzz) {
+      actions += await httpFuzz(page, opts.url, workerBus, {
         maxRequests: opts.maxActions,
         dryRun: opts.dryRun,
         allowHosts: opts.allowHosts,
         mutations: opts.httpFuzzMutations,
         allowDestructive: opts.allowDestructive,
+        seedUrls: [...observedUrls],
+        navigate: false,
       });
     }
   }
@@ -232,16 +253,15 @@ export function mergeFindings(arrays: Finding[][]): Finding[] {
   return [...byFingerprint.values()];
 }
 
-/** Build the worker roster for a run. `workers = 1` with no http-fuzz is the
- * legacy single pass; `--http-fuzz` and/or `workers > 1` fan out. */
+/** Build the worker roster for a run. `workers = 1` is the legacy single pass;
+ * `workers > 1` fans out. `--http-fuzz` is not a worker here — it folds into
+ * whichever pass runs (see `detectWorker`). */
 function buildStrategies(opts: {
   workers: number;
   fuzz?: boolean;
-  httpFuzz?: boolean;
   seed: number;
 }): WorkerStrategy[] {
   const strategies: WorkerStrategy[] = [];
-  if (opts.httpFuzz) strategies.push({ kind: "http-fuzz" });
 
   const w = Math.max(1, opts.workers);
   if (w === 1) {
@@ -263,8 +283,6 @@ function strategyLabel(s: WorkerStrategy): string {
   switch (s.kind) {
     case "walk":
       return "walk";
-    case "http-fuzz":
-      return "http-fuzz";
     case "fuzz":
       return `fuzz seed ${s.seed}`;
   }
@@ -331,6 +349,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
             crashTest: i === 0 ? opts.crashTest : false,
             saveAuthState: i === 0,
             httpFuzzMutations: opts.httpFuzzMutations,
+            httpFuzz: opts.httpFuzz,
             allowDestructive: opts.allowDestructive,
             baseline: opts.baseline,
             log: (m) => opts.log(strategies.length > 1 ? `[w${i}] ${m}` : m),

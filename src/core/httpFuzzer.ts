@@ -18,6 +18,13 @@ export interface HttpFuzzOptions {
   /** Opt-in: also probe endpoints the deny-list skips (delete/pay/logout/…).
    * Off by default — these can mutate real state. */
   allowDestructive?: boolean;
+  /** Endpoints observed live during a walk/fuzz pass (e.g. a `fetch()` fired
+   * from a click handler) that `collectEndpoints` can't see on a fresh page.
+   * Each is pushed through the same origin/static/destructive filters. */
+  seedUrls?: string[];
+  /** When false, skip the `page.goto` — the page is already loaded and
+   * positioned by the caller (folded post-walk pass). Default true. */
+  navigate?: boolean;
 }
 
 // Static assets carry no server-side logic worth mutating — skip them so we
@@ -111,7 +118,12 @@ function hostAllowed(url: string, allowHosts: Set<string>): boolean {
 }
 
 /** Harvest candidate endpoints the app actually uses — not blind probing. */
-async function collectEndpoints(page: Page, origin: string, allowDestructive: boolean): Promise<URL[]> {
+async function collectEndpoints(
+  page: Page,
+  origin: string,
+  allowDestructive: boolean,
+  seedUrls: string[] = []
+): Promise<URL[]> {
   const seen = new Map<string, URL>();
   const push = (raw: string) => {
     let u: URL;
@@ -125,6 +137,10 @@ async function collectEndpoints(page: Page, origin: string, allowDestructive: bo
     if (!allowDestructive && DESTRUCTIVE_PATH.test(u.pathname)) return;
     if (!seen.has(u.pathname)) seen.set(u.pathname, u);
   };
+
+  // Endpoints observed live by the caller — e.g. a `fetch()` fired from a click
+  // handler that never appears in `performance` resources or the DOM.
+  for (const s of seedUrls) push(s);
 
   // URLs the page already fetched (API calls, RSC/data endpoints).
   const resources = await page
@@ -219,12 +235,17 @@ export async function httpFuzz(
 
   if (!hostAllowed(targetUrl, allowHosts)) return 0;
 
-  if (!opts.dryRun) {
+  if (!opts.dryRun && opts.navigate !== false) {
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(500);
   }
 
-  const endpoints = await collectEndpoints(page, new URL(targetUrl).origin, Boolean(opts.allowDestructive));
+  const endpoints = await collectEndpoints(
+    page,
+    new URL(targetUrl).origin,
+    Boolean(opts.allowDestructive),
+    opts.seedUrls ?? []
+  );
   endpoints.sort((a, b) => a.pathname.localeCompare(b.pathname));
 
   let sent = 0;
