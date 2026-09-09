@@ -61,7 +61,11 @@ export function applyHunks(content: string, hunks: PatchHunk[]): ApplyResult {
 
   let patched = content;
   for (const h of hunks) {
-    patched = patched.replace(h.search, h.replace);
+    // Function replacer: a plain `replace(search, replace)` treats `$&`, `$1`,
+    // `` $` ``, `$'`, `$$` in `replace` as substitution tokens, so a fix that
+    // introduces a literal `$5` (a price, a template fragment, a regex capture)
+    // would be silently mangled. The function form inserts `replace` verbatim.
+    patched = patched.replace(h.search, () => h.replace);
   }
   return { ok: true, patched, applied: hunks.length, errors: [] };
 }
