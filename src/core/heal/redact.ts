@@ -50,7 +50,11 @@ const VALUE_MATCH: Array<{ re: RegExp; label: string }> = [
     label: "secret_value",
   },
   {
-    re: /((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|amqps):\/\/[^:/\s]+:)[^@\s]+(@)/gi,
+    // Captures the password as group 2 and stops at `@` with a lookahead so the
+    // `@` is never consumed. (The old form captured `(@)` instead — group 2 was
+    // the literal `@` — so the password was dropped and `unredact` restored `@`
+    // in its place, corrupting the URL.)
+    re: /((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|amqps):\/\/[^:/\s]+:)([^@\s]+)(?=@)/gi,
     label: "url_password",
   },
 ];

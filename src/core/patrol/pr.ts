@@ -44,13 +44,28 @@ function headTitle(f: Finding): string {
   return f.rawMessage.split("\n")[0].slice(0, 60);
 }
 
-/** A `localhost`/loopback target is a dev box; anything else is a deployed app,
- * so a crash there is "live in production" and worth flagging loudly. */
+/** A local/loopback/private target is a dev box; only a publicly-routable host is
+ * a deployed app, so a crash there is "live in production" and worth flagging.
+ * Covers loopback, RFC1918 private ranges (10/8, 172.16/12, 192.168/16),
+ * link-local (169.254/16), and mDNS/internal suffixes (.local, .internal). */
 export function isLocalUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
     if (host === "localhost" || host === "::1" || host === "::" || host === "0.0.0.0") return true;
-    return /^127\.\d+\.\d+\.\d+$/.test(host);
+    if (host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".localhost")) {
+      return true;
+    }
+    const octets = host.split(".");
+    if (octets.length === 4 && octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255)) {
+      const [a, b] = octets.map(Number);
+      if (a === 10) return true; // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a === 192 && b === 168) return true; // 192.168.0.0/16
+      if (a === 127) return true; // 127.0.0.0/8
+      if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
+      return false;
+    }
+    return false;
   } catch {
     return true; // unparseable target → assume local, don't scare-monger
   }
@@ -117,17 +132,27 @@ async function safeCheckout(repoRoot: string, branch: string): Promise<void> {
 }
 
 /**
- * Builds a raw-content URL for a repo-relative path so the PR body can inline an
- * image (`![…](https://github.com/<owner>/<repo>/raw/<branch>/<path>)`). Returns
- * "" when the `origin` remote isn't GitHub — then the media is still committed to
+ * Pure URL builder: turns a `git remote` origin URL into a raw-content URL for a
+ * repo-relative path, so the PR body can inline an image
+ * (`![…](https://github.com/<owner>/<repo>/raw/<branch>/<path>)`). Handles the
+ * three common remote shapes (`https://`, `git@github.com:`, `ssh://git@…`) and a
+ * trailing `.git`. Returns "" when the remote isn't GitHub.
+ */
+export function githubRawUrl(remote: string, branch: string, repoPath: string): string {
+  const m = /github\.com[:/]([^/]+)\/([^/\s]+?)(?:\.git)?$/.exec(remote.trim());
+  if (!m) return "";
+  return `https://github.com/${m[1]}/${m[2]}/raw/${branch}/${repoPath}`;
+}
+
+/**
+ * Reads the `origin` remote and delegates to {@link githubRawUrl}. Returns "" when
+ * `git` is missing or the remote isn't GitHub — the media is still committed to
  * the branch, just not inlined.
  */
 async function rawUrlFor(repoRoot: string, branch: string, repoPath: string): Promise<string> {
   try {
     const { stdout } = await exec("git", ["-C", repoRoot, "remote", "get-url", "origin"]);
-    const m = /github\.com[:/]([^/]+)\/([^/\s]+?)(?:\.git)?$/.exec(stdout.trim());
-    if (!m) return "";
-    return `https://github.com/${m[1]}/${m[2]}/raw/${branch}/${repoPath}`;
+    return githubRawUrl(stdout, branch, repoPath);
   } catch {
     return "";
   }

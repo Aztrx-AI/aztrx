@@ -83,10 +83,40 @@ your test suite before you see it. Aztrx never commits. `--pr` opens a merge-rea
 | `--swarm` / `--workers N` | parallel detection workers |
 | `--login` | auto-login to test authenticated pages |
 | `--badge` / `--pr-comment` / `--fail-on` | CI artifacts |
+| `patrol <url>` | autonomous loop — re-scan, fix, open a PR per bug |
 | `modernize <file>` | rewrite legacy JS/TS into modern idiomatic syntax |
 | `studio` | live dashboard on `localhost:7331` |
 
 Full list: `aztrx-cli run --help`, or the [CLI reference](#cli-reference).
+
+---
+
+## Autonomous patrol
+
+`aztrx patrol` is the looped version of `run --fix`: point it at a running app and it
+re-scans on an interval, fixes anything new, and opens a **PR per bug** — no human in
+the middle. Each PR body carries a **recorded repro**: a short animated GIF that replays
+the crash step-by-step, so a reviewer sees the bug happen before the fix.
+
+```bash
+aztrx-cli patrol http://localhost:3000        # re-scan every 10 min, open a PR per new bug
+aztrx-cli patrol http://localhost:3000 --once # one scan, then exit (great for CI/cron)
+aztrx-cli patrol http://localhost:3000 --batch # group a cycle's fixes into one PR
+```
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--interval <s>` | Seconds between scans | `600` |
+| `--max-fixes <n>` | Max PRs to open per session | `5` |
+| `--max-spend <n>` | Hard cap on paid LLM generations per session | unlimited |
+| `--retry-after <s>` | Cooldown before an unfixable bug is retried | `1800` |
+| `--batch` | Group all of a cycle's fixes into one PR | one PR per bug |
+| `--once` | Run a single scan then exit | loop forever |
+| `--fuzz` / `--workers <n>` | Detection mode / parallelism (pass-through to `run`) | — |
+
+Guardrails keep the loop from running away: it only stages the files a patch touched
+(never `git add -A`), dedups by crash fingerprint (a re-scan won't re-open the same PR),
+backs off from unfixable bugs, and respects a session-wide LLM spend cap.
 
 ---
 
@@ -192,9 +222,13 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 ├── repro/<id>.spec.ts           # minimal, executable Playwright repro
 ├── heal/<id>.patch              # gated, compiler-checked fix (one per finding)
 ├── events.jsonl                 # run log (streamed by `aztrx-cli studio`)
+├── patrol.json                  # patrol cross-run memory (handled fingerprints)
 ├── pr-comment.md                # GitHub PR markdown (with --pr-comment)
 └── badge.svg                    # status badge (with --badge)
 ```
+
+`aztrx patrol` also writes a `aztrx-media/<fingerprint>.gif` recorded repro next to the
+project root — the animated proof inlined in each patrol PR body.
 
 ---
 
