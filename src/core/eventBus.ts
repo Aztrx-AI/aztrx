@@ -32,6 +32,14 @@ export interface HealEvent {
   error?: string;
 }
 
+export type NoticeLevel = "hint" | "warning" | "danger";
+
+export interface NoticeEvent {
+  message: string;
+  level: NoticeLevel;
+  ts: number;
+}
+
 export interface AztrxEvents {
   telemetry: TelemetryErrorPayload;
   action: RecordedAction;
@@ -41,6 +49,7 @@ export interface AztrxEvents {
   phase: PhaseEvent;
   route: RouteEvent;
   noise: { ts: number };
+  notice: NoticeEvent;
 }
 
 type Handler<T> = (payload: T) => void;

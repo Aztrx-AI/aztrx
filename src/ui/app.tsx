@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { render, Box, Text, useApp } from "ink";
-import type { EventBus, HealEvent, ReproEvent, RunPhase } from "../core/eventBus.js";
+import type { EventBus, HealEvent, NoticeEvent, ReproEvent, RunPhase } from "../core/eventBus.js";
 import type { Finding, RecordedAction } from "../core/types.js";
 import type { PatchHunk } from "../core/heal/types.js";
 import { VERSION } from "../core/version.js";
@@ -44,6 +44,7 @@ interface UiState {
   routes: string[];
   navigations: number;
   done: boolean;
+  notices: NoticeEvent[];
 }
 
 type Msg =
@@ -53,7 +54,8 @@ type Msg =
   | { type: "noise" }
   | { type: "route"; url: string }
   | { type: "repro"; repro: ReproEvent }
-  | { type: "heal"; heal: HealEvent };
+  | { type: "heal"; heal: HealEvent }
+  | { type: "notice"; notice: NoticeEvent };
 
 function reducer(state: UiState, msg: Msg): UiState {
   switch (msg.type) {
@@ -83,6 +85,8 @@ function reducer(state: UiState, msg: Msg): UiState {
           f.fingerprint === msg.heal.finding.fingerprint ? msg.heal.finding : f
         ),
       };
+    case "notice":
+      return { ...state, notices: [...state.notices, msg.notice] };
     default:
       return state;
   }
@@ -98,6 +102,7 @@ const initialState: UiState = {
   routes: [],
   navigations: 0,
   done: false,
+  notices: [],
 };
 
 function useAztrx(bus: EventBus) {
@@ -117,6 +122,7 @@ function useAztrx(bus: EventBus) {
       bus.on("route", (r) => dispatch({ type: "route", url: r.url })),
       bus.on("repro", (r) => dispatch({ type: "repro", repro: r })),
       bus.on("heal", (h) => dispatch({ type: "heal", heal: h })),
+      bus.on("notice", (n) => dispatch({ type: "notice", notice: n })),
     ];
     return () => offs.forEach((off) => off());
   }, [bus]);
@@ -205,6 +211,21 @@ function FindingRow({ finding, repro }: { finding: Finding; repro?: ReproEvent }
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+const NOTICE_STYLE: Record<NoticeEvent["level"], { color: string; glyph: string }> = {
+  hint: { color: C.azure, glyph: "💡" },
+  warning: { color: C.amber, glyph: "⚠" },
+  danger: { color: C.red, glyph: "⚠" },
+};
+
+function NoticeRow({ notice }: { notice: NoticeEvent }) {
+  const style = NOTICE_STYLE[notice.level];
+  return (
+    <Text color={style.color}>
+      {style.glyph} {notice.message}
+    </Text>
+  );
+}
 
 function DiffView({ hunks, filePath }: { hunks: PatchHunk[]; filePath: string }) {
   const groups = diffHunks(hunks);
@@ -296,6 +317,14 @@ function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
         <Text color={C.muted}>{currentRoute}</Text>
         <Text color={C.dim}> · {state.routes.length} route(s)</Text>
       </Box>
+
+      {state.notices.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          {state.notices.map((n, i) => (
+            <NoticeRow key={i} notice={n} />
+          ))}
+        </Box>
+      ) : null}
 
       {state.findings.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>

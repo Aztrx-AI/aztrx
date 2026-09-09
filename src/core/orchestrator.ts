@@ -2,7 +2,7 @@ import * as path from "path";
 import pc from "picocolors";
 import { VERSION } from "./version.js";
 import { EventBus } from "./eventBus.js";
-import type { RunPhase } from "./eventBus.js";
+import type { NoticeLevel, RunPhase } from "./eventBus.js";
 import { loadBaseline } from "./classifier.js";
 import { diagnoseFinding } from "./diagnose.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
@@ -149,6 +149,13 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const say = (...parts: string[]) => {
     if (!ui) console.log(parts.join(" "));
   };
+  // Important hints/warnings (destructive mode, login-wall, wrong --repo) must be
+  // visible in the TUI too — `say` is a no-op there. Emit on the bus always, and
+  // print to stdout only in the linear (non-UI) path so it isn't duplicated.
+  const notice = (message: string, level: NoticeLevel = "hint") => {
+    bus.emit("notice", { message, level, ts: Date.now() });
+    if (!ui) console.log(level === "danger" ? pc.red(message) : pc.yellow(message));
+  };
   const emitPhase = (phase: RunPhase, detail?: string) =>
     bus.emit("phase", { phase, detail, ts: Date.now() });
 
@@ -160,8 +167,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (guardOn) say(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
   if (options.storageState) say(pc.dim(`Auth:   ${options.storageState}`));
   if (options.allowDestructive) {
-    say(pc.yellow(pc.bold("⚠ DESTRUCTIVE MODE — delete/pay/logout/checkout controls are ENABLED.")));
-    say(pc.yellow("  This can mutate real data. Run only against a disposable/dev instance you own."));
+    notice(
+      "⚠ DESTRUCTIVE MODE — delete/pay/logout/checkout controls are ENABLED. This can mutate real data. Run only against a disposable/dev instance you own.",
+      "danger"
+    );
   }
   say("");
 
@@ -237,7 +246,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   }
 
   if (sawLoginForm && !options.login) {
-    say(pc.yellow("Hint: this app has a login form — re-run with --login to test the authenticated app."));
+    notice("Hint: this app has a login form — re-run with --login to test the authenticated app.", "hint");
   }
 
   // F7 → F8 → F9: minimize each finding, compile an executable spec, validate
@@ -412,10 +421,18 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         }
       }
     } else if (candidates.length > 0) {
-      // Reproducible crashes, but none mapped to source (wrong --repo?) — tell the
-      // user rather than silently doing nothing. Already-handled fingerprints are
-      // excluded above, so this only fires for genuinely new findings.
-      say(pc.yellow(`Found ${candidates.length} reproducible crash(es) but couldn't map them to source files. Run from your project root (or pass --repo <dir>) so --fix can read the code.`));
+      // Reproducible crashes, but none mapped to a readable source file (wrong
+      // --repo?) — tell the user rather than silently doing nothing. Already-handled
+      // fingerprints are excluded above, so this only fires for genuinely new
+      // findings. Name the files it looked for so the hint is actionable.
+      const missing = candidates
+        .map((f) => f.mappedLocation?.filePath || f.rawMessage.split("\n")[0].slice(0, 40))
+        .filter(Boolean)
+        .slice(0, 3);
+      notice(
+        `Found ${candidates.length} reproducible crash(es) but couldn't read their source (${missing.join(", ")}). Run from your project root (or pass --repo <dir>) so --fix can read the code.`,
+        "warning"
+      );
     }
   }
 
