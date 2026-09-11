@@ -1,0 +1,9 @@
+{
+  "id": "13-swallowed-boundary",
+  "name": "Dashboard — Error Boundary swallows a render crash",
+  "archetype": "swallowed-error",
+  "framework": "spa (framework-agnostic runtime)",
+  "seeded": [
+    { "id": "bug-1", "severity": "error", "type": "console_error", "message": "Cannot read properties of undefined (reading 'rows')", "trigger": "click #open-report" }
+  ]
+}

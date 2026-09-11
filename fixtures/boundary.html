@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard — Swallowed Crash</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #eef1f6; color: #1a1d23;
+  }
+  .card {
+    width: 560px; background: #fff; border: 1px solid #e5e8ee; border-radius: 14px;
+    padding: 28px 30px; box-shadow: 0 16px 50px -20px rgba(20,30,60,.4);
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 14px; margin: 0 0 22px; }
+  button {
+    margin-top: 8px; width: 100%; padding: 13px; border: 0; border-radius: 10px;
+    background: #2563eb; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  .panel { margin-top: 20px; padding: 16px 18px; border-radius: 10px; font-size: 14px; }
+  .panel[hidden] { display: none; }
+  .fallback { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+  .note { margin-top: 18px; font-size: 13px; color: #6b7280; line-height: 1.5; }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; color: #374151; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Dashboard</h1>
+    <p class="sub">Acme Analytics — signed in as demo@acme.io</p>
+    <button id="open" data-testid="open-report">Open report</button>
+    <div class="panel fallback" id="fallback" hidden>Something went wrong rendering this panel.</div>
+    <p class="note">
+      This crash is <strong>swallowed</strong> — nothing is rethrown, so <code>window.onerror</code>
+      never fires. The only trace is the boundary's <code>console.error(err)</code>.
+    </p>
+  </div>
+
+  <script>
+    // Reproduces exactly what a React 18 Error Boundary does on a render throw:
+    //   1. a component throws while rendering
+    //   2. the boundary catches it, calls console.error(err), renders a fallback
+    //   3. it is NEVER rethrown
+    //
+    // Because nothing is rethrown, `window.onerror` — and therefore Playwright's
+    // `pageerror` — never fire for this crash. The only runtime trace is the
+    // console.error call, and the Error *object* passed to it is where the real
+    // throw-site stack lives. That is the case this fixture exists to pin down:
+    // it is the README's headline claim, so it needs a test that would fail if
+    // the console path (src/core/interceptor.ts) ever regressed.
+    function ReportPanel() {
+      const report = window.report; // never assigned — the fetch that filled it is gone
+      return report.rows.length; // 💥 Cannot read properties of undefined (reading 'rows')
+    }
+
+    function ErrorBoundary(render) {
+      try {
+        return render();
+      } catch (err) {
+        console.error(err); // ← the boundary logs it here instead of rethrowing
+        document.getElementById("fallback").hidden = false; // ...then renders the fallback
+        return null;
+      }
+    }
+
+    document.getElementById("open").addEventListener("click", function () {
+      ErrorBoundary(ReportPanel);
+    });
+  </script>
+</body>
+</html>

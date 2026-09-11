@@ -1,16 +1,16 @@
 # Benchmark results — detection + repro
 
-**12 / 12 seeded bugs detected · 100% recall · 0 hallucinations**
+**13 / 13 seeded bugs detected · 100% recall · 0 hallucinations**
 
-**10 / 11 deterministic repros · 90.9% repro rate**
+**11 / 12 deterministic repros · 91.7% repro rate**
 
 | metric | value |
 | --- | --- |
-| seeded bugs | 12 |
-| found | 12 |
+| seeded bugs | 13 |
+| found | 13 |
 | recall | **100%** |
 | extra findings (unseeded) | 2 (both real, not hallucinations) |
-| repro deterministic | 10 / 11 (90.9%) |
+| repro deterministic | 11 / 12 (91.7%) |
 | repro unreliable | 1 (`json-parse`) |
 | repro not attempted | 1 (`hydration-mount` — mount-time bug, no action history) |
 | engine | `dist/core/orchestrator.ts` `run()` |
@@ -32,6 +32,19 @@
 | 10 | `select-null` — select change deref | select-change | 1 | ✓ 1 | — |
 | 11 | `hover-crash` — hover tooltip deref | hover | 1 | ✓ 1 | — |
 | 12 | `keypress-crash` — keydown deref | keypress | 1 | ✓ 1 | — |
+| 13 | `swallowed-boundary` — Error Boundary swallows a render crash | swallowed-error | 1 | ✓ 1 | — |
+
+## The swallowed-error case (13)
+
+`13-swallowed-boundary` is the one case a `pageerror`-only detector scores **0/1**
+on. The seeded crash is caught by an Error Boundary that logs it via
+`console.error(err)` and renders a fallback *without rethrowing* — so
+`window.onerror` never fires and Playwright's `pageerror` stays silent. It is
+detected only because the engine reads the throw-site stack off the `Error`
+*object* passed to `console.error` (`src/core/interceptor.ts`). This is the
+README's headline claim, and it is the case that fails first if that console path
+ever regresses. `fixtures/boundary.html` is the same scenario as a standalone
+fixture.
 
 ## What the two "extras" actually are
 
@@ -54,14 +67,14 @@ fault line in the page.
 
 ## Scope and caveats (read this before citing the number)
 
-1. **Synthetic archetype corpus, not real Next.js/Vite projects yet.** These 12
+1. **Synthetic archetype corpus, not real Next.js/Vite projects yet.** These 13
    cases pin the *archetype* matrix (null deref, async race, JSON parse,
    stack overflow, route transition, etc.) in framework-agnostic vanilla HTML.
    The engine captures `pageerror`/`unhandledrejection` off the renderer, so the
    runtime behaviour is what matters — but the number is not yet a claim over a
    real-project corpus. That is the next benchmark stage.
 2. **Repro is scored via `--repro`.** That flag exercises F7 (ddmin minimize) →
-   F8 (compile to a Playwright `.spec.ts`) → F9 (flake-rate validate). 10/11
+   F8 (compile to a Playwright `.spec.ts`) → F9 (flake-rate validate). 11/12
    interaction findings replay deterministically. The `json-parse` case is
    flagged *unreliable* by F9 — a genuine non-determinism signal, not a scorer
    miss — and the `hydration-mount` bug is mount-time with an empty action

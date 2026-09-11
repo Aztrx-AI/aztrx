@@ -1,0 +1,36 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../common.css"><title>Dashboard — Report</title></head>
+<body><div class="wrap">
+  <h1>Dashboard</h1><p class="sub">Acme Analytics · reports</p>
+  <div class="card"><h2>Monthly report</h2>
+    <p class="muted" id="state">No report loaded</p>
+    <button id="open-report">Open report</button>
+  </div>
+</div>
+<script>
+  // The seeded bug: `window.report` is never populated, so `report.rows` derefs
+  // an undefined. What makes this case different from 01-undefined-read is that
+  // it is *swallowed* — an Error Boundary catches it, logs it via console.error,
+  // and renders a fallback without ever rethrowing. `window.onerror` (and thus
+  // Playwright's `pageerror`) can never fire for it, so a detector that only
+  // listens on pageerror scores 0/1 here.
+  function ReportPanel() {
+    const report = window.report; // never assigned — the fetch that filled it is gone
+    return report.rows.length; // 💥 Cannot read properties of undefined (reading 'rows')
+  }
+
+  function ErrorBoundary(render) {
+    try {
+      return render();
+    } catch (err) {
+      console.error(err); // ← the boundary logs it here instead of rethrowing
+      document.getElementById("state").textContent = "Something went wrong.";
+      return null;
+    }
+  }
+
+  document.getElementById("open-report").addEventListener("click", () => {
+    ErrorBoundary(ReportPanel);
+  });
+</script>
+</body></html>
