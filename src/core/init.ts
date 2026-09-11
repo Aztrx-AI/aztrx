@@ -54,7 +54,8 @@ function detectFramework(repoRoot: string): string {
   return detectFrameworkMeta(repoRoot).framework;
 }
 
-function defaultPort(framework: string): number {
+/** The port a framework's dev server listens on by default. */
+export function defaultPort(framework: string): number {
   if (["Vite", "Svelte", "SvelteKit", "Vue", "Astro"].includes(framework)) return 5173;
   return 3000;
 }

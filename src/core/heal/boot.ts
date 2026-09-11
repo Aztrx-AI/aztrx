@@ -5,9 +5,14 @@
  * the replay, this boots the patched server inside the worktree on a free port,
  * waits for an HTTP readiness signal, and returns a `close` hook that tree-kills
  * the process (and its children) so nothing is left holding the port.
+ *
+ * The same machinery serves zero-config runs (`aztrx` with no URL — see
+ * `src/core/devServer.ts`), which boot the user's own app instead of patched
+ * worktree code. The two callers differ only in environment isolation and port
+ * choice, which is what the `env` and `port` options below select.
  */
 
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
@@ -42,6 +47,62 @@ function freePort(): Promise<number> {
   });
 }
 
+/** Is anything listening on this loopback port?
+ *
+ * Connect-based rather than bind-based on purpose: on Windows `SO_REUSEADDR`
+ * lets a socket bind a port another process already holds, so a successful
+ * `listen()` proves nothing there. A refused connection is the only reliable
+ * "nobody home" signal across platforms. */
+export function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ port, host: "127.0.0.1" });
+    const finish = (free: boolean) => {
+      sock.destroy();
+      resolve(free);
+    };
+    sock.setTimeout(1000);
+    sock.once("connect", () => finish(false));
+    // A listener that accepts but never speaks is still a listener — treat a
+    // timeout as taken, so the caller allocates a different port rather than
+    // colliding with whatever is there.
+    sock.once("timeout", () => finish(false));
+    sock.once("error", () => finish(true));
+  });
+}
+
+/** Signal a process and everything below it to stop.
+ *
+ * The process we spawned is rarely the only one that matters: `shell: true`
+ * puts a cmd.exe/sh in between, and a dev server or a browser launch leaves
+ * grandchildren of its own. Killing only the direct child orphans them, which
+ * shows up later as a taken port or a stray Chromium.
+ *
+ * Callers must spawn with `detached: process.platform !== "win32"` so that
+ * POSIX can signal the whole process group; Windows has no group signalling and
+ * uses `taskkill /T` instead. */
+export function killTreeSync(pid: number): void {
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      // already exited, or no such process
+    }
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      // already exited
+    }
+  }
+}
+
+/** The awaiting form, for callers with an async shutdown path. The work is
+ * synchronous either way; the plugins use `killTreeSync` directly because their
+ * cleanup also runs from `process.on("exit")`, where promises never settle. */
+export async function killTree(pid: number): Promise<void> {
+  killTreeSync(pid);
+}
+
 export interface BootedServer {
   url: string;
   close: () => Promise<void>;
@@ -54,9 +115,21 @@ export async function bootServer(opts: {
   repoRoot: string;
   startCommand: string;
   timeoutMs?: number;
+  /** Preferred port. Honoured only when it is genuinely free — otherwise a free
+   * one is allocated. A dev server on its framework's usual port is more
+   * faithful (absolute URLs, redirects, CORS origins), so the zero-config path
+   * asks for it; heal wants isolation and leaves it unset. */
+  port?: number;
+  /** `isolated` (default) strips the environment to a minimal allow-list so the
+   * booted process — untrusted PR code in the heal sandbox — never sees the
+   * caller's secrets. `inherit` passes this process's environment through,
+   * which is what booting the user's *own* app on their *own* machine needs:
+   * a stripped env breaks anything reading `DATABASE_URL` and friends. */
+  env?: "isolated" | "inherit";
 }): Promise<BootedServer> {
   const { worktreeDir, repoRoot, startCommand } = opts;
   const timeoutMs = opts.timeoutMs ?? 60_000;
+  const envMode = opts.env ?? "isolated";
 
   // A fresh worktree has no node_modules — symlink the root's so the booted
   // server resolves its dependencies (the same junction trick sandbox.ts uses).
@@ -70,7 +143,8 @@ export async function bootServer(opts: {
     }
   }
 
-  const port = await freePort();
+  const port =
+    opts.port !== undefined && (await isPortFree(opts.port)) ? opts.port : await freePort();
   // Support scripts that hardcode a port via `-p {port}`; `PORT` is also set in
   // the environment for the (more common) scripts that read `process.env.PORT`.
   const command = startCommand.replace(/\{port\}/g, String(port));
@@ -91,8 +165,13 @@ export async function bootServer(opts: {
     shell: true,
     cwd: worktreeDir,
     // Minimal allow-list — the booted app is patched PR code; it must not see
-    // the caller's ANTHROPIC_API_KEY or other CI secrets.
-    env: buildChildEnv({ PORT: String(port), CI: "true" }),
+    // the caller's ANTHROPIC_API_KEY or other CI secrets. `inherit` (the
+    // zero-config path) boots the user's own app, so it gets the real env —
+    // minus the forced `CI`, which changes how dev servers behave.
+    env:
+      envMode === "isolated"
+        ? buildChildEnv({ PORT: String(port), CI: "true" })
+        : { ...(process.env as Record<string, string>), PORT: String(port) },
     // On POSIX, detach so the server + its children form their own process
     // group — close() can then signal the whole group. Windows can't do group
     // signaling; it relies on `taskkill /T` below instead.
@@ -106,23 +185,7 @@ export async function bootServer(opts: {
   const close = async (): Promise<void> => {
     if (closed || !child.pid) return;
     closed = true;
-    if (process.platform === "win32") {
-      // `shell: true` spawns cmd.exe which spawns the real server as a child —
-      // a plain child.kill() would orphan that child and leave the port taken.
-      await new Promise<void>((resolve) => {
-        const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-          stdio: "ignore",
-        });
-        killer.on("exit", () => resolve());
-        killer.on("error", () => resolve());
-      });
-    } else {
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        // already exited
-      }
-    }
+    await killTree(child.pid);
   };
 
   // Readiness: poll until the server answers with *any* HTTP response (2xx/4xx/

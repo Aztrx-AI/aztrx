@@ -10,6 +10,12 @@
     "aztrx-cli": "dist/cli.js"
   },
   "main": "dist/core/orchestrator.js",
+  "exports": {
+    ".": "./dist/core/orchestrator.js",
+    "./vite": "./dist/vite/index.js",
+    "./next": "./dist/next/index.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
     "README.md",
@@ -38,6 +44,7 @@
     "build": "tsc",
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
+    "pretest": "npm run build",
     "test": "tsx --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",
     "server": "tsx server/index.ts",
@@ -59,6 +66,15 @@
     "@types/node": "^22.10.0",
     "@types/pngjs": "^6.0.5",
     "@types/react": "^18.3.12",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "vite": "^8.3.0"
+  },
+  "peerDependencies": {
+    "vite": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   }
 }

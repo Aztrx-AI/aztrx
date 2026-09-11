@@ -5,25 +5,29 @@ import * as os from "os";
 import pc from "picocolors";
 import { program } from "commander";
 import { opt, formatHelp } from "./cli/help.js";
-import { run } from "./core/orchestrator.js";
 import type { RunOptions } from "./core/orchestrator.js";
-import { EventBus } from "./core/eventBus.js";
-import { renderTui } from "./ui/app.js";
 import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
-import { startStudio } from "./core/studio.js";
-import { writePrComment } from "./core/pr.js";
-import { writeBadge } from "./core/badge.js";
-import { writeRegressionSpecs } from "./core/specCompiler.js";
-import { flushTelemetry } from "./core/telemetry/index.js";
-import { flushCloud } from "./core/cloud/index.js";
-import { summarizeFindings } from "./core/summarize.js";
-import { applyVerifiedPatches } from "./core/heal/apply.js";
-import { openFixPr } from "./core/fixPr.js";
-import { promptYesNo, promptInput } from "./core/prompt.js";
-import { modernizeFile } from "./core/modernize.js";
-import { renderMarkdown } from "./core/renderMarkdown.js";
-import { patrol } from "./core/patrol/loop.js";
+import { installHook, runPrePush, uninstallHook } from "./hooks/index.js";
+
+/**
+ * Everything else is loaded on demand, and that is not tidiness — it is 3.3
+ * seconds off *every* invocation.
+ *
+ * Measured cold, on this repo: `ui/app.js` (ink) costs 1645ms and
+ * `core/orchestrator.js` (Playwright and the whole heal stack) costs 1710ms. As
+ * static imports they are paid before the CLI knows what it was asked to do —
+ * so `--help`, `init`, and a pre-push hook whose scan is *skipped* all pay for a
+ * browser engine they will never use. On the hook that tax was most of the
+ * runtime, which is how a hook gets uninstalled.
+ *
+ * `await import()` caches after the first call, so the commands that do need
+ * these pay exactly what they paid before.
+ */
+async function loadOrchestrator() {
+  const m = await import("./core/orchestrator.js");
+  return m.run;
+}
 
 function collect(value: string, prev: string[]): string[] {
   prev.push(value);
@@ -36,32 +40,28 @@ function autoWorkers(): number {
   return Math.max(1, Math.min(n, 8));
 }
 
-/** Auto-detect the running dev server URL: `aztrx.config.ts`, the dev script's
- * `--port`, then a probe of common ports. Returns null when nothing responds. */
-async function detectUrl(repoRoot: string): Promise<string | undefined> {
-  const configPath = path.join(repoRoot, "aztrx.config.ts");
-  if (fs.existsSync(configPath)) {
-    const m = fs.readFileSync(configPath, "utf-8").match(/url\s*[=:]\s*["']([^"']+)["']/);
-    if (m) return m[1];
+/** Resolve the target for a run with no explicit URL: attach to a dev server
+ * that is already up, or boot the project's own one. Prints progress as it goes
+ * (this all happens before the TUI mounts, so plain writes are safe) and exits
+ * with a specific reason when neither is possible. */
+async function resolveTargetOrExit(
+  repoRoot: string,
+  noBoot: boolean,
+  out: (msg: string) => void = (m) => console.log(m)
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const { resolveTarget } = await import("./core/devServer.js");
+  const res = await resolveTarget({
+    repoRoot,
+    allowBoot: !noBoot,
+    onBoot: (plan) =>
+      out(pc.dim(`No dev server running — starting \`${plan.startCommand}\` (${plan.framework})…`)),
+  });
+  if (!res.ok) {
+    console.error(pc.red(res.error));
+    process.exit(1);
   }
-
-  const pkgPath = path.join(repoRoot, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    const dev = pkg.scripts?.dev || pkg.scripts?.start || "";
-    const pm = dev.match(/(?:--port|-p)\s*[= ]?\s*(\d+)/);
-    if (pm) return `http://localhost:${pm[1]}`;
-  }
-
-  for (const port of [3000, 5173, 8080, 3001, 4000, 8000]) {
-    try {
-      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(300) });
-      if (res.status < 500) return `http://localhost:${port}`;
-    } catch {
-      // not listening — try the next port
-    }
-  }
-  return undefined;
+  out(pc.dim(res.detail));
+  return { url: res.url, close: res.close };
 }
 
 /** Print one low-key "next flag" hint after a run, so users learn the advanced
@@ -126,6 +126,8 @@ interface CliOptions {
   test?: boolean;
   testTimeoutMs?: string;
   startCommand?: string;
+  boot?: boolean;
+  json?: boolean;
   prComment?: string | boolean;
   badge?: string | boolean;
   regressionTest?: string | boolean;
@@ -171,10 +173,62 @@ program
   });
 
 program
+  .command("hook")
+  .description("install a git hook that scans your app before you push")
+  .argument("<action>", "install | uninstall | run")
+  .argument("[name]", "hook name (default: pre-push)")
+  .option("--force", "overwrite a pre-push hook that Aztrx did not write")
+  .option("--always", "with `run`: scan even when no app code changed")
+  .action(async (action: string, name: string | undefined, opts: { force?: boolean; always?: boolean }) => {
+    const repoRoot = path.resolve(program.opts().repo as string);
+    const hookName = name ?? "pre-push";
+    if (hookName !== "pre-push") {
+      console.error(pc.red(`unsupported hook: ${hookName}`) + " (only `pre-push` is wired up)");
+      process.exit(1);
+    }
+
+    if (action === "install" || action === "uninstall") {
+      const res = action === "install" ? installHook(repoRoot, opts.force) : uninstallHook(repoRoot);
+      if (!res.ok) {
+        console.error(pc.red(`✗ ${res.message}`));
+        process.exit(1);
+      }
+      if (res.action === "absent") {
+        console.log(pc.dim(res.message));
+        return;
+      }
+      console.log(pc.green("✓") + ` pre-push hook ${res.message}`);
+      if (res.hookPath) console.log(pc.dim(`  ${path.relative(repoRoot, res.hookPath).replace(/\\/g, "/")}`));
+      if (action === "install") {
+        console.log(pc.dim("  Every `git push` now scans the app and blocks on a crash."));
+        console.log(pc.dim("  Skip one push with `git push --no-verify`, or a run with AZTRX_HOOK_SKIP=1."));
+      }
+      return;
+    }
+
+    if (action !== "run") {
+      console.error(pc.red(`unknown action: ${action}`) + " — expected install, uninstall or run");
+      process.exit(1);
+    }
+
+    // The hook body. Everything is printed at the end rather than streamed: the
+    // scan runs with `--json`, which is silent by contract, so there is nothing
+    // to stream until it has an answer.
+    const res = await runPrePush({
+      repoRoot,
+      always: opts.always,
+      onProgress: (m) => console.log(pc.dim(m)),
+    });
+    for (const line of res.lines) console.log(res.code === 0 ? line : pc.red(line));
+    process.exit(res.code);
+  });
+
+program
   .command("studio")
   .description("start the live studio dashboard on localhost:7331")
   .option("--port <n>", "port to listen on", "7331")
-  .action((opts: { port: string }) => {
+  .action(async (opts: { port: string }) => {
+    const { startStudio } = await import("./core/studio.js");
     startStudio({ repoRoot: path.resolve(program.opts().repo as string), port: parseInt(opts.port, 10) });
   });
 
@@ -186,6 +240,10 @@ program
   .action(async (file: string, opts: { yes?: boolean }) => {
     const repoRoot = path.resolve(program.opts().repo as string);
     const rel = path.relative(repoRoot, path.resolve(file));
+    const [{ modernizeFile }, { promptYesNo }] = await Promise.all([
+      import("./core/modernize.js"),
+      import("./core/prompt.js"),
+    ]);
     const res = await modernizeFile(repoRoot, file);
     if (!res.ok) {
       console.error(pc.red("modernize failed:") + ` ${res.error}`);
@@ -210,6 +268,7 @@ program
   .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
   .addOption(opt("--dry-run", "report what would be clicked without clicking", "detect"))
   .addOption(opt("--crash-test", "throw a deliberate error to verify capture", "advanced"))
+  .addOption(opt("--no-boot", "never start a dev server — only attach to one already running", "detect"))
   .addOption(opt("--fail-on", "exit 1 if any crash/error finding is present", "ship"))
   .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk (F5)", "detect"))
   .addOption(opt("--http-fuzz", "HTTP-layer mutation fuzzing — hostile requests against the target origin (F5-http)", "detect"))
@@ -250,6 +309,7 @@ program
   .addOption(opt("--login-url <url>", "explicit login page URL for --login (default: current page)").hideHelp())
   .addOption(opt("--plain", "disable the live terminal UI, print plain logs (default when piped)", "advanced"))
   .addOption(opt("--ui", "force the live terminal UI even when stdout is not a TTY", "advanced"))
+  .addOption(opt("--json", "machine-readable result on stdout: one JSON document, nothing else", "advanced"))
   .action(
     async (
       url: string | undefined,
@@ -258,15 +318,37 @@ program
       // `--fix` is the memorable verb; `--magic-fix` is a hidden alias.
       const magicFix = opts.magicFix || opts.fix;
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
-      // Auto-detect the target when no URL is given — one less thing to type.
+      // `--json` is a machine contract: one JSON document on stdout, nothing
+      // else. Every human-facing write below is suppressed, and the run itself
+      // gets `ui: true` (which already means "emit nothing, the caller renders").
+      const json = Boolean(opts.json);
+      const out = json ? () => {} : (msg: string) => console.log(msg);
+      // No URL given: find the app, or start it. `--no-boot` keeps the old
+      // attach-only behaviour for scripts where a surprise child process is
+      // unacceptable.
+      let booted: (() => Promise<void>) | undefined;
       let targetUrl = url;
       if (!targetUrl) {
-        targetUrl = await detectUrl(repoRoot);
-        if (!targetUrl) {
-          console.error(pc.red("No URL given and none auto-detected. Pass <url>, or run `aztrx-cli init` first."));
-          process.exit(1);
-        }
-        console.log(pc.dim(`Auto-detected ${targetUrl}`));
+        const target = await resolveTargetOrExit(repoRoot, opts.boot === false, out);
+        targetUrl = target.url;
+        booted = target.close;
+      }
+      // A booted dev server is a child of this process — releasing it is part of
+      // finishing, so every exit path goes through here. The `process.exit`
+      // calls below would otherwise skip a `finally` block entirely.
+      const finish = async (code: number): Promise<never> => {
+        await booted?.().catch(() => {});
+        process.exit(code);
+      };
+      // Spawned by a dev-server plugin (`aztrx-cli/vite`, `aztrx-cli/next`)? The
+      // plugins open an IPC channel for exactly this: when the dev server dies,
+      // so must the scan — a browser driving an app nobody owns is worse than no
+      // scan. `disconnect` is the only reliable signal here, because it also
+      // fires when the parent was SIGKILLed, which no signal handler can catch.
+      if (process.connected) {
+        process.once("disconnect", () => {
+          void finish(0);
+        });
       }
       const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
       const mode =
@@ -285,6 +367,7 @@ program
       let loginEmail = opts.loginEmail ?? process.env.AZTRX_AUTH_EMAIL;
       let loginPassword = opts.loginPassword ?? process.env.AZTRX_AUTH_PASSWORD;
       if (opts.login && !loginEmail && !loginPassword) {
+        const { promptInput } = await import("./core/prompt.js");
         loginEmail = await promptInput("Email:");
         loginPassword = await promptInput("Password:");
       }
@@ -324,10 +407,16 @@ program
         loginUrl: opts.loginUrl,
       };
       const failOn = Boolean(opts.failOn);
-      const useUi = !opts.plain && (process.stdout.isTTY === true || opts.ui === true);
+      const useUi = !json && !opts.plain && (process.stdout.isTTY === true || opts.ui === true);
 
       let findings: Finding[] = [];
       if (useUi) {
+        // ink (1645ms) and Playwright (1710ms) — together, and only here.
+        const [{ run }, { EventBus }, { renderTui }] = await Promise.all([
+          import("./core/orchestrator.js"),
+          import("./core/eventBus.js"),
+          import("./ui/app.js"),
+        ]);
         const bus = new EventBus();
         const runPromise = run({ ...runOpts, bus, ui: true });
         await renderTui({
@@ -341,10 +430,13 @@ program
           findings = await runPromise;
         } catch (e) {
           console.error(pc.red("Aztrx AI run failed:"), (e as Error).message);
-          process.exit(1);
+          await finish(1);
         }
       } else {
-        findings = await run(runOpts);
+        // `ui: true` also means "print nothing" — reuse it to silence the
+        // orchestrator's own banner and progress lines under --json.
+        const run = await loadOrchestrator();
+        findings = await run(json ? { ...runOpts, ui: true } : runOpts);
       }
 
       if (opts.prComment) {
@@ -352,8 +444,9 @@ program
           typeof opts.prComment === "string"
             ? opts.prComment
             : path.join(repoRoot, ".aztrx", "pr-comment.md");
+        const { writePrComment } = await import("./core/pr.js");
         writePrComment(repoRoot, targetUrl, findings, prPath);
-        console.log(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
+        out(pc.dim(`PR comment: ${path.relative(repoRoot, prPath)}`));
       }
 
       if (opts.badge) {
@@ -361,15 +454,17 @@ program
           typeof opts.badge === "string"
             ? opts.badge
             : path.join(repoRoot, ".aztrx", "badge.svg");
+        const { writeBadge } = await import("./core/badge.js");
         writeBadge(repoRoot, findings, badgePath);
-        console.log(pc.dim(`Badge: ${path.relative(repoRoot, badgePath)}`));
+        out(pc.dim(`Badge: ${path.relative(repoRoot, badgePath)}`));
       }
 
       if (opts.regressionTest) {
         const regDir = typeof opts.regressionTest === "string" ? opts.regressionTest : undefined;
+        const { writeRegressionSpecs } = await import("./core/specCompiler.js");
         const written = writeRegressionSpecs(repoRoot, findings, regDir);
         for (const w of written) {
-          console.log(pc.green("  ✓ regression test") + ` ${path.relative(repoRoot, w)}`);
+          out(pc.green("  ✓ regression test") + ` ${path.relative(repoRoot, w)}`);
         }
       }
 
@@ -378,55 +473,86 @@ program
       // under `--fix`, offers to apply the verified patches so `git diff`
       // shows the result. Never commits.
       if (magicFix || opts.explain) {
+        const [{ summarizeFindings }, { renderMarkdown }] = await Promise.all([
+          import("./core/summarize.js"),
+          import("./core/renderMarkdown.js"),
+        ]);
         const summary = await summarizeFindings(findings, { lang: opts.lang });
-        console.log("\n" + renderMarkdown(summary));
+        out("\n" + renderMarkdown(summary));
       }
 
       if (magicFix) {
         const healed = findings.filter((f) => f.heal?.status === "healed");
         if (healed.length > 0) {
+          const { promptYesNo } = await import("./core/prompt.js");
           const doApply = await promptYesNo(
             `Apply ${healed.length} verified fix${healed.length === 1 ? "" : "es"} to the working tree? (y/N)`,
             { yes: opts.yes }
           );
           if (doApply) {
+            const { applyVerifiedPatches } = await import("./core/heal/apply.js");
             const result = applyVerifiedPatches(repoRoot, findings);
             for (const a of result.applied) {
-              console.log(pc.green("  ✓ applied") + ` ${a.filePath} (${a.hunkCount} edit${a.hunkCount === 1 ? "" : "s"})`);
+              out(pc.green("  ✓ applied") + ` ${a.filePath} (${a.hunkCount} edit${a.hunkCount === 1 ? "" : "s"})`);
             }
             for (const c of result.conflicts) {
-              console.log(pc.yellow("  ◐ skipped") + ` ${c.filePath}: ${c.error}`);
+              out(pc.yellow("  ◐ skipped") + ` ${c.filePath}: ${c.error}`);
             }
-            console.log(pc.dim("  Review with: git diff"));
+            out(pc.dim("  Review with: git diff"));
           } else {
-            console.log(pc.dim("  Not applied — review the .patch files under .aztrx/heal/."));
+            out(pc.dim("  Not applied — review the .patch files under .aztrx/heal/."));
           }
         }
       }
 
       if (opts.pr) {
+        const { openFixPr } = await import("./core/fixPr.js");
         const prRes = await openFixPr(repoRoot, findings, targetUrl);
         if (prRes.ok) {
-          console.log(pc.green("  ✓ PR opened") + ` ${prRes.url}`);
+          out(pc.green("  ✓ PR opened") + ` ${prRes.url}`);
         } else {
-          console.log(pc.yellow("  ◐ PR skipped") + `: ${prRes.error}`);
+          out(pc.yellow("  ◐ PR skipped") + `: ${prRes.error}`);
         }
       }
 
       // Suggest the next flag (e.g. --fix) after the run, in both the live TUI
       // and plain paths. In the TUI this prints after the panel has finished.
-      suggestNext(findings, opts);
+      if (!json) suggestNext(findings, opts);
 
       // Drain any in-flight telemetry uploads (each bounded) before exit, so a
       // pending `--share-data` dispatch isn't killed mid-flight. Never affects
       // the exit code.
+      const [{ flushTelemetry }, { flushCloud }] = await Promise.all([
+        import("./core/telemetry/index.js"),
+        import("./core/cloud/index.js"),
+      ]);
       await flushTelemetry();
       await flushCloud();
 
-      if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
-        process.exit(1);
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              version: 1,
+              url: targetUrl,
+              repoRoot,
+              counts: {
+                crash: findings.filter((f) => f.severity === "crash").length,
+                error: findings.filter((f) => f.severity === "error").length,
+                warning: findings.filter((f) => f.severity === "warning").length,
+              },
+              findings,
+            },
+            null,
+            2
+          ) + "\n"
+        );
       }
-      process.exit(0);
+
+      if (failOn && findings.some((f) => f.severity === "crash" || f.severity === "error")) {
+        await finish(1);
+      }
+      await finish(0);
     }
   );
 
@@ -452,6 +578,7 @@ program
   .addOption(opt("--test-command <cmd>", "test command run against a healed patch", "advanced"))
   .addOption(opt("--no-test", "skip the test gate during healing", "advanced"))
   .addOption(opt("--start-command <cmd>", "command to boot the app for server healing", "advanced"))
+  .addOption(opt("--no-boot", "never start a dev server — only attach to one already running", "detect"))
   .action(
     async (
       url: string | undefined,
@@ -473,19 +600,19 @@ program
         testCommand?: string;
         test?: boolean;
         startCommand?: string;
+        boot?: boolean;
       }
     ) => {
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      let booted: (() => Promise<void>) | undefined;
       let targetUrl = url;
       if (!targetUrl) {
-        targetUrl = await detectUrl(repoRoot);
-        if (!targetUrl) {
-          console.error(pc.red("No URL given and none auto-detected. Pass <url>, or run `aztrx-cli init` first."));
-          process.exit(1);
-        }
-        console.log(pc.dim(`Auto-detected ${targetUrl}`));
+        const target = await resolveTargetOrExit(repoRoot, opts.boot === false);
+        targetUrl = target.url;
+        booted = target.close;
       }
 
+      const { patrol } = await import("./core/patrol/loop.js");
       await patrol({
         url: targetUrl,
         repoRoot,
@@ -506,6 +633,7 @@ program
         skipTest: opts.test === false,
         startCommand: opts.startCommand,
       });
+      await booted?.().catch(() => {});
       process.exit(0);
     }
   );

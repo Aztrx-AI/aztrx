@@ -155,12 +155,18 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
   }
 
   // The Smart Cloud Router tier plan: the free rule fix first, then fast/cheap,
-  // then Sonnet. An injected patchFn collapses to a single tier.
+  // then Sonnet. An injected patchFn collapses to a single tier. Paid tiers are
+  // enqueued only when a key is actually configured — otherwise the last tier
+  // throws "…_API_KEY is not set" and overwrites the specific failure the free
+  // rule tier already reported (test-failed, compile-failed, …), telling the
+  // user to add a key when the real problem was something else entirely.
   const tiers: ModelTier[] = [
     ...(rulePatch ? [{ model: RULE_TIER, label: "fast" as const }] : []),
     ...(opts.patchFn
       ? [{ model: opts.model ?? "default", label: "sonnet" as const }]
-      : modelTiers(opts.model, opts.fastModel)),
+      : hasLlmKey()
+        ? modelTiers(opts.model, opts.fastModel)
+        : []),
   ];
 
   const wt = await createWorktree(opts.repoRoot, finding.id);
@@ -183,10 +189,14 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
         patch = await generatePatch(ctx, { model: tier.model, patchFn: opts.patchFn, budget: opts.budget });
       } catch (e) {
         // A spent session budget stops everything paid; a transport/config failure
-        // won't be fixed by a pricier tier either, so both break out here.
-        last = e instanceof BudgetExhaustedError
-          ? { ...base, status: "budget-exhausted", error: e.message, model: tier.model }
-          : { ...base, status: "no-llm", error: (e as Error).message, model: tier.model };
+        // won't be fixed by a pricier tier either, so both break out here. Keep an
+        // earlier tier's gate failure (test-failed, unfixed, …) — it names a real
+        // problem the user can act on, where "no key" would mask it.
+        if (e instanceof BudgetExhaustedError || last.status === base.status) {
+          last = e instanceof BudgetExhaustedError
+            ? { ...base, status: "budget-exhausted", error: e.message, model: tier.model }
+            : { ...base, status: "no-llm", error: (e as Error).message, model: tier.model };
+        }
         break;
       }
 

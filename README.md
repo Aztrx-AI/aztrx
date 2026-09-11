@@ -11,9 +11,14 @@ swallows* (the errors `window.onerror` never sees). Each crash comes back as an 
 line plus an executable **Playwright repro** that fails `3/3` times. Then it fixes it.
 
 ```bash
-npx aztrx-cli run http://localhost:3000          # find crashes — zero setup, no key
-npx aztrx-cli run http://localhost:3000 --fix    # fix them — free for common bugs
+npx aztrx-cli                    # find crashes — no key, no config, no URL to look up
+npx aztrx-cli --fix              # fix them — free for common bugs
 ```
+
+Run it in your project and it works out what your app is, starts your dev server if
+nothing is listening, scans, and stops the server again on the way out. Already have
+one running? It attaches and leaves it alone. Pass a URL (`aztrx-cli run http://…`)
+and it goes exactly there instead.
 
 ![aztrx demo](media/demo.gif)
 
@@ -31,15 +36,17 @@ npx aztrx-cli run http://localhost:3000 --fix    # fix them — free for common 
 ## Quickstart
 
 ```bash
-npm i -g aztrx-cli                        # or use npx — no install needed
+npm i -g aztrx-cli            # or use npx — no install needed
 
-aztrx-cli run http://localhost:3000       # 1. find the crashes (no key, no account)
-aztrx-cli run http://localhost:3000 --repro   # 2. prove them with an executable test
-aztrx-cli run http://localhost:3000 --fix     # 3. fix them
+aztrx-cli                     # 1. find the crashes (no key, no account)
+aztrx-cli --repro             # 2. prove them with an executable test
+aztrx-cli --fix               # 3. fix them
 ```
 
-Point it at any running dev server. It drives Chromium through Playwright (the first run
-downloads the browser automatically).
+Run it from your project root — it detects the framework, finds your dev server or
+boots it (`npm run dev`), and tears the server down when it exits. To point it at a
+server somewhere else, pass the URL: `aztrx-cli run http://localhost:3000`. It drives
+Chromium through Playwright (the first run downloads the browser automatically).
 
 ---
 
@@ -86,8 +93,156 @@ your test suite before you see it. Aztrx never commits. `--pr` opens a merge-rea
 | `patrol <url>` | autonomous loop — re-scan, fix, open a PR per bug |
 | `modernize <file>` | rewrite legacy JS/TS into modern idiomatic syntax |
 | `studio` | live dashboard on `localhost:7331` |
+| `hook install` | scan every `git push` — block the ones that crash |
 
 Full list: `aztrx-cli run --help`, or the [CLI reference](#cli-reference).
+
+---
+
+## Scan while you develop
+
+Add a few lines and your dev server reports its own runtime crashes as you work —
+no second terminal, no separate command to remember. Same plugin either way; only
+the hook differs.
+
+### Vite
+
+```ts
+// vite.config.ts
+import { aztrx } from "aztrx-cli/vite";
+
+export default defineConfig({
+  plugins: [aztrx()],
+});
+```
+
+```bash
+npm run dev
+#   VITE v8.3.0  ready in 312 ms
+#   ➜  Local:   http://localhost:5173/
+#   [aztrx] 1 crash — first: src/Report.tsx:42
+#   [aztrx] run `npx aztrx-cli` for the repro and the fix.
+```
+
+### Next.js
+
+Next has no config object to hang a plugin off, so it uses `instrumentation.ts` —
+the hook Next added for exactly this (Sentry and OpenTelemetry use it too):
+
+```ts
+// instrumentation.ts, next to app/ or src/
+export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { registerAztrx } = await import("aztrx-cli/next");
+    registerAztrx();
+  }
+}
+```
+
+```bash
+npm run dev
+#   ▲ Next.js 16.3.2 (Turbopack)
+#   - Local:        http://localhost:3001
+#   [aztrx] 1 crash — first: app/page.tsx:18
+#   [aztrx] run `npx aztrx-cli` for the repro and the fix.
+```
+
+The `NEXT_RUNTIME` guard is required, not decoration: Next compiles
+`instrumentation.ts` for the edge runtime as well, which has no child processes.
+The plugin itself does nothing outside `next dev` — a scan during `next build` or
+`next start` would point a browser at a real deployment. It finds the port Next
+actually bound, so it still works when 3000 was taken and Next moved to 3001.
+
+### Options and behaviour
+
+```ts
+// Vite: plugins: [aztrx({ … })]   Next.js: registerAztrx({ … }) — same options.
+{
+  maxActions: 50,      // shallower, faster walk
+  fuzz: true,          // seeded chaos instead of the deterministic walk
+  onResult: (r) => {}, // wire findings into your own tooling
+}
+```
+
+Both plugins are a **sentinel, not a reporter**: silent until the scan finishes,
+then one line. Run `aztrx-cli` for the full report, the executable repro, and the
+fix. Findings also land in `.aztrx/` as usual.
+
+The scan runs as a **separate process**, killed when the dev server stops. That is
+deliberate: a scanner that crashes, hangs, or leaves a browser behind must never be
+able to take your dev server down with it — and it dies with the parent even if the
+parent is hard-killed. Set `AZTRX_DEV_SCAN=0` to skip a scan without editing the
+config.
+
+---
+
+## Scan before you push (git hook)
+
+One command and every `git push` scans your app first:
+
+```bash
+aztrx-cli hook install
+#   ✓ pre-push hook installed.
+#     .git/hooks/pre-push
+#     Every `git push` now scans the app and blocks on a crash.
+#     Skip one push with `git push --no-verify`, or a run with AZTRX_HOOK_SKIP=1.
+```
+
+A push that found something:
+
+```
+[aztrx] 1 changed file: src/Cart.tsx. Scanning the app…
+[aztrx] 1 crash · 1 warning — first: src/Cart.tsx:42
+[aztrx] run `npx aztrx-cli` for the repro and the fix.
+[aztrx] push blocked — 1 crash/error finding in your app.
+[aztrx] fix them and push again; to push anyway, `git push --no-verify`.
+```
+
+It scans **your app, not your diff** — a changed file is the *trigger*, not the scope. A crash
+at `Cart.tsx:42` usually comes through a `useCart()` that changed three files away, and a
+diff-shaped scan would look straight past it.
+
+### It stays out of the way
+
+Push a README and it says so and gets out of the way in about a second:
+
+```
+[aztrx] skipped — only docs, metadata or assets changed (1 file).
+```
+
+The skip list is deliberately short and boring: `.github/`, `.vscode/`, `.aztrx/`, `LICENSE`,
+`.gitignore`, `.md`, images. Anything arguable — lockfiles, config, `.mdx` — is **not** on it,
+because a wrong skip is a missed crash, which is the one thing this hook exists to prevent.
+When it cannot tell what changed (a branch the remote has never seen, a shallow clone) it
+scans the whole app and says why.
+
+| | |
+| --- | --- |
+| `git push --no-verify` | skip this push |
+| `AZTRX_HOOK_SKIP=1 git push` | same, for scripts |
+| `aztrx-cli hook uninstall` | remove it |
+
+### It cannot block you by accident
+
+Aztrx blocks a push because it found a crash — never because it is broken:
+
+- **Not installed, not on PATH** → the push proceeds.
+- **The scan fails, or never finishes** → the push proceeds, with the reason printed.
+  `AZTRX_HOOK_TIMEOUT` (ms, default `300000`) caps a single scan.
+- **A failed scan is never reported as clean.** "I could not look" is a different sentence
+  from "nothing there", and it stays that way.
+
+A hook that blocks pushes when it is merely broken gets turned off, and then it catches
+nothing.
+
+The installed file is a 15-line shim that calls back into the CLI, so `npm i -g
+aztrx-cli@latest` upgrades the hook as well — nothing to reinstall. `hook install` is
+idempotent, installs where git actually looks (so `core.hooksPath` — husky, Lefthook — is
+respected), and refuses to overwrite a `pre-push` hook it did not write unless you pass
+`--force`.
+
+**Not handled:** under Yarn PnP there is no `node_modules/aztrx-cli` to find, so the hook
+skips silently. Safe, but useless — use npm, pnpm, or Yarn with `nodeLinker: node-modules`.
 
 ---
 
@@ -145,7 +300,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: Aztrx-AI/aztrx@v0.4.3
+      - uses: Aztrx-AI/aztrx@v0.4.5
         with:
           url: http://localhost:3000
           start-command: npm run dev          # optional — boot the app in the background
@@ -166,6 +321,7 @@ niche tuning knobs).
 
 | Flag | Description | Default |
 | --- | --- | --- |
+| `--no-boot` | Attach to a running dev server only — never start one yourself | boots when needed |
 | `--fuzz` | Seeded chaos fuzzing instead of the deterministic walk | — |
 | `--http-fuzz` | Server-side mutation fuzzing — hostile requests against the target origin | — |
 | `--http-fuzz-mutations` | With `--http-fuzz`: also send POST/PUT body mutations (default: GET-only) | — |
@@ -209,6 +365,7 @@ niche tuning knobs).
 | `--dry-run` | Log planned actions without executing them | — |
 | `--crash-test` | Throw a deliberate error to verify capture | — |
 | `--plain` / `--ui` | Force plain logs / force the live panel | — |
+| `--json` | One JSON document on stdout, nothing else — for editors, plugins, and CI | — |
 
 ---
 
@@ -241,7 +398,12 @@ one seeded runtime bug:
 | corpus | detection | deterministic repro |
 | --- | --- | --- |
 | 13 Next.js 16 apps | **13/13 · 100% recall** | **12/12 · 100%** |
-| 12 vanilla archetypes | **12/12 · 100% recall** | **10/11 · 91%** |
+| 13 vanilla archetypes | **13/13 · 100% recall** | **11/12 · 92%** |
+
+One archetype is `13-swallowed-boundary` — a crash caught by an Error Boundary and
+logged via `console.error`, never rethrown. A `pageerror`-only detector scores
+**0/1** on it. It is the README's headline claim, so it lives in the corpus where a
+regression would fail the benchmark.
 
 Reproduce it yourself: `npm run bench` (archetypes) and `cd bench/frameworks && npm run bench`
 (Next.js corpus). Per-case results and scope notes live in
