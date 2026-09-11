@@ -287,9 +287,8 @@ backs off from unfixable bugs, and respects a session-wide LLM spend cap.
 
 ## Continuous Integration (GitHub Action)
 
-Runtime gate on every PR — boots your dev server, runs
-`aztrx-cli run --fail-on --repro --heal`, posts a comment with the repro + patch, and fails on
-a crash/error.
+Runtime gate on every PR — runs `aztrx-cli run --fail-on --repro --heal`, posts a comment with
+the repro + patch, and fails on a crash/error.
 
 ```yaml
 # .github/workflows/ci.yml — composite action, inline
@@ -297,19 +296,60 @@ on: pull_request
 jobs:
   aztrx:
     runs-on: ubuntu-latest
+    timeout-minutes: 30                        # recommended — see below
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
       - uses: Aztrx-AI/aztrx@v0.4.5
         with:
-          url: http://localhost:3000
-          start-command: npm run dev          # optional — boot the app in the background
           token: ${{ github.token }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — enables --heal
 ```
 
+That is the whole setup: aztrx detects the framework, boots your dev server, scans, and shuts
+it down again. Already have a server running, or want to control how it starts? Pass a URL and
+the action stays out of the way:
+
+```yaml
+        with:
+          url: http://localhost:3000
+          start-command: npm run dev           # boot the app in the background first
+          wait-for: http://localhost:3000      # defaults to `url`
+          token: ${{ github.token }}
+```
+
 A status badge (`--badge`) and PR comment (`--pr-comment`) work the same way — regenerate in
 CI on every push.
+
+### What the check tells you
+
+`uses: Aztrx-AI/aztrx@v0.4.5` runs **aztrx-cli 0.4.5** — the action reads its own version, so
+the tag selects the engine, not just the wrapper.
+
+A red check has two different meanings, and the message says which:
+
+| | |
+| --- | --- |
+| `aztrx detected crash/error findings` | it scanned, and found something. Fix it, or run `npx aztrx-cli` locally for the repro. |
+| `aztrx did not run (exit code: N)` | the scan never produced a result — a bad version pin, a registry failure, a broken config. **Not** a verdict about your app. The last lines of the run are printed to explain it. |
+
+Set `timeout-minutes` on the job. The default `args` include `--repro` and `--heal`, which
+drive your app repeatedly and can call a model — without a ceiling, one hung browser spends
+GitHub's 6-hour job default finding nothing.
+
+On a **fork pull request** the token is read-only, so the comment is skipped with a warning and
+the check still reports the scan result. `--heal` needs `ANTHROPIC_API_KEY`, which forks do not
+receive; it skips cleanly rather than failing.
+
+Prefer not to wire it inline? The same thing is packaged as a reusable workflow:
+
+```yaml
+jobs:
+  aztrx:
+    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.4.5
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
 
 ---
 

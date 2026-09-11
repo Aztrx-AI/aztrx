@@ -55,6 +55,18 @@ function cleanInline(s: string): string {
   return sanitizeSecrets(s).replace(/`/g, "").replace(/[\r\n]/g, " ");
 }
 
+/** Prose that lands in the comment body — a model-written explanation, an error
+ * string. Escaping the HTML keeps it inside the surrounding `<details>`;
+ * defusing the link/image syntax stops a crafted PR from having the bot render
+ * a tracking pixel or a phishing link under the consumer's token. Secrets are
+ * scrubbed for the same reason every other inlined string is: the model read
+ * the app's own source to write this, so it can quote a key back out. */
+function cleanProse(s: string): string {
+  return escapeHtml(sanitizeSecrets(s))
+    .replace(/!\[/g, "!\\[")
+    .replace(/\]\(/g, "\\]\\(");
+}
+
 /** Hard cap on the server body inlined into a PR comment — a 500 page can be
  * huge, and only the first line or two are ever diagnostic. */
 const SERVER_BODY_CAP = 2000;
@@ -98,12 +110,12 @@ function healBlock(f: Finding): string {
   if (diff) {
     body.push(fence(diff, "diff"));
   } else if (h.explanation) {
-    body.push(`> ${h.explanation}`);
+    body.push(`> ${cleanProse(h.explanation)}`);
   }
   if (h.test?.ran) {
     body.push(`**tests** ${inlineCode(h.test.command)} — ${h.test.ok ? "passed" : "failed"}`);
   }
-  if (h.error) body.push(`\n_${escapeHtml(h.error)}_`);
+  if (h.error) body.push(`\n_${cleanProse(h.error)}_`);
 
   return `\n<details>\n<summary>${badge("heal", meta.text, meta.color)} proposed patch${via}${tiers}</summary>\n\n${body.join("\n")}\n</details>`;
 }

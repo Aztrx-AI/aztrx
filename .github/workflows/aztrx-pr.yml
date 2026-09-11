@@ -1,22 +1,28 @@
 # Aztrx PR check — reusable workflow.
 #
 # This is the "reusable workflow" form of the action: a consumer calls it from
-# their own repo and passes the app URL. Drop this in your repo and call it:
+# their own repo. Drop this in your repo and call it:
 #
 #   # .github/workflows/ci.yml  (in YOUR app repo)
 #   on:
 #     pull_request:
 #   jobs:
 #     aztrx:
-#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@98dbad0f7b6681c7670f7068d01dc0d54813a55f
-#       with:
-#         url: http://localhost:3000
-#         start-command: npm run dev
+#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.4.5
 #       secrets:
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #
+# Nothing else is required: with no `url` the action lets aztrx detect the
+# framework, boot the app, scan it, and shut it down again. Pass `url` (and
+# `start-command` if nothing is listening there) to keep an explicit server.
+#
 # You can also use the composite action directly (see action.yml at the repo
 # root) if you prefer to wire it inline into an existing workflow.
+#
+# Third-party actions in here are pinned to full commit SHAs — a tag can be
+# moved to point at new code, a SHA cannot. Our own action is pinned to a
+# version tag, and tests/action.test.ts keeps that tag in step with
+# package.json.
 
 name: aztrx-pr
 
@@ -24,33 +30,59 @@ on:
   workflow_call:
     inputs:
       url:
-        description: "URL of the running app to stress-test."
-        required: true
+        description: "URL of the running app. Leave empty and aztrx boots the app itself."
+        required: false
         type: string
+        default: ""
       working-directory:
         description: "Directory containing the app."
         required: false
         type: string
         default: "."
       start-command:
-        description: "Command to boot the dev server in the background (optional)."
+        description: "Command to boot the dev server in the background. Only needed with `url`."
         required: false
         type: string
         default: ""
       args:
-        description: "Extra aztrx-cli run flags."
+        description: "Extra aztrx-cli run flags (whitespace-separated; no shell quoting)."
         required: false
         type: string
         default: "--fail-on --repro --heal"
       install:
-        description: "Dependency install command ('false' to skip)."
+        description: "Dependency install command (the literal 'false' to skip)."
         required: false
         type: string
         default: "npm ci"
+      aztrx:
+        description: "Override the command that invokes aztrx-cli, e.g. 'npx --yes aztrx-cli@0.4.4'. Empty runs this workflow's own version."
+        required: false
+        type: string
+        default: ""
+      wait-for:
+        description: "URL to poll until the app responds (defaults to `url`)."
+        required: false
+        type: string
+        default: ""
+      pr-number:
+        description: "PR number to comment on (defaults to the event's pull_request number)."
+        required: false
+        type: string
+        default: ""
     secrets:
       anthropic-api-key:
         description: "Anthropic API key for closed-loop healing (optional)."
         required: false
+    outputs:
+      comment-path:
+        description: "Path to the generated markdown comment."
+        value: ${{ jobs.aztrx.outputs.comment-path }}
+      exit-code:
+        description: "aztrx-cli exit code (0 = clean, 1 = crash/error found)."
+        value: ${{ jobs.aztrx.outputs.exit-code }}
+      verdict:
+        description: "clean | findings | did-not-run."
+        value: ${{ jobs.aztrx.outputs.verdict }}
 
 permissions:
   contents: read
@@ -59,12 +91,21 @@ permissions:
 jobs:
   aztrx:
     runs-on: ubuntu-latest
+    # The default args include --repro and --heal, which drive the app repeatedly
+    # and call a model. Without a ceiling, one hung browser or stalled request
+    # spends the job default (6 hours) with nothing to show for it.
+    timeout-minutes: 30
+    outputs:
+      comment-path: ${{ steps.aztrx.outputs.comment-path }}
+      exit-code: ${{ steps.aztrx.outputs.exit-code }}
+      verdict: ${{ steps.aztrx.outputs.verdict }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run Aztrx AI
-        uses: Aztrx-AI/aztrx@98dbad0f7b6681c7670f7068d01dc0d54813a55f
+        id: aztrx
+        uses: Aztrx-AI/aztrx@v0.4.5
         with:
           url: ${{ inputs.url }}
           token: ${{ github.token }}
@@ -72,4 +113,7 @@ jobs:
           start-command: ${{ inputs.start-command }}
           args: ${{ inputs.args }}
           install: ${{ inputs.install }}
+          aztrx: ${{ inputs.aztrx }}
+          wait-for: ${{ inputs.wait-for }}
+          pr-number: ${{ inputs.pr-number }}
           anthropic-api-key: ${{ secrets.anthropic-api-key }}

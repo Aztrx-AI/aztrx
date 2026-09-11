@@ -10,16 +10,22 @@ branding:
 
 inputs:
   url:
-    description: "URL of the running app to stress-test (e.g. http://localhost:3000)."
-    required: true
+    description: >-
+      URL of the app to stress-test (e.g. http://localhost:3000). Leave empty and
+      aztrx boots the app itself, detects the framework, scans, and shuts the
+      server down again — `start-command` and `wait-for` are then unnecessary.
+    required: false
+    default: ""
   token:
-    description: "GitHub token with `pull-requests: write` scope, used to post the comment."
+    description: "GitHub token with `pull-requests: write` scope, used to post the comment. Forks get a read-only token; the comment is skipped there and the check still reports."
     required: true
   args:
     description: >-
-      Extra aztrx-cli run flags (see `aztrx-cli run --help`). Whitespace-separated;
-      treated as literal argv (never shell-evaluated). A trusted maintainer input —
-      it comes from this repo's committed workflow, not PR code.
+      Extra aztrx-cli run flags (see `aztrx-cli run --help`). Whitespace-separated
+      and handed to the CLI as literal argv. There is no shell quoting: an argument
+      containing a space cannot be expressed here (use `aztrx` with a wrapper script
+      if you need one). A trusted maintainer input — it comes from this repo's
+      committed workflow, not PR code.
     default: "--fail-on --repro --heal"
     required: false
   working-directory:
@@ -28,19 +34,26 @@ inputs:
     required: false
   install:
     description: >-
-      Command to install dependencies. Set 'false' to skip. A trusted maintainer
-      input — it is run as a shell command from this repo's committed workflow.
+      Command to install dependencies. Set the literal string 'false' to skip. A
+      trusted maintainer input — it is run as a shell command from this repo's
+      committed workflow.
     default: "npm ci"
     required: false
   aztrx:
-    description: "Command used to invoke aztrx-cli. Override to pin a version or a git ref."
-    default: "npx --yes aztrx-cli@0.4.3"
+    description: >-
+      Override the command that invokes aztrx-cli (e.g. 'npx --yes aztrx-cli@0.4.4'
+      to pin a version, or 'node ./dist/cli.js' for a local build). Empty — the
+      default — runs the version of this action, so `uses: Aztrx-AI/aztrx@v0.4.5`
+      actually executes 0.4.5 rather than whatever was current when this file was
+      last edited.
+    default: ""
     required: false
   start-command:
     description: >-
-      Command to boot the dev server in the background (e.g. 'npm run dev'). A
-      trusted maintainer input — it is run as a shell command from this repo's
-      committed workflow.
+      Command to boot the dev server in the background (e.g. 'npm run dev'). Only
+      needed when `url` is set and nothing is listening there yet; with `url` empty
+      aztrx boots the app itself. A trusted maintainer input — it is run as a shell
+      command from this repo's committed workflow.
     default: ""
     required: false
   wait-for:
@@ -61,14 +74,17 @@ outputs:
     description: "Path to the generated markdown comment."
     value: ${{ steps.run.outputs.comment_path }}
   exit-code:
-    description: "aztrx-cli exit code (1 = crash/error found)."
+    description: "aztrx-cli exit code (0 = clean, 1 = crash/error found)."
     value: ${{ steps.run.outputs.exit_code }}
+  verdict:
+    description: "clean | findings | did-not-run. `did-not-run` means the scan never produced a result — a red check that is not about your app."
+    value: ${{ steps.run.outputs.verdict }}
 
 runs:
   using: "composite"
   steps:
     - name: Setup Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: 20
 
@@ -76,77 +92,184 @@ runs:
       if: inputs.install != 'false'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: ${{ inputs.install }}
+      env:
+        AZTRX_INSTALL_CMD: ${{ inputs.install }}
+      run: $AZTRX_INSTALL_CMD
 
-    # Pin the browser to the exact Playwright version in aztrx's package.json so
-    # driver and browser never drift apart (a mismatch makes launch() fail).
+    # Pin the browser to the Playwright version aztrx itself depends on, so driver
+    # and browser never drift apart (a mismatch makes launch() fail). The pin is
+    # checked against package.json by tests/action.test.ts — if it goes stale, the
+    # suite fails rather than a user's CI.
     - name: Install Chromium
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: npx --yes playwright@1.62.1 install --with-deps chromium
 
     - name: Start dev server
       if: inputs.start-command != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        AZTRX_START_CMD: ${{ inputs.start-command }}
       run: |
-        nohup ${{ inputs.start-command }} > /tmp/aztrx-dev.log 2>&1 &
-        echo "aztrx_dev_pid=$!" >> "$GITHUB_ENV"
+        nohup $AZTRX_START_CMD > /tmp/aztrx-dev.log 2>&1 &
+        echo "AZTRX_DEV_PID=$!" >> "$GITHUB_ENV"
 
     - name: Wait for app
+      if: inputs.url != '' || inputs.wait-for != ''
       shell: bash
+      env:
+        AZTRX_WAIT_URL: ${{ inputs.wait-for || inputs.url }}
       run: |
-        url="${{ inputs.wait-for || inputs.url }}"
+        # --max-time so a socket that accepts but never answers cannot hang the
+        # step past the intended 120s; -f so a 404/500 is not mistaken for ready.
         for i in $(seq 1 60); do
-          if curl -sS -o /dev/null "$url"; then
-            echo "ready: $url"
+          if curl -sS -f --connect-timeout 3 --max-time 5 -o /dev/null "$AZTRX_WAIT_URL"; then
+            echo "ready: $AZTRX_WAIT_URL"
             exit 0
           fi
           sleep 2
         done
-        echo "::error::app did not become reachable at $url within 120s"
+        echo "::error::app did not become reachable at $AZTRX_WAIT_URL within 120s"
+        # The reason is almost always in the dev server's own output, and without
+        # this the log is discarded and the step says only that nothing answered.
+        if [ -s /tmp/aztrx-dev.log ]; then
+          echo "::group::dev server output (/tmp/aztrx-dev.log)"
+          tail -50 /tmp/aztrx-dev.log
+          echo "::endgroup::"
+        fi
         exit 1
 
+    # Nothing here is interpolated into the script text: every input arrives through
+    # `env` and is read as a quoted shell variable. That matters — `${{ inputs.x }}`
+    # is substituted *before* bash parses the script, so a value containing a quote
+    # would otherwise be able to close the string and run its own commands. This is
+    # also the step holding the API key.
     - name: Run aztrx
       id: run
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        AZTRX_INPUT: ${{ inputs.aztrx }}
+        AZTRX_URL: ${{ inputs.url }}
+        AZTRX_ARGS_IN: ${{ inputs.args }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set +e
-        # Word-split `args` into argv WITHOUT shell-evaluating it — any
-        # metacharacter a consumer smuggles in becomes a literal argument (which
-        # commander rejects) rather than a command.
-        read -r -a AZTRX_ARGS <<< "${{ inputs.args }}"
-        ${{ inputs.aztrx }} run "${{ inputs.url }}" "${AZTRX_ARGS[@]}" --pr-comment .aztrx/pr-comment.md
-        code=$?
+
+        export AZTRX_CMD="$AZTRX_INPUT"
+        if [ -z "$AZTRX_CMD" ]; then
+          # Match the version of this release: a composite action fetched as
+          # `uses: owner/repo@ref` gets its own tree at that ref, so its manifest
+          # names the version the consumer asked for. Correct for tags, branches and
+          # full SHAs alike — `github.action_ref` is none of those things (it is the
+          # ref *as written*, and it is empty inside a composite run: block).
+          ver=""
+          if [ -n "$ACTION_PATH" ]; then
+            # The path goes in as argv, never spliced into the JS source: a quote
+            # in it would otherwise break out of the string, which is the same
+            # defect this step's env: indirection exists to avoid. It also avoids
+            # testing the path with `[ -f ]`, which is unreliable for a
+            # Windows-style path under the MSYS bash on a Windows runner.
+            ver=$(node -e "try{process.stdout.write(require(process.argv[1]+'/package.json').version)}catch(e){}" "$ACTION_PATH" 2>/dev/null)
+          fi
+          # Fallback for a local `uses: ./`, where ACTION_PATH is empty. Kept in
+          # step with package.json by tests/action.test.ts.
+          [ -z "$ver" ] && ver="0.4.5"
+          AZTRX_CMD="npx --yes aztrx-cli@$ver"
+        fi
+
+        read -r -a AZTRX_ARGS <<< "$AZTRX_ARGS_IN"
+
+        # No URL: aztrx detects the framework, boots the app, scans, and tears the
+        # server down itself (the zero-config path). A URL keeps the old behaviour.
+        if [ -n "$AZTRX_URL" ]; then
+          $AZTRX_CMD run "$AZTRX_URL" "${AZTRX_ARGS[@]}" --pr-comment .aztrx/pr-comment.md 2>&1 | tee /tmp/aztrx-run.log
+        else
+          $AZTRX_CMD run "${AZTRX_ARGS[@]}" --pr-comment .aztrx/pr-comment.md 2>&1 | tee /tmp/aztrx-run.log
+        fi
+        code=${PIPESTATUS[0]}
+
+        # Three outcomes, not two. `npx` exits 1 both when the CLI reports a crash
+        # and when the package does not exist (verified: ETARGET on a bad version,
+        # and on an unreachable registry) — so an exit code alone cannot tell "your
+        # app crashed" from "the scanner never started". Reporting the second as the
+        # first accuses the PR of a bug nobody looked for.
+        case "$code" in
+          0) verdict="clean" ;;
+          1) verdict="findings" ;;
+          *) verdict="did-not-run" ;;
+        esac
+
         echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-        echo "comment_path=${{ inputs.working-directory }}/.aztrx/pr-comment.md" >> "$GITHUB_OUTPUT"
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        echo "comment_path=$(pwd)/.aztrx/pr-comment.md" >> "$GITHUB_OUTPUT"
+        # Deliberately 0: the gate below is the single place that fails the check, so
+        # the run reads as one red step with one honest message.
         exit 0
 
+    # Forks get a read-only GITHUB_TOKEN, so this 403s there. It must not take the
+    # job down with it — the gate below still has a verdict to report, and a comment
+    # that could not be posted is not a failing check.
     - name: Post PR comment
+      continue-on-error: true
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ inputs.token }}
+        AZTRX_PR: ${{ inputs.pr-number }}
+        AZTRX_EVENT_PR: ${{ github.event.pull_request.number }}
       run: |
-        pr="${{ inputs.pr-number || github.event.pull_request.number }}"
+        pr="${AZTRX_PR:-$AZTRX_EVENT_PR}"
         if [ -z "$pr" ]; then
           echo "::warning::no PR number resolved; skipping comment"
           exit 0
         fi
-        if [ -f .aztrx/pr-comment.md ]; then
-          gh pr comment "$pr" --body-file .aztrx/pr-comment.md
-        else
+        if [ ! -f .aztrx/pr-comment.md ]; then
           echo "::warning::no comment generated"
+          exit 0
+        fi
+        # `--` so a value that starts with a dash cannot be read as a gh flag.
+        if ! gh pr comment "$pr" --body-file .aztrx/pr-comment.md; then
+          echo "::warning::could not post the PR comment (on a fork pull request the token is read-only, which is expected). The findings are in the run log above."
         fi
 
+    # `if: always()`: if `Run aztrx` died before writing its outputs, the verdict is
+    # empty and this step must still run to say so — a skipped gate would let a PR
+    # pass because the scanner never ran.
     - name: Surface gate
+      if: always()
+      shell: bash
+      env:
+        VERDICT: ${{ steps.run.outputs.verdict }}
+        CODE: ${{ steps.run.outputs.exit_code }}
+      run: |
+        case "$VERDICT" in
+          clean)
+            echo "aztrx clean — no crash/error findings"
+            ;;
+          findings)
+            echo "::error::aztrx detected crash/error findings — failing the check (exit $CODE)"
+            exit 1
+            ;;
+          *)
+            echo "::error::aztrx did not run (exit code: ${CODE:-none}) — the scan never produced a result, so this is not a verdict about your app."
+            if [ -s /tmp/aztrx-run.log ]; then
+              echo "::group::last lines of the aztrx run"
+              tail -30 /tmp/aztrx-run.log
+              echo "::endgroup::"
+            fi
+            exit 1
+            ;;
+        esac
+
+    - name: Stop dev server
+      if: always()
       shell: bash
       run: |
-        code="${{ steps.run.outputs.exit_code }}"
-        if [ "$code" != "0" ]; then
-          echo "aztrx detected crash/error findings — failing the check (exit $code)"
-          exit 1
+        if [ -n "$AZTRX_DEV_PID" ]; then
+          # Children first: a dev server is usually a wrapper around the real one.
+          pkill -P "$AZTRX_DEV_PID" 2>/dev/null || true
+          kill "$AZTRX_DEV_PID" 2>/dev/null || true
         fi
-        echo "aztrx clean — no crash/error findings"
