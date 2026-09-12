@@ -8,7 +8,7 @@
 #     pull_request:
 #   jobs:
 #     aztrx:
-#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.4.5
+#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.0
 #       secrets:
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #
@@ -105,7 +105,7 @@ jobs:
 
       - name: Run Aztrx AI
         id: aztrx
-        uses: Aztrx-AI/aztrx@v0.4.5
+        uses: Aztrx-AI/aztrx@v0.5.0
         with:
           url: ${{ inputs.url }}
           token: ${{ github.token }}

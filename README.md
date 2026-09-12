@@ -366,7 +366,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: Aztrx-AI/aztrx@v0.4.5
+      - uses: Aztrx-AI/aztrx@v0.5.0
         with:
           token: ${{ github.token }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — enables --heal
@@ -389,7 +389,7 @@ CI on every push.
 
 ### What the check tells you
 
-`uses: Aztrx-AI/aztrx@v0.4.5` runs **aztrx-cli 0.4.5** — the action reads its own version, so
+`uses: Aztrx-AI/aztrx@v0.5.0` runs **aztrx-cli 0.5.0** — the action reads its own version, so
 the tag selects the engine, not just the wrapper.
 
 A red check has two different meanings, and the message says which:
@@ -412,7 +412,7 @@ Prefer not to wire it inline? The same thing is packaged as a reusable workflow:
 ```yaml
 jobs:
   aztrx:
-    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.4.5
+    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.0
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
