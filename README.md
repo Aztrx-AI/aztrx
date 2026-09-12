@@ -94,6 +94,7 @@ your test suite before you see it. Aztrx never commits. `--pr` opens a merge-rea
 | `modernize <file>` | rewrite legacy JS/TS into modern idiomatic syntax |
 | `studio` | live dashboard on `localhost:7331` |
 | `hook install` | scan every `git push` — block the ones that crash |
+| `mcp install` | put aztrx inside your editor's agent (Claude Code, Cursor, VS Code) |
 
 Full list: `aztrx-cli run --help`, or the [CLI reference](#cli-reference).
 
@@ -246,6 +247,71 @@ skips silently. Safe, but useless — use npm, pnpm, or Yarn with `nodeLinker: n
 
 ---
 
+## Use aztrx from your editor (MCP)
+
+Your editor's agent can write code but cannot run it. It can compile, lint, and typecheck —
+none of which open a page and click the button. So it will tell you a change works when all
+it knows is that the change *parsed*.
+
+`aztrx mcp` gives the agent the missing step: it drives the app in a real browser and hands
+back the runtime crashes it produced, with an executable repro attached.
+
+```bash
+npx aztrx-cli mcp install
+#   ✓ Claude Code — .mcp.json — added.
+#   ✓ Cursor — .cursor/mcp.json — added.
+#   • VS Code — no .vscode/ in this project
+#
+#   Restart your editor — or reload its window — to pick the server up.
+```
+
+It writes the config for the editors your project actually uses, and only ever adds one key
+to a file it reads first. Your other MCP servers are left alone. If a config will not parse
+it **refuses** rather than overwriting — a missing comma should never cost you your setup —
+and `--force` is the escape hatch, which saves a `.bak` first. `mcp uninstall` removes only
+our entry and keeps the file.
+
+### The three tools
+
+| Tool | What it does | Costs |
+| --- | --- | --- |
+| `aztrx_scan` | Drives the app, reports crashes/errors with source locations. Boots the dev server itself if none is running. | tens of seconds |
+| `aztrx_repro` | The minimized steps and the compiled Playwright spec for one finding. Reads the scan that already ran. | free |
+| `aztrx_fix` | Patch → verify in a git worktree by replaying the repro → optionally write it into your tree. | one model call |
+
+The scan returns a compact projection with a `scanId`; the detail — the action sequence, the
+spec, the diff — is fetched by handle. A stack trace in the agent's context on every scan is
+how a useful tool becomes an expensive one.
+
+`aztrx_fix` needs a key (`ANTHROPIC_API_KEY`, or `AZTRX_API_BASE` + `AZTRX_API_KEY` +
+`AZTRX_MODEL` for any other provider). Without one it returns `no-llm` and attempts nothing.
+Scanning and proving never need a key. Aztrx never commits: `apply: true` writes working-tree
+files, and `git diff` is the review.
+
+### What it will not do
+
+- **No `--allow-destructive`, `--fuzz`, or `--http-fuzz` over MCP.** The tool drives a real
+  browser against an app you are working in. An agent should not be able to reach for
+  data-mutating controls because a prompt suggested it. If you want the fuzzer, that is a
+  deliberate `aztrx-cli run` in a terminal.
+- **A scan that could not run is an error, never "no findings."** If the app would not boot
+  or the browser could not reach it, the tool returns `isError` with the reason — it does not
+  return an empty list. An agent that reads `0 crashes` from a scan that never happened will
+  tell you the code is fine.
+
+### Protocol support
+
+MCP changed shape in its `2026-07-28` revision: the `initialize` handshake is gone, replaced
+by per-request metadata. Editors are split across that line — Claude Code speaks the new
+revision, and Cursor still speaks `2025-11-25`.
+
+`aztrx mcp` speaks **both** and picks per request, which is why it works in both editors
+today and will keep working as the others move. It is ~300 lines with zero new dependencies;
+neither official SDK covers both revisions, and the legacy one pulls seventeen runtime
+dependencies (express, cors, jose, ajv…) for a stdio server that needs none of them.
+
+---
+
 ## Autonomous patrol
 
 `aztrx patrol` is the looped version of `run --fix`: point it at a running app and it
@@ -358,6 +424,19 @@ jobs:
 `aztrx-cli run --help` is grouped by intent (Detect / Prove / Fix / Report & ship / Auth);
 the table below is the complete reference — including flags hidden from `--help` (aliases and
 niche tuning knobs).
+
+The commands that are not `run`:
+
+| Command | What it does |
+| --- | --- |
+| `mcp` | Serve the [MCP server](#use-aztrx-from-your-editor-mcp) on stdio (this is what an editor's config runs) |
+| `mcp install [--force]` | Add aztrx to `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`, merging one key |
+| `mcp uninstall` | Remove only that key |
+| `init` | Scaffold `aztrx.config.ts` |
+| `hook install \| uninstall \| run` | The [pre-push hook](#scan-before-you-push-git-hook) |
+| `patrol [url]` | Autonomous scan → fix → PR loop |
+| `modernize <file>` | Rewrite a legacy file with an LLM |
+| `studio [--port n]` | Live dashboard (`7331`) |
 
 | Flag | Description | Default |
 | --- | --- | --- |

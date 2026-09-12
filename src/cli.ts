@@ -224,6 +224,62 @@ program
   });
 
 program
+  .command("mcp")
+  .description("serve aztrx to your editor's agent over MCP (stdio), or wire an editor up to it")
+  .argument("[action]", "install | uninstall — omit to serve on stdio")
+  .option("--force", "with `install`: replace a config file that will not parse (a .bak is saved first)")
+  .action(async (action: string | undefined, opts: { force?: boolean }) => {
+    const repoRoot = path.resolve(program.opts().repo as string);
+
+    // No action means serve, because that is what an editor's config runs and it
+    // must be the shortest thing to type. From here stdout is the protocol
+    // channel: the server reroutes `console.log` to stderr itself, but anything
+    // printed *in this branch* would land before that guard exists.
+    if (action === undefined) {
+      const { startServer } = await import("./mcp/index.js");
+      await startServer({ repoRoot });
+      return;
+    }
+
+    if (action !== "install" && action !== "uninstall") {
+      console.error(
+        pc.red(`unknown action: ${action}`) + " — expected install, uninstall, or no action to serve"
+      );
+      process.exit(1);
+    }
+
+    const { installMcp, uninstallMcp } = await import("./mcp/install.js");
+    const { VERSION } = await import("./core/version.js");
+    const res = action === "install" ? installMcp(repoRoot, VERSION, opts.force) : uninstallMcp(repoRoot);
+
+    let refused = false;
+    for (const o of res.outcomes) {
+      const line = `${pc.bold(o.target.label)} — ${o.message}`;
+      if (o.status === "refused") {
+        refused = true;
+        console.error(pc.red("✗") + ` ${line}`);
+      } else if (o.status === "written") {
+        console.log(pc.green("✓") + ` ${line}`);
+      } else {
+        // skipped and unchanged are both "nothing to do", not failures.
+        console.log(pc.dim(`• ${line}`));
+      }
+    }
+
+    // A refused config is the one outcome the user must act on — it is the only
+    // reason to fail the command. A project with no editor we recognise is not an
+    // error, it is a project that does not use one.
+    if (refused) process.exit(1);
+
+    if (action === "install" && !res.nothingDone) {
+      console.log("");
+      console.log(pc.dim("  Restart your editor — or reload its window — to pick the server up."));
+      console.log(pc.dim("  Scanning and proving a crash need no key. Fixing one does:"));
+      console.log(pc.dim("  set ANTHROPIC_API_KEY, or AZTRX_API_BASE + AZTRX_API_KEY + AZTRX_MODEL."));
+    }
+  });
+
+program
   .command("studio")
   .description("start the live studio dashboard on localhost:7331")
   .option("--port <n>", "port to listen on", "7331")
