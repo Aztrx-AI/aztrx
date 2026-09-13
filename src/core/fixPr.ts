@@ -14,6 +14,10 @@ export interface FixPrResult {
  * Turn applied, verified fixes into a merge-ready PR: create a branch, commit,
  * and open a PR via the `gh` CLI with the repro evidence in the body. Mirrors
  * the "merge-ready PR" flow but for runtime crashes, not security vulns.
+ *
+ * Only the files the patches touched are staged. `git add -A` would commit the
+ * user's unrelated uncommitted work into an auto-generated commit and push it —
+ * the one thing an automated fixer must never do to someone's repo.
  */
 export async function openFixPr(
   repoRoot: string,
@@ -46,9 +50,16 @@ export async function openFixPr(
     "Each fix was gated (AST safety), compiled, run against the test suite, and replayed against the repro in an isolated worktree before this PR.",
   ].join("\n");
 
+  // The authoritative path of what was written is `heal.filePath` — the same
+  // field `applyVerifiedPatches` resolves and writes through.
+  const files = [...new Set(healed.map((f) => f.heal?.filePath).filter((p): p is string => !!p))];
+  if (files.length === 0) {
+    return { ok: false, error: "no staged files recorded for the verified fixes" };
+  }
+
   try {
     await exec("git", ["-C", repoRoot, "checkout", "-b", branch]);
-    await exec("git", ["-C", repoRoot, "add", "-A"]);
+    await exec("git", ["-C", repoRoot, "add", "--", ...files]);
     await exec("git", ["-C", repoRoot, "commit", "-m", title]);
   } catch (e) {
     return { ok: false, error: `git failed: ${(e as Error).message}` };

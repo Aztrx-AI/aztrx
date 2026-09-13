@@ -168,17 +168,22 @@ async function createPr(
   body: string,
   files: string[]
 ): Promise<PatrolPrResult> {
+  // Nothing to stage means no patch landed, so there is no fix to open a PR for.
+  // This used to fall back to `git add -A`, which would have swept the user's
+  // unrelated uncommitted work into an auto-generated commit under a "fix: …"
+  // title and pushed it. Refuse instead — and refuse before touching git, so a
+  // branch is never created for an empty fix set.
+  if (files.length === 0) {
+    return { ok: false, branch, error: "no files to stage — refusing to commit an empty fix set" };
+  }
+
   const originalBranch = await currentBranch(repoRoot);
 
   try {
     // `-B` (re)creates the branch at HEAD — idempotent against a stale local
     // branch left over from a previously failed PR attempt.
     await exec("git", ["-C", repoRoot, "checkout", "-B", branch]);
-    if (files.length) {
-      await exec("git", ["-C", repoRoot, "add", "--", ...files]);
-    } else {
-      await exec("git", ["-C", repoRoot, "add", "-A"]);
-    }
+    await exec("git", ["-C", repoRoot, "add", "--", ...files]);
     await exec("git", ["-C", repoRoot, "commit", "-m", title]);
   } catch (e) {
     await safeCheckout(repoRoot, originalBranch);

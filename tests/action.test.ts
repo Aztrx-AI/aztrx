@@ -282,13 +282,17 @@ test(
       assert.equal(found.stdout.trim(), "9.9.9", "must take the version from the action's own tree");
 
       // A local `uses: ./` has no action path, and the fallback has to hold.
-      assert.equal(sh(snippet, { ACTION_PATH: "" }).stdout.trim(), "0.5.0", "must fall back when ACTION_PATH is empty");
+      // Asserted against VERSION, not a literal: this test exists to catch the
+      // fallback drifting from package.json, so a hardcoded number here would
+      // fail on every legitimate release — training the reader to bump it
+      // blindly, which is exactly how the drift it guards against gets through.
+      assert.equal(sh(snippet, { ACTION_PATH: "" }).stdout.trim(), VERSION, "must fall back when ACTION_PATH is empty");
 
       // A path that exists but has no manifest must fall back too, not emit
       // "undefined" — which would become an npx request for aztrx-cli@undefined.
       const bare = fs.mkdtempSync(path.join(os.tmpdir(), "aztrx-actionpath-"));
       try {
-        assert.equal(sh(snippet, { ACTION_PATH: bare }).stdout.trim(), "0.5.0");
+        assert.equal(sh(snippet, { ACTION_PATH: bare }).stdout.trim(), VERSION);
       } finally {
         fs.rmSync(bare, { recursive: true, force: true });
       }
