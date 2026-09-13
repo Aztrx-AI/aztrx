@@ -7,6 +7,7 @@
  */
 
 import * as fs from "fs";
+import pc from "picocolors";
 import type { Finding } from "../types.js";
 import { detectFrameworkMeta } from "../init.js";
 import { createSanitizer } from "../telemetry/sanitize.js";
@@ -14,13 +15,23 @@ import { createSanitizer } from "../telemetry/sanitize.js";
 const DEFAULT_CLOUD_URL = process.env.AZTRX_CLOUD_URL || "https://api.aztrx.app";
 const UPLOAD_TIMEOUT_MS = 2000;
 
+/** One dim line on stderr. These uploads are fire-and-forget by design, so this
+ * is the only place a failure can surface — and it has to, or an operator who
+ * asked for an upload cannot tell a success from a silent 401. */
+function warn(msg: string): void {
+  process.stderr.write(pc.dim(`aztrx: ${msg}\n`));
+}
+
 /** In-flight uploads, drained by `flushCloud()` before the CLI exits. */
 const pendingUploads: Promise<void>[] = [];
 
 export interface CloudOptions {
   repoRoot: string;
   url: string;
-  /** API key presented as `x-api-key` (falls back to `AZTRX_API_KEY`). */
+  /** API key presented as `x-api-key` (falls back to `AZTRX_CLOUD_API_KEY`).
+   *  Deliberately not `AZTRX_API_KEY`: that one is a *model provider*
+   *  credential (`llm.ts:29,35`), and reusing it here would put an OpenRouter or
+   *  Anthropic key on the wire as an auth header to the ingest host. */
   apiKey?: string;
   /** Ingest base URL, e.g. `https://api.aztrx.app` (falls back to `AZTRX_CLOUD_URL`). */
   endpoint?: string;
@@ -117,7 +128,8 @@ function buildPayload(findings: Finding[], opts: CloudOptions): RunPayload {
   };
 }
 
-/** Fire-and-forget upload. Never rejects; bounded by a short abort. */
+/** Fire-and-forget upload. Never rejects; bounded by a short abort. Failures are
+ * reported on stderr rather than discarded — silence here reads as success. */
 export function dispatchUpload(payload: RunPayload, endpoint: string, apiKey?: string): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
@@ -129,8 +141,20 @@ export function dispatchUpload(payload: RunPayload, endpoint: string, apiKey?: s
     body: JSON.stringify(payload),
     signal: ctrl.signal,
   })
-    .then(() => {})
-    .catch(() => {})
+    .then((res) => {
+      // `fetch` resolves on 4xx/5xx too — only the status separates them, so a
+      // bare `.then()` here reports a rejected upload as a clean one.
+      if (!res.ok) warn(`run upload rejected — HTTP ${res.status} from ${endpoint}`);
+    })
+    .catch((e: unknown) => {
+      const why =
+        e instanceof Error && e.name === "AbortError"
+          ? `no response within ${UPLOAD_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      warn(`run upload failed — ${why}`);
+    })
     .finally(() => clearTimeout(timer));
 }
 
@@ -138,7 +162,7 @@ export function dispatchUpload(payload: RunPayload, endpoint: string, apiKey?: s
  * findings) still uploads — the dashboard tracks green runs too. */
 export function submitRun(findings: Finding[], opts: CloudOptions): void {
   const endpoint = opts.endpoint ?? DEFAULT_CLOUD_URL;
-  const apiKey = opts.apiKey ?? process.env.AZTRX_API_KEY;
+  const apiKey = opts.apiKey ?? process.env.AZTRX_CLOUD_API_KEY;
   const payload = buildPayload(findings, opts);
   pendingUploads.push(dispatchUpload(payload, endpoint, apiKey));
 }

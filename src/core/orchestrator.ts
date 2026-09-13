@@ -85,7 +85,7 @@ export interface RunOptions {
   telemetryUrl?: string;
   /** F12: upload the run's findings to the Aztrx AI cloud dashboard (opt-in). */
   upload?: boolean;
-  /** API key for cloud + telemetry uploads (`AZTRX_API_KEY`). */
+  /** API key for cloud + telemetry uploads (`AZTRX_CLOUD_API_KEY`). */
   apiKey?: string;
   /** Override the cloud ingest base URL (`AZTRX_CLOUD_URL`). */
   cloudUrl?: string;
@@ -458,7 +458,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   // F12 — opt-in cloud sync. Streams the sanitized run results to the ingest
   // API for the team dashboard; dedup happens server-side by fingerprint.
   if (options.upload) {
-    if (options.apiKey || process.env.AZTRX_API_KEY) {
+    // `AZTRX_CLOUD_API_KEY`, not `AZTRX_API_KEY`: the latter is a model provider
+    // credential, and treating its presence as consent to upload would put that
+    // key on the wire as the ingest auth header.
+    if (options.apiKey || process.env.AZTRX_CLOUD_API_KEY) {
       submitRun(findings, {
         repoRoot,
         url,
@@ -468,7 +471,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
         counts,
       });
     } else {
-      say(pc.yellow("Upload skipped: no API key. Set --api-key or AZTRX_API_KEY to stream findings to the dashboard."));
+      say(pc.yellow("Upload skipped: no API key. Set --api-key or AZTRX_CLOUD_API_KEY to stream findings to the dashboard."));
     }
   }
 

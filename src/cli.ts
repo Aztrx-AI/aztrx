@@ -354,7 +354,7 @@ program
   .addOption(opt("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)", "advanced"))
   .addOption(opt("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint", "advanced"))
   .addOption(opt("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)", "advanced"))
-  .addOption(opt("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_API_KEY)", "advanced"))
+  .addOption(opt("--api-key <key>", "API key for --upload / --share-data (defaults to $AZTRX_CLOUD_API_KEY — a separate key from the model provider's $AZTRX_API_KEY)", "advanced"))
   .addOption(opt("--cloud-url <url>", "override the cloud ingest base URL (default https://api.aztrx.app)", "advanced"))
   .addOption(opt("--allow-host <host>", "add a host to the network allow-list (repeatable)", "advanced").argParser(collect).default([]))
   .addOption(opt("--storage-state <path>", "path to a Playwright storage-state JSON (cookies/localStorage) for authenticated pages", "auth"))

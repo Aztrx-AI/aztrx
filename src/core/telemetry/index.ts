@@ -12,6 +12,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import pc from "picocolors";
 import type { Finding } from "../types.js";
 import { detectFrameworkMeta } from "../init.js";
 import { createSanitizer } from "./sanitize.js";
@@ -20,6 +21,11 @@ import type { FrameworkMetadata, TelemetryEnvelope, TelemetryTuple } from "./typ
 const DEFAULT_ENDPOINT =
   process.env.AZTRX_TELEMETRY_URL || "https://api.aztrx.app/api/telemetry";
 const UPLOAD_TIMEOUT_MS = 2000;
+
+/** One dim line on stderr — the only place a detached upload can report. */
+function warn(msg: string): void {
+  process.stderr.write(pc.dim(`aztrx: ${msg}\n`));
+}
 
 /** In-flight uploads, drained by `flushTelemetry()` before the CLI exits. */
 const pendingUploads: Promise<void>[] = [];
@@ -30,7 +36,9 @@ export interface SubmitOptions {
   telemetry: boolean;
   shareData: boolean;
   endpoint?: string;
-  /** API key presented as `x-api-key` (falls back to `AZTRX_API_KEY`). */
+  /** API key presented as `x-api-key` (falls back to `AZTRX_CLOUD_API_KEY`).
+   *  Deliberately not `AZTRX_API_KEY` — that one is a model provider credential
+   *  (`llm.ts:29,35`) and must never travel as an upload auth header. */
   apiKey?: string;
 }
 
@@ -78,7 +86,8 @@ function persistDataset(repoRoot: string, tuples: TelemetryTuple[]): string | nu
   return file;
 }
 
-/** Fire-and-forget upload. Never rejects; bounded by a short abort. */
+/** Fire-and-forget upload. Never rejects; bounded by a short abort. Failures are
+ * reported on stderr rather than discarded — silence here reads as success. */
 export function dispatchTelemetry(
   envelope: TelemetryEnvelope,
   endpoint: string,
@@ -94,8 +103,20 @@ export function dispatchTelemetry(
     body: JSON.stringify(envelope),
     signal: ctrl.signal,
   })
-    .then(() => {})
-    .catch(() => {})
+    .then((res) => {
+      // `fetch` resolves on 4xx/5xx too — without this check a rejected upload
+      // is indistinguishable from a delivered one.
+      if (!res.ok) warn(`telemetry upload rejected — HTTP ${res.status} from ${endpoint}`);
+    })
+    .catch((e: unknown) => {
+      const why =
+        e instanceof Error && e.name === "AbortError"
+          ? `no response within ${UPLOAD_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      warn(`telemetry upload failed — ${why}`);
+    })
     .finally(() => clearTimeout(timer));
 }
 
@@ -116,7 +137,7 @@ export function submitTelemetry(findings: Finding[], opts: SubmitOptions): void 
       sentAt: new Date().toISOString(),
       tuples,
     };
-    const apiKey = opts.apiKey ?? process.env.AZTRX_API_KEY;
+    const apiKey = opts.apiKey ?? process.env.AZTRX_CLOUD_API_KEY;
     pendingUploads.push(dispatchTelemetry(envelope, opts.endpoint ?? DEFAULT_ENDPOINT, apiKey));
   }
 }
