@@ -24,7 +24,7 @@
     "media"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "keywords": [
     "testing",
@@ -46,7 +46,7 @@
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
     "pretest": "npm run build",
-    "test": "tsx --test \"tests/**/*.test.ts\"",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",
     "server": "tsx server/index.ts",
     "server:typecheck": "tsc -p server/tsconfig.json",

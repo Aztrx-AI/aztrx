@@ -2,7 +2,7 @@
 
 > **Catch the runtime crash your Error Boundary hid — and prove it with a test, not a log line.**
 
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg?style=flat-square)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-green.svg?style=flat-square)](https://nodejs.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 
 Aztrx AI finds **runtime** bugs, not security holes. It drives your web app like a hostile

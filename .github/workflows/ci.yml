@@ -2,11 +2,20 @@ name: CI
 
 # The repo's own gate. `aztrx-pr.yml` next to this file is a *template consumers
 # call* (`on: workflow_call` only) — it never runs here, so before this file the
-# 147-test suite only ran when a human typed `npm test`, and nothing stopped the
+# 159-test suite only ran when a human typed `npm test`, and nothing stopped the
 # engine from regressing.
 #
-# Node 20 deliberately matches `action.yml`'s `node-version`: the version this
-# product ships to consumers is the one worth protecting.
+# The matrix exists to check the version claim rather than assert it. Two things
+# had drifted apart before this file: `package.json` declared `engines.node >=18`,
+# but the Playwright this package depends on declares `>=20`, so the floor was
+# never 18. And `npm test` used a quoted `tests/**` glob, which only expands on
+# the Node versions that support globs in `--test` — the run died on 20 with
+# "Could not find '.../tests/**/*.test.ts'". Both are now fixed, and 20/22/24 is
+# what actually proves it.
+#
+# Node 20 is included deliberately even though it is past EOL: it is what
+# `action.yml` pins, so it is the version this product ships to consumers and the
+# one most worth protecting.
 
 on:
   push:
@@ -26,12 +35,18 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      # A failure on one version must not hide the result on the others — knowing
+      # *which* versions pass is the whole point of the matrix.
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - run: npm ci
