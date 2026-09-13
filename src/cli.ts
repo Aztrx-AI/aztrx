@@ -5,6 +5,7 @@ import * as os from "os";
 import pc from "picocolors";
 import { program } from "commander";
 import { opt, formatHelp } from "./cli/help.js";
+import { resolveRepoRoot } from "./cli/repo.js";
 import type { RunOptions } from "./core/orchestrator.js";
 import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
@@ -166,7 +167,7 @@ program
   .option("--framework <name>", "framework override (auto-detected if omitted)")
   .action(async (opts: { url?: string; framework?: string }) => {
     const res = await initProject({
-      repoRoot: path.resolve(program.opts().repo as string),
+      repoRoot: resolveRepoRoot(program.opts().repo as string),
       url: opts.url,
       framework: opts.framework,
     });
@@ -184,7 +185,7 @@ program
   .option("--force", "overwrite a pre-push hook that Aztrx did not write")
   .option("--always", "with `run`: scan even when no app code changed")
   .action(async (action: string, name: string | undefined, opts: { force?: boolean; always?: boolean }) => {
-    const repoRoot = path.resolve(program.opts().repo as string);
+    const repoRoot = resolveRepoRoot(program.opts().repo as string);
     const hookName = name ?? "pre-push";
     if (hookName !== "pre-push") {
       console.error(pc.red(`unsupported hook: ${hookName}`) + " (only `pre-push` is wired up)");
@@ -233,7 +234,7 @@ program
   .argument("[action]", "install | uninstall — omit to serve on stdio")
   .option("--force", "with `install`: replace a config file that will not parse (a .bak is saved first)")
   .action(async (action: string | undefined, opts: { force?: boolean }) => {
-    const repoRoot = path.resolve(program.opts().repo as string);
+    const repoRoot = resolveRepoRoot(program.opts().repo as string);
 
     // No action means serve, because that is what an editor's config runs and it
     // must be the shortest thing to type. From here stdout is the protocol
@@ -289,7 +290,7 @@ program
   .option("--port <n>", "port to listen on", "7331")
   .action(async (opts: { port: string }) => {
     const { startStudio } = await import("./core/studio.js");
-    startStudio({ repoRoot: path.resolve(program.opts().repo as string), port: parseInt(opts.port, 10) });
+    startStudio({ repoRoot: resolveRepoRoot(program.opts().repo as string), port: parseInt(opts.port, 10) });
   });
 
 program
@@ -298,7 +299,7 @@ program
   .argument("<file>", "path to the file to modernize")
   .option("-y, --yes", "apply without prompting")
   .action(async (file: string, opts: { yes?: boolean }) => {
-    const repoRoot = path.resolve(program.opts().repo as string);
+    const repoRoot = resolveRepoRoot(program.opts().repo as string);
     const rel = path.relative(repoRoot, path.resolve(file));
     const [{ modernizeFile }, { promptYesNo }] = await Promise.all([
       import("./core/modernize.js"),
@@ -377,7 +378,7 @@ program
     ) => {
       // `--fix` is the memorable verb; `--magic-fix` is a hidden alias.
       const magicFix = opts.magicFix || opts.fix;
-      const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      const repoRoot = resolveRepoRoot(opts.repo ?? (program.opts().repo as string));
       // Defaults the scaffolded aztrx.config.ts supplies, read here (lazily, like
       // the target resolver) because only this command knows the repo root.
       const { configAllowHosts, configMaxActions } = await import("./core/devServer.js");
@@ -676,7 +677,7 @@ program
         boot?: boolean;
       }
     ) => {
-      const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      const repoRoot = resolveRepoRoot(opts.repo ?? (program.opts().repo as string));
       const { configAllowHosts, configMaxActions } = await import("./core/devServer.js");
       let booted: (() => Promise<void>) | undefined;
       let targetUrl = url;

@@ -478,7 +478,7 @@ The commands that are not `run`:
 | `--regression-test [dir]` | Copy validated repro specs into the project test dir | first of `e2e/`, `tests/`, `test/`, `__tests__/`; else `.aztrx/regression/` |
 | `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
-| `--repo <path>` | Root path for sourcemap → source resolution | cwd |
+| `--repo <path>` | Root path for sourcemap → source resolution — must already exist (a path that does not is refused, not created) | cwd |
 | `--allow-host <host>` | Add a host to the network allow-list (repeatable) | — |
 | `--storage-state <path>` | Playwright storage-state for authenticated pages | — |
 | `--auth <path>` | Hidden alias for `--storage-state` | — |
