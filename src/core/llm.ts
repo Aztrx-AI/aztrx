@@ -63,14 +63,6 @@ export interface CompleteOptions {
   temperature?: number;
 }
 
-/** Human-readable description of the active provider + model, e.g. `grok-2 via https://api.x.ai/v1`. */
-export function describeLlm(model?: string): string {
-  const s = resolveSettings();
-  const m = model || primaryModel();
-  if (s.provider === "anthropic") return `${m} (Anthropic)`;
-  return `${m} via ${s.baseUrl}`;
-}
-
 // Announce the resolved model once per distinct (provider, model), so the two-tier
 // router shows each tier as it's tried without spamming. Written to stderr so it never
 // corrupts the Ink TUI (which renders on stdout).

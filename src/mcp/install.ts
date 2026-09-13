@@ -264,10 +264,3 @@ export function uninstallMcp(repoRoot: string): InstallSummary {
     nothingDone: outcomes.every((o) => o.status === "skipped" || o.status === "refused"),
   };
 }
-
-/** Does a target's config file exist at all? Used by the CLI to decide whether a
- * refusal is worth a non-zero exit — a project with none of these files is not an
- * error, it is a project that does not use an editor we know about. */
-export function targetExists(repoRoot: string, target: EditorTarget): boolean {
-  return fs.existsSync(path.join(repoRoot, target.file));
-}

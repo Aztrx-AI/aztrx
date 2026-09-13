@@ -1,4 +1,4 @@
-import type { ElementHandle, Page } from "playwright";
+import type { ElementHandle } from "playwright";
 import type { RecordedAction } from "./types.js";
 
 type AnyElement = SVGElement | HTMLElement;
@@ -29,7 +29,7 @@ export class ActionRecorder {
  * mid-query or the browser rejects a serialized function. A failed probe just
  * degrades to the next (weaker) selector in the cascade.
  */
-export async function selectorCascade(page: Page, handle: ElementHandle<AnyElement>): Promise<string[]> {
+export async function selectorCascade(handle: ElementHandle<AnyElement>): Promise<string[]> {
   const out: string[] = [];
 
   try {

@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { FindingUpload, RunUpload, StoredFinding, TelemetryTupleUpload } from "./types.js";
+import type { RunUpload, StoredFinding, TelemetryTupleUpload } from "./types.js";
 
 /** Sanitize a path segment so org slugs and fingerprints can't traverse the
  * data dir or inject separators. */

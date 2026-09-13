@@ -9,10 +9,6 @@ export interface StudioOptions {
   port?: number;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
 function send(res: http.ServerResponse, status: number, contentType: string, body: string): void {
   res.writeHead(status, { "Content-Type": contentType });
   res.end(body);

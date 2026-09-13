@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
-import type { Finding, FindingType, Severity, TelemetryErrorPayload } from "./types.js";
+import type { Finding, Severity, TelemetryErrorPayload } from "./types.js";
 
 // Unambiguous framework files. NOTE: `/_next/static/chunks/` is NOT here —
 // in Next.js dev, user code is served from there too, so URL path alone can't

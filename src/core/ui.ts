@@ -1,4 +1,4 @@
-import type { ReproVerdict, Severity } from "./types.js";
+import type { Severity } from "./types.js";
 
 // The single "crash seismograph" identity — shared by the HTML report, Local
 // Studio, and (later) the cloud dashboard so they can't drift apart. Tokens
@@ -23,12 +23,6 @@ export const SEVERITY_COLOR: Record<Severity, string> = {
   error: PALETTE.red,
   warning: PALETTE.amber,
   noise: PALETTE.dim,
-};
-
-export const REPRO_COLOR: Record<ReproVerdict, string> = {
-  deterministic: PALETTE.green,
-  flaky: PALETTE.amber,
-  unreliable: PALETTE.red,
 };
 
 export const BASE_CSS = `

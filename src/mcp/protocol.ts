@@ -34,8 +34,6 @@ export const LATEST_VERSION: string = SUPPORTED_VERSIONS[SUPPORTED_VERSIONS.leng
 
 /** `_meta` keys, per the `_meta` naming rules in the 2026-07-28 base spec. */
 export const META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
-export const META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo";
-export const META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
 export const META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
 
 export const PARSE_ERROR = -32700;
@@ -109,10 +107,6 @@ export function decode(line: string): Decoded {
 /** A request expects exactly one response; a notification expects none, and
  * answering one is a protocol violation. `id` is what separates them — a
  * notification simply has no `id` member. */
-export function isRequest(msg: RpcMessage): boolean {
-  return typeof msg.method === "string" && msg.id !== undefined && msg.id !== null;
-}
-
 export function isNotification(msg: RpcMessage): boolean {
   return typeof msg.method === "string" && (msg.id === undefined || msg.id === null);
 }

@@ -30,7 +30,7 @@ export interface ParseGateResult {
 }
 
 /** Syntax gate: does the output still parse? In-process (no tsc subprocess). */
-export function parseGate(source: string, lang: Lang): ParseGateResult {
+export function parseGate(source: string): ParseGateResult {
   const result = ts.transpileModule(source, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
@@ -134,7 +134,7 @@ export async function modernizeFile(repoRoot: string, filePath: string): Promise
     return { ok: false, original, changes: [], lang, error: "model returned an empty file" };
   }
 
-  const gate = parseGate(parsed.modernized, lang);
+  const gate = parseGate(parsed.modernized);
   if (!gate.ok) {
     return {
       ok: false,

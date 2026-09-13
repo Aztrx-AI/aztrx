@@ -13,13 +13,6 @@ import { sanitizeSecrets } from "./heal/redact.js";
 
 const SEV_ORDER = ["crash", "error", "warning", "noise"] as const;
 
-const SEV_BADGE: Record<string, string> = {
-  crash: "ff5a5f",
-  error: "ff5a5f",
-  warning: "f5a623",
-  noise: "5b6573",
-};
-
 /** Shields.io badge-path escaping: literal `-` → `--`, `/` → `%2F`, space → `_`. */
 function shield(s: string): string {
   return s.replace(/-/g, "--").replace(/\//g, "%2F").replace(/ /g, "_");
@@ -154,8 +147,7 @@ function findingBlock(f: Finding): string {
   return `<details open>\n<summary><code>${escapeHtml(sev)}</code> — ${escapeHtml(first)}</summary>\n${loc}${snippet}${serverErr}${reproBlock(f)}${healBlock(f)}\n</details>`;
 }
 
-export function renderPrComment(targetUrl: string, findings: Finding[], opts: { repoRoot?: string } = {}): string {
-  void opts;
+export function renderPrComment(targetUrl: string, findings: Finding[]): string {
   const sorted = [...findings].sort(
     (a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity)
   );
@@ -205,6 +197,6 @@ export function writePrComment(
 ): string {
   const file = filePath ?? path.join(repoRoot, ".aztrx", "pr-comment.md");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, renderPrComment(targetUrl, findings, { repoRoot }), "utf-8");
+  fs.writeFileSync(file, renderPrComment(targetUrl, findings), "utf-8");
   return file;
 }

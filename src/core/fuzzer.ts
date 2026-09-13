@@ -175,7 +175,7 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
     const known = actionable.filter((a) => a.label && interesting.has(a.label));
     const chosen = known.length > 0 && rnd() < 0.5 ? pick(rnd, known) : pick(rnd, actionable);
     const { handle, tag, label } = chosen;
-    const selectors = await selectorCascade(page, handle);
+    const selectors = await selectorCascade(handle);
     const roll = rnd();
     let didAct = true;
 

@@ -8,7 +8,7 @@
  */
 
 import { redact } from "./redact.js";
-import { complete, primaryModel, fastModel, hasLlmKey } from "../llm.js";
+import { complete, primaryModel, fastModel } from "../llm.js";
 import type { HealContext, Patch, PatchHunk, SpendBudget } from "./types.js";
 
 export interface ModelTier {

@@ -112,7 +112,7 @@ export async function walkDom(
         if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
       }
 
-      const selectors = await selectorCascade(page, handle);
+      const selectors = await selectorCascade(handle);
       const signature = selectors.join("|") || `${tag}:${label}`;
       if (seen.has(signature)) continue; // already acted on this element
       seen.add(signature);
