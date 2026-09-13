@@ -29,6 +29,44 @@ export interface ApplyResult {
 
 const preview = (s: string): string => JSON.stringify(s.length > 60 ? s.slice(0, 57) + "…" : s);
 
+/**
+ * Remove directory links (POSIX symlinks / Windows junctions) from a worktree root.
+ *
+ * This MUST run before `git worktree remove`. Git's worktree teardown recurses
+ * *through* a junction and deletes its target, so the `node_modules` link that
+ * boot/verify create inside the worktree (below) turns an ordinary cleanup into a
+ * recursive delete of the user's real node_modules. Established by experiment,
+ * not by reading docs: a sentinel file inside the junction target did not survive
+ * `git worktree remove --force`. Node's own recursive `fs.rmSync` handles reparse
+ * points correctly and is safe either way; git's does not.
+ */
+function unlinkDirLinks(dir: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const p = path.join(dir, entry.name);
+    try {
+      if (!fs.lstatSync(p).isSymbolicLink()) continue;
+    } catch {
+      continue;
+    }
+    // `unlink` covers POSIX dir symlinks; Windows junctions need `rmdir`.
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      try {
+        fs.rmdirSync(p);
+      } catch {
+        /* best effort — a link that survives is still not followed by the rmSync below */
+      }
+    }
+  }
+}
+
 /** Create a detached worktree at HEAD in a temp dir (outside the repo). */
 export async function createWorktree(repoRoot: string, label: string): Promise<Worktree> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `aztrx-heal-${label}-`));
@@ -36,6 +74,7 @@ export async function createWorktree(repoRoot: string, label: string): Promise<W
   return {
     dir,
     cleanup: async () => {
+      unlinkDirLinks(dir);
       await execFileP("git", ["-C", repoRoot, "worktree", "remove", "--force", dir]).catch(() => {});
       fs.rmSync(dir, { recursive: true, force: true });
     },

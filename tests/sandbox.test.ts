@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { applyHunks, typecheckWorktree } from "../src/core/heal/sandbox.js";
+import { applyHunks, createWorktree, typecheckWorktree } from "../src/core/heal/sandbox.js";
 
 test("applyHunks applies a single exact-match hunk", () => {
   const r = applyHunks("const total = price * 2;", [
@@ -112,5 +113,62 @@ test("typecheckWorktree skips when the project has no tsconfig", async () => {
     assert.equal(r.ran, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function git(args: string[], cwd: string): void {
+  spawnSync("git", args, { cwd, encoding: "utf-8" });
+}
+
+/** A real repo with one commit, because `createWorktree` detaches from HEAD. */
+function committedRepo(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aztrx-wt-link-"));
+  git(["init", "-q"], dir);
+  git(["config", "user.email", "test@example.com"], dir);
+  git(["config", "user.name", "test"], dir);
+  fs.writeFileSync(path.join(dir, "README.md"), "hello\n", "utf-8");
+  git(["add", "--", "README.md"], dir);
+  git(["commit", "-q", "-m", "init"], dir);
+  return dir;
+}
+
+/**
+ * The worktree sandbox links the repo's `node_modules` into the worktree (see
+ * `typecheckWorktree`, `runTests`, and `bootServer`) because a fresh worktree has
+ * none. On Windows that link is a junction, and `git worktree remove --force`
+ * recurses *through* it: the ordinary cleanup deletes the user's real
+ * node_modules. That is not a hypothesis — it happened to this repo's own
+ * node_modules during a heal run, and it is why `cleanup` unlinks directory links
+ * before handing the worktree back to git.
+ *
+ * The destructive descent is Windows-specific (on POSIX git unlinks a symlink
+ * instead of descending into it), so a green Linux CI run does NOT by itself
+ * prove this is fixed — this test is the guard, and it only bites on Windows.
+ */
+test("worktree cleanup does not follow a node_modules link out of the sandbox", async () => {
+  const repo = committedRepo();
+  // Stand in for the user's real dependencies, with a sentinel to check after.
+  const realModules = path.join(repo, "node_modules");
+  const sentinel = path.join(realModules, "sentinel.txt");
+  fs.mkdirSync(realModules, { recursive: true });
+  fs.writeFileSync(sentinel, "must survive\n", "utf-8");
+
+  try {
+    const wt = await createWorktree(repo, "link-test");
+    fs.symlinkSync(
+      realModules,
+      path.join(wt.dir, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+    await wt.cleanup();
+
+    assert.equal(
+      fs.existsSync(sentinel),
+      true,
+      "cleanup followed the node_modules link and deleted the real node_modules"
+    );
+    assert.equal(fs.existsSync(wt.dir), false, "the worktree itself should still be gone");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
   }
 });
