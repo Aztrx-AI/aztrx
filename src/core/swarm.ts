@@ -150,8 +150,30 @@ export async function detectWorker(
       onBlock: (u) => opts.log(`[guard] blocked ${u}`),
     });
   }
+  // The last URL this listener recorded as a `navigate`, to drop the duplicate.
+  // Playwright fires `framenavigated` twice for a single `page.goto` — measured
+  // against Chromium, not assumed: one goto to `/agents` produced two events
+  // for the same URL. Recording both would put a redundant full page load in
+  // every trace, and the buffer is only 25 actions deep.
+  let lastNavUrl = "";
   page.on("framenavigated", (frame) => {
-    if (frame === page.mainFrame()) workerBus.emit("route", { url: frame.url(), ts: Date.now() });
+    if (frame !== page.mainFrame()) return; // an iframe's URL is not the page's
+    const url = frame.url();
+    workerBus.emit("route", { url, ts: Date.now() });
+
+    // A trace has to say which page it was on, and nothing recorded that. The
+    // walker reaches each crawled route with `page.goto`, which emits no action
+    // at all, so a finding on `/agents` produced a trace of clicks that only
+    // mean anything *there* — replayed from the start URL every one of them
+    // resolved to nothing, the crash was never reached, and a bug that fires
+    // every single time came back `unreliable` (0/3 replays). `navigate` is
+    // already understood by everything that consumes a trace: `replayActions`
+    // and the spec compiler act on it, heal rewrites its origin to the booted
+    // server, and the patrol GIF skips it. Only the producer was missing.
+    if (!/^https?:/i.test(url)) return; // about:blank, and the first empty frame
+    if (url === lastNavUrl) return; // the second of the pair described above
+    lastNavUrl = url;
+    workerBus.emit("action", { type: "navigate", selectors: [], value: url, timestamp: Date.now() });
   });
 
   let loaded = true;

@@ -46,7 +46,7 @@ export async function walkDom(
     const url = queue.shift()!;
     if (visited.has(url)) continue;
     visited.add(url);
-    if (page.url() !== url) {
+    if (!samePage(page.url(), url)) {
       await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
       await page.waitForTimeout(300);
     }
@@ -151,4 +151,20 @@ export async function walkDom(
 
 export function originOf(url: string): string {
   return url.match(/^https?:\/\/[^/]+/)?.[0] ?? "";
+}
+
+/**
+ * Are these two strings the same page? Compared as parsed URLs, not as text,
+ * because the browser normalises what the crawler was handed: a run against
+ * `http://localhost:3000` has `page.url() === "http://localhost:3000/"`, so a
+ * raw string compare says "different" and the walk re-loads the start page it
+ * is already sitting on — once per run, re-firing every mount effect for
+ * nothing. `new URL(x).href` puts both sides in the browser's own spelling.
+ */
+function samePage(current: string, target: string): boolean {
+  try {
+    return new URL(current).href === new URL(target).href;
+  } catch {
+    return current === target; // about:blank, or an unparseable href
+  }
 }

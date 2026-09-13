@@ -87,12 +87,18 @@ test("an init into a missing root fails instead of half-scaffolding it", () => {
   assert.deepEqual(fs.readdirSync(cwd), []);
 });
 
-test("a real root still reaches the real error, rather than the new one", () => {
-  // Guards the other direction: the check must not reject a directory that
-  // exists. This one fails later and for its own reason — no app to scan.
+test("a directory that exists still gets past the check", () => {
+  // Guards the other direction: the check must not reject a real root.
+  //
+  // `mcp uninstall` rather than `run`, and deliberately: `run` with no URL
+  // auto-detects a dev server, so on a machine that happens to have one up this
+  // test would attach to it and scan instead of failing — it passed here only
+  // until the port was occupied. Uninstalling from a directory with no editor
+  // config touches nothing and answers immediately.
   const cwd = tempDir();
-  const res = runCli(["run", "--repo", cwd], cwd);
+  const res = runCli(["mcp", "uninstall", "--repo", cwd], cwd);
 
+  assert.equal(res.status, 0);
   assert.doesNotMatch(res.stderr, /no such directory/);
-  assert.match(res.stderr, /No dev server is running/);
+  assert.deepEqual(fs.readdirSync(cwd), []);
 });

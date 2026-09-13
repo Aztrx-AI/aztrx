@@ -20,13 +20,41 @@ export interface ReplayResult {
   loaded: boolean;
 }
 
+/**
+ * How long to let a freshly-navigated page settle before acting on it.
+ *
+ * The walker waits this long after its own `page.goto` before it touches
+ * anything, so every recorded selector was resolved against a page that had
+ * been given 300ms to render — a replay that clicks the instant the navigation
+ * commits is asking for something the recording never was.
+ *
+ * Measured on a real Next.js app rather than guessed: with no settle, every
+ * action after a `navigate` was skipped — `count()` does not wait, so an
+ * element that is not in the DOM *yet* is indistinguishable from one that is
+ * gone, and the skip is silent — and a bug that fires on every single click
+ * came back `unreliable` 0/3. With 300ms it reproduced 3/3.
+ */
+const NAV_SETTLE_MS = 300;
+
+/**
+ * How long to keep watching after the last replayed action, for a bug whose
+ * trigger is asynchronous. See the poll in `run` — it exits the moment the
+ * fingerprint appears, so this is a ceiling, not a delay.
+ */
+const POST_REPLAY_WINDOW_MS = 1500;
+
 /** Replays a recorded action sequence against a page. Best-effort: a selector
  * that no longer resolves is skipped, not fatal. */
 export async function replayActions(page: Page, actions: RecordedAction[]): Promise<void> {
   for (const a of actions) {
     if (a.type === "navigate") {
       if (a.value) {
-        await page.goto(a.value, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
+        // Already there: a trace can carry the same URL twice, and re-loading
+        // the page it is already on costs a full load and resets its state.
+        if (page.url() !== a.value) {
+          await page.goto(a.value, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
+          await page.waitForTimeout(NAV_SETTLE_MS);
+        }
       }
       continue;
     }
@@ -147,12 +175,25 @@ export class ReplayEngine {
         await page.waitForTimeout(2000);
         if (opts?.targetType) collecting = true;
         await replayActions(page, actions);
-        await page.waitForTimeout(300);
 
-        const reproduced = opts?.targetType
-          ? types.has(opts.targetType)
-          : fingerprints.has(targetFingerprint);
-        return { reproduced, loaded };
+        // An action can start work that throws later — a `fetch` behind a 300ms
+        // mock, a promise chain, a state update that re-renders into the bug —
+        // and the last action is not the last word. Waiting a fixed 300ms for
+        // that measured *exactly* on the boundary of a real app's own 300ms
+        // delay, so the same trace flipped between reproducing and not from one
+        // run to the next.
+        //
+        // Poll instead of sleeping: a bug that fires during the replay returns
+        // on the first check, so the window costs nothing where the verdict is
+        // already decided, and only a trace that is going to be called
+        // `unreliable` pays for the full wait — which is the case that must not
+        // be wrong.
+        const seen = (): boolean =>
+          opts?.targetType ? types.has(opts.targetType) : fingerprints.has(targetFingerprint);
+        const deadline = Date.now() + POST_REPLAY_WINDOW_MS;
+        while (!seen() && Date.now() < deadline) await page.waitForTimeout(50);
+
+        return { reproduced: seen(), loaded };
       } catch (e) {
         lastError = e;
         await this.close(); // drop the (possibly crashed) browser and retry fresh

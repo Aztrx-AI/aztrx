@@ -133,7 +133,21 @@ export function generateRulePatch(ctx: HealContext): Patch | null {
 
   // Optional-chain every `.identifier` access on the line (not just the failing
   // one) so a chain like `d.agents.map(…)` becomes `d?.agents?.map(…)`.
-  const replace = src.replace(/\.(?=[a-zA-Z_$])/g, "?.");
+  //
+  // The lookbehind is the whole point, and it is not cosmetic. A bare
+  // `/\.(?=[a-zA-Z_$])/` also matches the dots in a spread and in chaining that
+  // is already optional, so `{ ...s, [id]: result.ok }` became
+  // `{ ..?.s, [id]: result.ok }` and `d?.agents` became `d??.agents`. Both are
+  // syntax errors, which the AST gate then refused — correctly, but the effect
+  // was that the free fixer declined every line containing a spread or an
+  // existing `?.`, which is most React code, and the finding was reported as
+  // `rejected` with no hint that the rule engine was at fault.
+  //
+  // Known limit: this is a regex on a line of source, not a lexer, so a `.name`
+  // *inside a string literal or regex* on the failing line is rewritten too.
+  // That cannot make the file unparseable (the gate above still runs), but it
+  // can change behaviour, and no gate here would catch it.
+  const replace = src.replace(/(?<![.?])\.(?=[a-zA-Z_$])/g, "?.");
   if (replace === src) return null;
 
   return {
