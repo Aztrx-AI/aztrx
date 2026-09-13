@@ -7,9 +7,14 @@ import { CopyButton } from "./components/CopyButton";
 /* Cinematic spring — the one physics constant every reveal shares. */
 const spring = { type: "spring" as const, stiffness: 70, damping: 20 };
 
-const INSTALL = "npx aztrx-cli run http://localhost:3000";
+const INSTALL = "npx aztrx-cli";
 const GITHUB = "https://github.com/Aztrx-AI/aztrx";
 const SUPPORT = "https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecCQtxY0WqeFs";
+/* Every footer link resolves to something real — the README is the documentation,
+   and `#security` is a section in it, not a page we never wrote. */
+const DOCS = `${GITHUB}#readme`;
+const SECURITY = `${GITHUB}#security`;
+const RELEASES = `${GITHUB}/releases`;
 
 /* ────────────────────────── primitives ────────────────────────── */
 
@@ -127,6 +132,27 @@ const Heart = ({ className }: IconProps) => (
     <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
   </Icon>
 );
+const Bot = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <rect x="4" y="8" width="16" height="12" rx="3" />
+    <path d="M12 8V4" />
+    <path d="M9 3h6" />
+    <path d="M9 13v2M15 13v2" />
+  </Icon>
+);
+const Terminal = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="m5 8 4 4-4 4" />
+    <path d="M13 16h6" />
+  </Icon>
+);
+const Plug = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M9 2v5M15 2v5" />
+    <path d="M6 7h12v2a6 6 0 0 1-12 0V7Z" />
+    <path d="M12 15v7" />
+  </Icon>
+);
 
 /* ────────────────────────── header ────────────────────────── */
 
@@ -240,7 +266,7 @@ function Hero() {
         transition={{ ...spring, delay: 0.08 }}
         className="hero-shimmer mt-8 text-center text-[clamp(3rem,9vw,7.5rem)] font-semibold leading-[0.95] tracking-[-0.04em]"
       >
-        E2E tests are dead.
+        Your error boundary is hiding a crash.
       </motion.h1>
 
       <motion.p
@@ -249,7 +275,7 @@ function Hero() {
         transition={{ ...spring, delay: 0.16 }}
         className="mt-8 text-center text-xl text-zinc-400 sm:text-2xl"
       >
-        Let AI break your app instead.
+        Aztrx drives your app like a hostile user, then proves every crash with a test — not a log line.
       </motion.p>
 
       <motion.div
@@ -327,8 +353,9 @@ function Magic() {
               <div>
                 <h3 className="text-xl font-semibold text-white">Chaos Fuzzing</h3>
                 <p className="mt-3 max-w-md text-zinc-400">
-                  Drives your app over the Chrome DevTools Protocol — a coverage-guided fuzz that
-                  clicks, types garbage, and races async UI, steering toward code it hasn&apos;t reached yet.
+                  <span className="font-mono text-sm">--fuzz</span> swaps the deterministic walk for
+                  seeded chaos — clicks, types garbage, and races async UI, steering toward code it
+                  hasn&apos;t reached yet.
                 </p>
               </div>
               <div className="hidden shrink-0 flex-col items-end gap-2 sm:flex">
@@ -365,8 +392,11 @@ function Magic() {
             </div>
             <h3 className="mt-6 text-xl font-semibold text-white">Auto-Repro</h3>
             <p className="mt-3 text-zinc-400">
-              Compiles every finding into a deterministic <span className="font-mono text-sm">.spec.ts</span>{" "}
-              you can run to watch it break again.
+              <span className="font-mono text-sm">--repro</span> shrinks the trace, compiles it into a
+              Playwright <span className="font-mono text-sm">.spec.ts</span>, and labels the flake
+              rate — <span className="font-mono text-sm">deterministic 3/3</span>,{" "}
+              <span className="font-mono text-sm">flaky</span>, or{" "}
+              <span className="font-mono text-sm">unreliable</span>.
             </p>
           </BentoCard>
 
@@ -427,7 +457,73 @@ function Magic() {
   );
 }
 
-/* ────────────────────────── 3 · showcase (before/after) ────────────────────────── */
+/* ────────────────────────── 3 · where it runs ────────────────────────── */
+
+const integrations = [
+  {
+    icon: Bot,
+    title: "Your editor's agent",
+    body: "An agent can write code but cannot run it — so it calls a change working when all it knows is that the change parsed. Aztrx supplies the missing step: it drives the app in a real browser and hands back the crashes it produced, repro attached.",
+    command: "npx aztrx-cli mcp install",
+  },
+  {
+    icon: Terminal,
+    title: "Every git push",
+    body: "Scan the app before the push lands, and block on a crash. It scans your app rather than your diff — a crash three files from the change is exactly the one a diff-shaped scan walks past.",
+    command: "npx aztrx-cli hook install",
+  },
+  {
+    icon: Plug,
+    title: "Your dev server",
+    body: "Three lines of config and crashes surface while you work — no second terminal, no command to remember. The scan runs as its own process, so it can never take your dev server down with it.",
+    command: "plugins: [aztrx()]",
+  },
+];
+
+function Integrations() {
+  return (
+    <section className="px-6 py-32">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <Eyebrow>Where it runs</Eyebrow>
+          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            It comes to you.
+          </h2>
+          <p className="mt-5 max-w-2xl text-lg text-zinc-400">
+            Not another dashboard to check. Aztrx wires into the editor, the push, and the dev
+            server you already use — and stays silent until it has something worth saying.
+          </p>
+        </Reveal>
+
+        <div className="mt-16 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {integrations.map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ ...spring, delay: i * 0.08 }}
+              className="glass flex flex-col rounded-2xl p-8 transition-colors hover:border-white/20"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+                <item.icon />
+              </div>
+              <h3 className="mt-6 text-lg font-semibold text-white">{item.title}</h3>
+              <p className="mt-3 flex-1 text-zinc-400">{item.body}</p>
+              <div className="mt-6 overflow-x-auto rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                <code className="whitespace-nowrap font-mono text-xs text-zinc-300">
+                  {item.command}
+                </code>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ────────────────────────── 4 · showcase (before/after) ────────────────────────── */
 
 const lineContainer = {
   hidden: {},
@@ -462,7 +558,7 @@ const fixLines: { text: string; tone: "add" | "del" | "meta" | "pass" | "plain" 
   { text: "", tone: "plain" },
   { text: "✓ tsc: PASS", tone: "pass" },
   { text: "✓ replay: deterministic (3/3 reproductions)", tone: "pass" },
-  { text: "✓ patch → .aztrx/heal/fix.patch", tone: "pass" },
+  { text: "✓ patch → .aztrx/heal/<id>.patch", tone: "pass" },
 ];
 
 function CodeLine({ text, tone, className }: { text: string; tone: string; className: string }) {
@@ -566,7 +662,91 @@ function Showcase() {
   );
 }
 
-/* ────────────────────────── 4 · enterprise & trust ────────────────────────── */
+/* ────────────────────────── 5 · benchmarks ────────────────────────── */
+
+const corpora = [
+  {
+    name: "13 Next.js 16 apps",
+    detail: "App Router · Turbopack · client components",
+    detection: "13 / 13",
+    repro: "12 / 12",
+  },
+  {
+    name: "13 vanilla archetypes",
+    detail: "framework-agnostic baseline",
+    detection: "13 / 13",
+    repro: "11 / 12",
+  },
+];
+
+function Benchmarks() {
+  return (
+    <section className="px-6 py-32">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <Eyebrow>Measured, not claimed</Eyebrow>
+          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            Scored against apps with known bugs.
+          </h2>
+          <p className="mt-5 max-w-2xl text-lg text-zinc-400">
+            Two corpora, every case seeded with exactly one runtime bug, each scored against a
+            manifest that declares what should — and should not — be found. Both run from this repo.
+          </p>
+        </Reveal>
+
+        <div className="mt-16 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {corpora.map((c, i) => (
+            <motion.div
+              key={c.name}
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ ...spring, delay: i * 0.08 }}
+              className="glass rounded-2xl p-8 transition-colors hover:border-white/20"
+            >
+              <h3 className="text-lg font-semibold text-white">{c.name}</h3>
+              <p className="mt-1 font-mono text-xs text-zinc-500">{c.detail}</p>
+              <div className="mt-8 space-y-5">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="text-sm text-zinc-400">Detection</span>
+                  <span className="font-mono text-sm text-zinc-200">
+                    <span className="text-emerald-300">100%</span> · {c.detection}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="text-sm text-zinc-400">Deterministic repro</span>
+                  <span className="font-mono text-sm text-zinc-200">{c.repro}</span>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        <Reveal delay={0.15}>
+          <div className="glass mt-4 rounded-2xl p-8">
+            <h3 className="font-mono text-sm text-zinc-200">
+              13-swallowed-boundary — the case this exists for
+            </h3>
+            <p className="mt-3 max-w-3xl text-zinc-400">
+              A crash an Error Boundary caught and only logged, never rethrown. A{" "}
+              <span className="font-mono text-sm text-zinc-300">pageerror</span>-only detector scores{" "}
+              <span className="font-mono text-sm text-red-300">0/1</span> on it. It sits in the
+              corpus precisely so that a regression fails the benchmark.
+            </p>
+          </div>
+        </Reveal>
+
+        <Reveal delay={0.2}>
+          <p className="mt-8 font-mono text-xs text-zinc-600">
+            Reproduce it: npm run bench · cd bench/frameworks &amp;&amp; npm run bench
+          </p>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/* ────────────────────────── 6 · enterprise & trust ────────────────────────── */
 
 const trustItems = [
   {
@@ -577,7 +757,7 @@ const trustItems = [
   {
     icon: Cpu,
     title: "Bring Your Own Model",
-    body: "Point healing at any model — Anthropic, OpenAI, Grok, DeepSeek, or any OpenAI-compatible endpoint. Or run fully offline and never call an LLM.",
+    body: "Point healing at any model — Anthropic, OpenAI, Grok, DeepSeek, Gemini, Kimi, OpenRouter, Ollama, or any OpenAI-compatible endpoint. Or run fully offline and never call an LLM.",
   },
   {
     icon: GitBranch,
@@ -620,7 +800,7 @@ function Trust() {
   );
 }
 
-/* ────────────────────────── 5 · footer ────────────────────────── */
+/* ────────────────────────── 7 · footer ────────────────────────── */
 
 function Footer() {
   return (
@@ -652,13 +832,13 @@ function Footer() {
             <a href={SUPPORT} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               Support
             </a>
-            <a href="#" className="transition-colors hover:text-white">
+            <a href={DOCS} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               Documentation
             </a>
-            <a href="#" className="transition-colors hover:text-white">
+            <a href={SECURITY} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               Security
             </a>
-            <a href="#" className="transition-colors hover:text-white">
+            <a href={RELEASES} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               Changelog
             </a>
           </div>
@@ -682,7 +862,9 @@ export default function Home() {
       <Header />
       <Hero />
       <Magic />
+      <Integrations />
       <Showcase />
+      <Benchmarks />
       <Trust />
       <Footer />
     </main>
