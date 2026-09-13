@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import {
   FlattenMap,
   originalPositionFor,
@@ -81,19 +82,41 @@ function stripQuery(url: string): string {
   return url.split("?")[0];
 }
 
-/** Normalize a stack-frame URL to a repo-relative source path. Handles the
- * dev-server schemes (`webpack-internal:///(ns)/./src/…`, `webpack://ns/src/…`),
- * `file://`, and plain `https://host/path` bundle URLs. */
+/** Normalize a stack-frame URL to a path to probe: repo-relative for the
+ * dev-server schemes (`webpack-internal:///(ns)/./src/…`, `webpack://ns/src/…`)
+ * and plain `https://host/path` bundle URLs, **absolute** for `file://`.
+ *
+ * The asymmetry is deliberate. `file://` carries a real filesystem path, and on
+ * POSIX the leading slash is the root; the `^\//` strip below exists for URL
+ * paths (`/@fs/src/main.tsx`) and would eat it, turning `/tmp/p/app/actions.ts`
+ * into the relative `tmp/p/app/actions.ts` — a path under the repo that never
+ * exists. Every `file://` frame therefore fell through to "unresolved" on Linux
+ * and macOS. `resolveWithin` accepts absolute segments, so callers are unchanged;
+ * only display has to convert back (see `reportPath`). */
 function normalizeFrameUrl(url: string): string {
-  return stripQuery(url)
+  const raw = stripQuery(url);
+
+  if (/^file:\/\//i.test(raw)) {
+    try {
+      return fileURLToPath(raw); // handles drive-letter and UNC forms on Windows too
+    } catch {
+      return raw; // malformed URL — let the containment check reject it
+    }
+  }
+
+  return raw
     .replace(/^webpack-internal:\/\/\/[^/]+\/\.\//, "")
     .replace(/^webpack:\/\/[^/]+\//, "")
     .replace(/^webpack:\/\//, "")
     .replace(/^\/@fs\//, "")
-    .replace(/^file:\/\/\/([A-Za-z]:)/, "$1") // file:///C:/x → C:/x
-    .replace(/^file:\/\//, "")
     .replace(/^https?:\/\/[^/]+\//, "")
     .replace(/^\//, "");
+}
+
+/** The repo-relative form of a normalized frame path, for anything user-facing.
+ * An absolute `file://` path is reported the same way every other frame is. */
+function reportPath(p: string, repoRoot: string): string {
+  return path.isAbsolute(p) ? path.relative(repoRoot, p) : p;
 }
 
 /** True only for a real, readable regular file — directories and unreadable
@@ -170,14 +193,31 @@ function resolveWithin(root: string, ...segments: string[]): string | null {
 
 /** Turns a sourcemap `source` value into candidate absolute paths to probe. */
 function sourceCandidates(source: string, repoRoot: string): string[] {
-  const cleaned = source
+  const raw = source.split("?")[0];
+
+  // `file://` is an absolute *filesystem* path, not a URL path, and the two
+  // differ in exactly one place: on POSIX the leading slash is the root. The
+  // web-style stripping below exists for URL paths (`/@fs/src/main.tsx`) and
+  // would eat that slash, turning `/tmp/p/app/actions.ts` into the relative
+  // `tmp/p/app/actions.ts` — a path under the repo that never exists, so every
+  // Turbopack `file:///` source silently resolved to nothing on Linux and macOS.
+  // `fileURLToPath` also handles the drive-letter and UNC forms on Windows.
+  if (/^file:\/\//i.test(raw)) {
+    let abs: string;
+    try {
+      abs = fileURLToPath(raw);
+    } catch {
+      return []; // malformed URL — nothing to probe
+    }
+    const inside = resolveWithin(repoRoot, abs);
+    return inside === null ? [] : [inside];
+  }
+
+  const cleaned = raw
     .replace(/^webpack:\/\/[^/]+\//, "") // webpack://namespace/src/...
     .replace(/^webpack:\/\//, "")
     .replace(/^\/@fs\//, "")
-    .replace(/^file:\/\/\/([A-Za-z]:)/, "$1") // file:///C:/x → C:/x
-    .replace(/^file:\/\//, "")
-    .replace(/^\//, "")
-    .split("?")[0];
+    .replace(/^\//, "");
 
   const prefixes = ["", "apps/web/", "src/", "app/"];
   return prefixes
@@ -212,12 +252,13 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
     if (withIndex) directPath = withIndex;
   }
   if (!directPath) {
+    const shown = reportPath(relative, repoRoot);
     return {
       message: frame.message,
-      sourceFile: relative,
+      sourceFile: shown,
       line: frame.line,
       column: frame.column,
-      codeSnippet: `<file not accessible locally: ${relative}>`,
+      codeSnippet: `<file not accessible locally: ${shown}>`,
       resolvedFrom: "unresolved",
     };
   }

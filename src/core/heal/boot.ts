@@ -96,11 +96,67 @@ export function killTreeSync(pid: number): void {
   }
 }
 
-/** The awaiting form, for callers with an async shutdown path. The work is
- * synchronous either way; the plugins use `killTreeSync` directly because their
- * cleanup also runs from `process.on("exit")`, where promises never settle. */
+/** How long to let a signalled process group exit before escalating, and how
+ * long to wait after SIGKILL — which cannot be caught, so this is a backstop. */
+const TERM_GRACE_MS = 3000;
+const KILL_GRACE_MS = 2000;
+const POLL_MS = 25;
+
+/** Is this pid — or, given a negative pid, this whole process group — alive?
+ * Signal 0 delivers nothing; it only asks the kernel whether the target exists. */
+function isAlive(target: number): boolean {
+  try {
+    process.kill(target, 0);
+    return true;
+  } catch (e) {
+    // Only ESRCH means "no such process". EPERM means it exists but is not ours
+    // to signal — still alive, and treating it as gone would cut the wait short.
+    return (e as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function waitUntilGone(target: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (isAlive(target)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  return true;
+}
+
+/** The awaiting form, for callers with an async shutdown path. The plugins use
+ * `killTreeSync` directly because their cleanup also runs from
+ * `process.on("exit")`, where promises never settle.
+ *
+ * This one does not return until the group is actually gone. `killTreeSync` only
+ * *sends* the signal, and the two platforms differ in what that guarantees:
+ * `taskkill /F` blocks until the process is dead, but POSIX SIGTERM is delivered
+ * asynchronously, so a synchronous kill leaves the server holding its listening
+ * socket for a few more milliseconds. Callers treat `close()` as "the port is
+ * free now" — the plugins and `patrol` re-bind the same port on restart — so
+ * returning early hands them a port that is still taken.
+ *
+ * Liveness is checked on the group (`-pid`) rather than the pid, because the
+ * process we spawned is a shell: `shell: true` means the socket is usually held
+ * by a grandchild, and only the group covers it. */
 export async function killTree(pid: number): Promise<void> {
   killTreeSync(pid);
+
+  // Windows has no group signalling and `killTreeSync` already blocked on the
+  // forced kill, so there is nothing left to wait for.
+  if (process.platform === "win32") return;
+
+  const group = -pid;
+  if (await waitUntilGone(group, TERM_GRACE_MS)) return;
+
+  // Still alive after the grace period: a child that ignores SIGTERM. SIGKILL
+  // cannot be caught or blocked, so this is the end of the line.
+  try {
+    process.kill(group, "SIGKILL");
+  } catch {
+    // exited between the check and the signal
+  }
+  await waitUntilGone(group, KILL_GRACE_MS);
 }
 
 export interface BootedServer {
