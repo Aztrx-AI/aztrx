@@ -13,6 +13,11 @@ export interface ReplayEngineOptions {
 
 export interface ReplayResult {
   reproduced: boolean;
+  /** Did the target page actually load? A navigation that was refused, timed out,
+   * or answered non-2xx produces no telemetry — which is indistinguishable from
+   * "the bug is gone" unless the caller can tell the two apart. Verification
+   * depends on this: an unreachable page must never count as a passing run. */
+  loaded: boolean;
 }
 
 /** Replays a recorded action sequence against a page. Best-effort: a selector
@@ -128,7 +133,14 @@ export class ReplayEngine {
         attachInterceptor(page, bus);
         if (this.opts.attachGuard) await this.opts.attachGuard(page);
 
-        await page.goto(url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
+        // A rejected navigation (refused connection, DNS failure, timeout) and a
+        // non-2xx answer both leave a page that will never emit the telemetry we
+        // are looking for. Capture that here rather than letting the empty
+        // fingerprint set read as a passing verification.
+        const nav = await page
+          .goto(url, { waitUntil: "load", timeout: 30000 })
+          .catch(() => null);
+        const loaded = nav !== null && nav.ok();
         // Settle for hydration before replaying — the detection pass waits on the
         // `load` event plus a settle window, and a replay that clicks before React
         // attaches its handlers won't reproduce the crash (false "unreliable").
@@ -140,7 +152,7 @@ export class ReplayEngine {
         const reproduced = opts?.targetType
           ? types.has(opts.targetType)
           : fingerprints.has(targetFingerprint);
-        return { reproduced };
+        return { reproduced, loaded };
       } catch (e) {
         lastError = e;
         await this.close(); // drop the (possibly crashed) browser and retry fresh

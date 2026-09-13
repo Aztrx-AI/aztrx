@@ -54,6 +54,10 @@ export interface SpendBudget {
 export interface VerifyResult {
   runs: number;
   reproductions: number;
+  /** Of `runs`, how many actually loaded the app. `fixed` requires this to be
+   * non-zero: a run whose page never loaded proves nothing, and counting it as a
+   * non-reproduction is how a patch gets declared verified without being tried. */
+  loaded: number;
   fixed: boolean;
 }
 

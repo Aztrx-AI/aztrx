@@ -42,9 +42,18 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+/** Can this file be verification-served as-is? Only a self-contained HTML
+ * document. Static serving hands back raw bytes with no build step, so a `.tsx`
+ * arrives as text the browser will not execute — the code under test never runs
+ * and the crash cannot reproduce. Fixtures qualify; app sources never do. */
+function isStaticEntry(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === ".html" || ext === ".htm";
+}
+
 /** Default verification server: serve the worktree's repo root statically and
- * address the mapped file directly. Works for static fixtures; real apps inject
- * their own dev-server `serve` fn. */
+ * address the mapped file directly. Works for static fixtures; real apps boot
+ * the patched worktree instead (see the serve selection in `heal`). */
 function staticServe(worktreeDir: string, filePath: string): Promise<{ url: string; close: () => Promise<void> }> {
   const entry = filePath.split(path.sep).join("/");
   return new Promise((resolve, reject) => {
@@ -117,19 +126,30 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
     return { ...base, error: "no deterministic repro to verify against" };
   }
 
-  // Server findings (network_5xx) verify by *booting* the patched app, not static
-  // serving. That needs a start command — resolve it before paying the LLM so a
-  // missing one skips cleanly rather than after an expensive generation.
+  // Verification has to run the *patched* code, and there are only two ways to
+  // do that. Booting the worktree runs the real app, but needs a start command.
+  // Static serving runs anything, but with no build step and no bundler — so a
+  // `.tsx` comes back as text the browser will not execute, the patched code
+  // never runs, and the crash "not reproducing" means nothing. Only a
+  // self-contained HTML document is honest to static-serve (the fixture path).
+  //
+  // So: an injected serve hook wins, then booting, then static — and when none
+  // applies we refuse. Both checks run before paying the LLM, so an unverifiable
+  // finding skips cleanly instead of after an expensive generation.
   const isNetwork = finding.type === "network_5xx";
   const startCommand = opts.startCommand ?? detectStartCommand(opts.repoRoot);
-  if (isNetwork && !startCommand) {
-    return {
-      ...base,
-      error: "no start command for server heal (set --start-command, or add scripts.dev / scripts.start)",
-    };
+  const filePath = loc.filePath;
+  if (!opts.serve && !startCommand) {
+    if (isNetwork || !isStaticEntry(filePath)) {
+      return {
+        ...base,
+        error: isNetwork
+          ? "no start command for server heal (set --start-command, or add scripts.dev / scripts.start)"
+          : `cannot verify a patch to ${filePath} without running it — a statically served source file never executes, so "fixed" would be unprovable. Set --start-command, or add scripts.dev / scripts.start to package.json`,
+      };
+    }
   }
 
-  const filePath = loc.filePath;
   const absPath = path.resolve(opts.repoRoot, filePath);
   let original: string;
   try {
@@ -295,12 +315,14 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
         continue;
       }
 
-      // 4. Verify — the bug must stop reproducing. Server findings boot the
-      // patched app in the worktree (static serving can't run a server); client
-      // findings keep the static server.
-      const serve = isNetwork
-        ? (dir: string) => bootServer({ worktreeDir: dir, repoRoot: opts.repoRoot, startCommand: startCommand as string })
-        : opts.serve ?? ((dir, fp) => staticServe(dir, fp));
+      // 4. Verify — the bug must stop reproducing, against the *patched* code.
+      // Mirror the selection made before generation: an injected hook wins, then
+      // booting the worktree, then static serving for a real HTML entry.
+      const serve =
+        opts.serve ??
+        (startCommand
+          ? (dir: string) => bootServer({ worktreeDir: dir, repoRoot: opts.repoRoot, startCommand })
+          : (dir: string, fp: string) => staticServe(dir, fp));
       const v = await verifyFix({
         url: opts.url,
         actions: opts.actions,
