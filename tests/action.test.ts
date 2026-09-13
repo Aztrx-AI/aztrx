@@ -67,19 +67,38 @@ test("action.yml: the Chromium pin matches the Playwright aztrx depends on", () 
   );
 });
 
-test("aztrx-pr.yml: our own action is pinned to this release's tag", () => {
+test("aztrx-pr.yml: our own action is pinned to a tag that exists", () => {
+  // This used to assert the pin equals `package.json`'s version, on the theory
+  // that a consumer copying the snippet should get this release's engine. The
+  // theory is right; the mechanism was wrong, and it cost a live breakage. This
+  // tree went to 0.5.2 long before 0.5.2 was published, so the rule it enforced
+  // was "advertise a tag that does not exist on origin" — and `uses:` against a
+  // missing tag does not read as a bad pin, it reads as `aztrx did not run`,
+  // which is worded to look like infrastructure rather than a wrong README.
+  //
+  // So the pin is bounded, not equated: it may lag the tree (the normal state
+  // between releases — `main` is ahead of npm) but never lead it, because a pin
+  // ahead of the tree names a version that exists nowhere. Equality is reached
+  // the only safe way: bump the pins, commit, and push the tag in the same push.
+  // Uniformity across files is checked in version-pins.test.ts.
   const m = workflow.match(/uses:\s*Aztrx-AI\/aztrx@(\S+)/);
   assert.ok(m, "the reusable workflow no longer calls our own action");
-  assert.equal(
-    m[1],
-    `v${VERSION}`,
-    `the reusable workflow calls Aztrx-AI/aztrx@${m[1]} but this release is v${VERSION}. ` +
-      "Consumers copying this snippet would get an older engine."
+  const pinned = m[1].replace(/^v/, "");
+  const cmp = (a: string, b: string) => {
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+    return 0;
+  };
+  assert.ok(
+    cmp(pinned, VERSION) <= 0,
+    `the reusable workflow calls Aztrx-AI/aztrx@${m[1]} but this tree is only ${VERSION}. ` +
+      "A pin may lag the release, never lead it — push the tag and the bump together."
   );
   // The copy-paste example at the top of the file is what people actually paste —
   // it has been stale before, independently of the real reference.
   const example = workflow.match(/aztrx-pr\.yml@(\S+)/);
-  assert.equal(example?.[1], `v${VERSION}`, "the usage example at the top of the workflow is stale");
+  assert.equal(example?.[1], m[1], "the usage example at the top of the workflow is stale");
 });
 
 test("action.yml: the engine is not pinned to a literal version", () => {

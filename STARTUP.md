@@ -27,7 +27,7 @@ The whole pitch is three verbs: **find → prove → fix.**
 | 2026-08-22 | Tracker **archived** (tag `archive/focus-tracker-2026-08-22`, not deleted). The stress-tester became a **new startup that took the "Aztrx" name + `aztrx.app` domain**. F1–F9 done. |
 | 2026-08-23 | Repo renamed to free the `aztrx` GitHub name; landing page deployed to `aztrx.app` on Vercel; Ink TUI added. |
 | late Aug | npm publish → `aztrx-cli`. |
-| now | v0.5.1 in `package.json`; npm `latest` is 0.4.5. |
+| now | v0.5.2 in `package.json`; npm `latest` is 0.5.1 (0.5.2 is committed, not yet published). |
 
 **Key early decisions:**
 - **Codename lineage:** `stt/synapse` (stale "SynapseQA") → `seism` (a passing invention) → **`aztrx`** (your choice).
@@ -174,7 +174,7 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 | Resource | Where |
 | --- | --- |
 | Repo | `github.com/Aztrx-AI/aztrx` (local `C:\Users\dchap\aztrx`) |
-| npm | `aztrx-cli` (`latest` = 0.4.5; account `karnezz`) |
+| npm | `aztrx-cli` (`latest` = 0.5.1; account `karnezz`) |
 | Landing page | `https://aztrx.app` (Vercel project `aztrx`, Next.js) |
 | Cloud API | `https://api.aztrx.app` (the `server/` dir) |
 | Donations | Polar.sh link in the README |
@@ -196,6 +196,21 @@ verified twice over — a regression test that fails without it, and an A/B on a
 live target where a real heal run empties the target's `node_modules` with the
 fix removed and leaves a sentinel file untouched with it in place.
 
+**0.5.2 also made the repro actually reproduce.** Running the loop against a real
+Next.js app — and looking at *why* only one of its three crashes was being
+healed — turned up four defects in the middle of the pipeline. The headline is
+that a recorded trace never said which page it was on: the walker reaches each
+crawled route with `page.goto`, which emitted no action at all, so a finding on
+`/agents` produced a trace of clicks that only mean anything there. Replayed
+from the start URL every one of them resolved to nothing, the crash was never
+reached, and a bug that fires on every single click was reported
+`unreliable 0/3` — which reads as "your bug is flaky" and is in fact "we did not
+replay your bug". `navigate` was already understood by every consumer of a
+trace; only the producer was missing. With it, plus the three timing and patch
+defects listed below, **3 of 3 findings on that app are now proven
+`[deterministic 3/3]` and healed with no API key at all** — the app where 1 of 3
+was healed before.
+
 **0.5.1 — a fix is now proven, not assumed.** A healed patch could previously be
 reported as fixed *without the patched code ever running*: client findings were
 static-served, so a `.tsx` reached the browser as text it never executes; replays
@@ -207,6 +222,10 @@ PR openers stage only the files they healed instead of `git add -A`, so an
 automatic fix can no longer commit your unrelated working tree.
 
 - **Wrong line on Next.js, and what it cost** — a `webpack-internal://` frame carries a position in the module webpack *generated*, not in the `.tsx` on disk: Next dev reported `app/page.tsx:29:21` for a crash on line 15. The path is the real source path, so the file was found and a confidently wrong line was shown — a snippet that did not contain the bug. It also silently killed the free fix: `generateRulePatch` reads the property on the mapped line, found a `</div>`, and declined, so every finding fell through to a paid model. The message is the signal — `(reading 'agents')` can only be thrown by a line that reads `.agents` — so a mapped line that does not is provably wrong, and the real one is findable. Ambiguity (several unguarded reads, none distinguishable) is left alone rather than guessed at. Verified on the real project: lines now land on 15/13/12, and `--heal` produces a fix with **no API key at all**.
+- **A trace now carries its navigations** — see above. The producer is `framenavigated`, and it records a URL once: Playwright fires that event *twice* for a single `goto` (measured against Chromium rather than assumed), and the action buffer is only 25 deep. The walker also stopped re-loading the start page it is already on — the browser normalises `http://host` to `http://host/`, so a raw string compare said "different page" and every run paid for a full extra load that re-fired every mount effect.
+- **A replayed navigation now waits before acting** — the walker waits 300ms after its own `goto` before it touches anything, so every recorded selector was resolved against a page given 300ms to render; a replay that clicks the instant the navigation commits is asking for something the recording never was. Measured: 0ms reproduced **0/3**, 300ms reproduced **3/3**. Same trace, same app.
+- **A replay no longer stops watching too early** — it waited a fixed 300ms after the last action, which turned out to be *exactly* a real app's own async delay, so the same trace flipped between reproducing and not from one run to the next. It now polls, and returns the moment the fingerprint appears: the window is a ceiling, not a delay, and only a trace headed for an `unreliable` verdict pays for it — which is the case that must not be wrong.
+- **The free rule fixer no longer mangles spread syntax** — `/\.(?=[a-zA-Z_$])/` matches the third dot of `...s`, so `{ ...s, [id]: result.ok }` came out as `{ ..?.s, [id]: result?.ok }` and an already-guarded `d?.agents` became `d??.agents`. Both are syntax errors, which the AST gate refused — correctly, but the user saw `rejected` with nothing to say the *rule engine* had emitted garbage, and the free fixer silently declined every line containing a spread or an existing `?.`, which is most React code. A lookbehind fixes it. Its limit is documented: it is a regex on a line, not a lexer, so a `.name` inside a string literal on the failing line is rewritten too.
 - **`--repo` is checked, not trusted** — commander consumes a `<required>` option's value even when it looks like a flag, so `aztrx run <url> --repo --fix` set the project root to the literal string `--fix`. `path.resolve` turned that into `<cwd>/--fix`, and the run then *succeeded* against a directory it had invented, leaving `.aztrx/events.jsonl` and `report.html` inside — exit code 0, no warning. Found as a stray `C:\Users\dchap\--fix\` holding nothing but `.aztrx/`; reproduced against the published 0.5.1 to confirm that exact shape. The root must now exist and be a directory, and a refused path whose last segment is a flag says so. An empty directory nobody can explain is a worse failure than an error message, because nothing reports it.
 - **A provider failure now says what it was** — an empty completion used to reach the user as `Unexpected end of JSON input`, which blames our parser rather than the model. Both transports now throw with the stop reason ("the token limit was reached before any text was emitted…", "the provider failed mid-response"), and `data.error` is checked because OpenRouter reports upstream failures in the body under HTTP 200.
 - **Heal's token ceiling is 8192** — a patch is a few hundred tokens, but a reasoning model spends the budget on its thinking first and at 2048 hit the cap before emitting a single character. It is a ceiling, not a charge, so the headroom is free for models that do not reason.
@@ -232,6 +251,12 @@ automatic fix can no longer commit your unrelated working tree.
 - **Launch** — Show HN / public launch.
 - **Flagship demo** — the numbers behind the README's recall claim are recorded: `bench/frameworks/RESULTS.md` (13/13 found, 12/12 deterministic repros) and `bench/RESULTS.md` (13/13, 11/12).
 - **Orphan `v0.5.0` tag** — the tag is on origin but 0.5.0 was never published to npm, so `uses: Aztrx-AI/aztrx@v0.5.0` fails with ETARGET. Nothing tells users to pin it (the documented pin is `v0.5.1`), and the failure is safe — the check reports "aztrx did not run", not a verdict about the app — but the tag is dead weight. Deleting it or publishing 0.5.0 are both deliberate calls, so it is left standing.
+- **Release sequence, and why 0.5.2 is deliberately not in the README yet** — `package.json` says 0.5.2 and the code is on `main`, but npm `latest` is still 0.5.1. That gap is intentional: the README's CI examples pin `@v0.5.1`, *the last version a stranger can actually install*, because a pin only means something once the tag and the tarball both exist. The order is not interchangeable:
+  1. `npm publish` — never with `--ignore-scripts`; `prepublishOnly` is what rebuilds `dist/`, and the committed `dist/` is stale.
+  2. `git push && git tag v0.5.2 && git push origin v0.5.2` — the tag comes **after** the publish. Tagging first is exactly how `v0.5.0` became an orphan above.
+  3. Bump the advertised version — `README.md` (three refs), `action.yml`, and `.github/workflows/aztrx-pr.yml` (two refs) — commit, and push that commit **in the same push as the tag**. `tests/version-pins.test.ts` and `tests/action.test.ts` enforce that the five agree and that none leads `package.json`; they are what makes step 3 mechanical rather than remembered.
+
+  A tag pushed before its publish is a broken pin for everyone who copies the README out of the repo; a README bump before its publish is the same breakage one step earlier. Both are why `main` advertises 0.5.1 today.
 
 ---
 
