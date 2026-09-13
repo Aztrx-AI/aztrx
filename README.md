@@ -454,7 +454,7 @@ The commands that are not `run`:
 | `--pr` | Open a merge-ready PR with the verified fixes (with `--fix`) | — |
 | `--lang <code>` | Language for the human-language summary (`en`, `ru`) | `en` |
 | `--upload` | Stream run findings to the cloud ingest backend | — |
-| `--api-key <key>` | Auth key for `--upload` / `--share-data` | `$AZTRX_API_KEY` |
+| `--api-key <key>` | Auth key for `--upload` / `--share-data` — distinct from the model provider key | `$AZTRX_CLOUD_API_KEY` |
 | `--cloud-url <url>` | Ingest server base URL | `https://api.aztrx.app` |
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
@@ -485,6 +485,16 @@ The commands that are not `run`:
 | `--crash-test` | Throw a deliberate error to verify capture | — |
 | `--plain` / `--ui` | Force plain logs / force the live panel | — |
 | `--json` | One JSON document on stdout, nothing else — for editors, plugins, and CI | — |
+
+> **The hosted ingest is not live yet.** `--upload` and `--share-data` point at
+> `https://api.aztrx.app`, which does not currently resolve, and the server in
+> `server/` has no deployment. The routes are real and tested —
+> `tests/server-ingest.test.ts` drives the actual `createIngestServer` over HTTP,
+> including the fingerprint dedup — but there is no host behind the default URL.
+> Until there is, point `--cloud-url` at your own instance of `server/`. A failed
+> upload now says so on stderr instead of being discarded, and `--api-key` takes
+> `$AZTRX_CLOUD_API_KEY`: it is deliberately *not* `$AZTRX_API_KEY`, which is your
+> model provider key and has no business on the wire as an ingest credential.
 
 ---
 
