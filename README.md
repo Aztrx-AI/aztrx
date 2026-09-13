@@ -344,7 +344,7 @@ backs off from unfixable bugs, and respects a session-wide LLM spend cap.
 ## Security
 
 - **Local-first.** Nothing leaves your machine unless you opt in.
-- **Never commits.** Fixes land in a detached worktree for your review.
+- **Never commits for you.** `--fix` and `--heal` land a patch in a detached worktree for your review — `git diff` is the review. The one exception is `patrol`, whose entire job is to open a PR: it commits and pushes only to the branch of the PR it opened.
 - **Redacted.** Secrets are stripped from the file, error, and stack before any LLM call.
 - **Deny-by-default network.** Off-origin calls are blocked; destructive clicks (delete/pay/logout) are refused.
 - **`.aztrx/` is gitignored** — repros, reports, and patches stay out of history.
@@ -517,7 +517,7 @@ one seeded runtime bug:
 | corpus | detection | deterministic repro |
 | --- | --- | --- |
 | 13 Next.js 16 apps | **13/13 · 100% recall** | **12/12 · 100%** |
-| 13 vanilla archetypes | **13/13 · 100% recall** | **11/12 · 92%** |
+| 13 vanilla archetypes | **13/13 · 100% recall** | **11/12 · 91.7%** |
 
 One archetype is `13-swallowed-boundary` — a crash caught by an Error Boundary and
 logged via `console.error`, never rethrown. A `pageerror`-only detector scores
