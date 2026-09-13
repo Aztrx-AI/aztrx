@@ -1,6 +1,6 @@
 {
   "name": "aztrx-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": false,
   "description": "Aztrx AI — runtime stress-tester for web apps. Detect bugs, then prove them with an executable repro.",
   "license": "Apache-2.0",
@@ -10,11 +10,24 @@
     "aztrx-cli": "dist/cli.js"
   },
   "main": "dist/core/orchestrator.js",
+  "types": "dist/core/orchestrator.d.ts",
   "exports": {
-    ".": "./dist/core/orchestrator.js",
-    "./vite": "./dist/vite/index.js",
-    "./next": "./dist/next/index.js",
-    "./mcp": "./dist/mcp/index.js",
+    ".": {
+      "types": "./dist/core/orchestrator.d.ts",
+      "default": "./dist/core/orchestrator.js"
+    },
+    "./vite": {
+      "types": "./dist/vite/index.d.ts",
+      "default": "./dist/vite/index.js"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "default": "./dist/next/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

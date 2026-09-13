@@ -41,10 +41,10 @@ inputs:
     required: false
   aztrx:
     description: >-
-      Override the command that invokes aztrx-cli (e.g. 'npx --yes aztrx-cli@0.4.4'
+      Override the command that invokes aztrx-cli (e.g. 'npx --yes aztrx-cli@0.5.1'
       to pin a version, or 'node ./dist/cli.js' for a local build). Empty — the
-      default — runs the version of this action, so `uses: Aztrx-AI/aztrx@v0.5.0`
-      actually executes 0.5.0 rather than whatever was current when this file was
+      default — runs the version of this action, so `uses: Aztrx-AI/aztrx@v0.5.1`
+      actually executes 0.5.1 rather than whatever was current when this file was
       last edited.
     default: ""
     required: false
@@ -176,7 +176,7 @@ runs:
           fi
           # Fallback for a local `uses: ./`, where ACTION_PATH is empty. Kept in
           # step with package.json by tests/action.test.ts.
-          [ -z "$ver" ] && ver="0.5.0"
+          [ -z "$ver" ] && ver="0.5.1"
           AZTRX_CMD="npx --yes aztrx-cli@$ver"
         fi
 

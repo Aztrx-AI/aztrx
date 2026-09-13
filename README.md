@@ -428,7 +428,8 @@ jobs:
 
 `aztrx-cli run --help` is grouped by intent (Detect / Prove / Fix / Report & ship / Auth);
 the table below is the complete reference — including flags hidden from `--help` (aliases and
-niche tuning knobs).
+niche tuning knobs). `aztrx-cli --version` (or `-V`) prints the installed version, read from
+the package's own `package.json` so it cannot drift from what npm shipped.
 
 The commands that are not `run`:
 

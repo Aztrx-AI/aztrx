@@ -10,8 +10,8 @@ name: CI
 # but the Playwright this package depends on declares `>=20`, so the floor was
 # never 18. And `npm test` used a quoted `tests/**` glob, which only expands on
 # the Node versions that support globs in `--test` — the run died on 20 with
-# "Could not find '.../tests/**/*.test.ts'". Both are now fixed, and 20/22/24 is
-# what actually proves it.
+# "Could not find '.../tests/**/*.test.ts'". Both are now fixed — the floor reads
+# `engines.node >=20` — and 20/22/24 is what actually proves it.
 #
 # Node 20 is included deliberately even though it is past EOL: it is what
 # `action.yml` pins, so it is the version this product ships to consumers and the

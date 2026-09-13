@@ -8,6 +8,7 @@ import { opt, formatHelp } from "./cli/help.js";
 import type { RunOptions } from "./core/orchestrator.js";
 import type { Finding } from "./core/types.js";
 import { initProject } from "./core/init.js";
+import { VERSION } from "./core/version.js";
 import { installHook, runPrePush, uninstallHook } from "./hooks/index.js";
 
 /**
@@ -153,6 +154,9 @@ interface CliOptions {
 program
   .name("aztrx-cli")
   .description("Runtime stress-testing for web apps — detect bugs, prove them with a repro")
+  // Read from the installed package.json, so it can never drift from the
+  // published version (see core/version.ts).
+  .version(VERSION, "-V, --version", "print the CLI version")
   .option("--repo <path>", "project root to inspect/watch (default: cwd)", process.cwd());
 
 program

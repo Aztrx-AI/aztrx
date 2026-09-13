@@ -9,8 +9,9 @@
  *
  *     Could not find '.../tests/**\/*.test.ts'
  *
- * Both are versions this project claims: `engines.node` says `>=18`, and
- * `action.yml` pins `node-version: 20`. So `npm test` was broken on exactly the
+ * Both were versions this project claimed at the time — `action.yml` still pins
+ * `node-version: 20`, and the floor is now `engines.node >=20`, matching the
+ * Playwright this package depends on. So `npm test` was broken on exactly the
  * versions it advertised. Dropping the quotes would only move the problem — `sh`
  * expands the glob on Unix, `cmd.exe` does not on Windows.
  *
