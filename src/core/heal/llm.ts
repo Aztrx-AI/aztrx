@@ -161,7 +161,13 @@ export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}
     system: SYSTEM,
     prompt: buildPrompt(ctx),
     model: opts.model,
-    maxTokens: 2048,
+    // A patch is a few hundred tokens, but a reasoning model spends this budget
+    // on its thinking *first* — at 2048 a reasoner like cohere/north-mini-code
+    // hit the cap before emitting any text at all, so healing reported "no
+    // content (finish_reason: length)" and gave up without ever producing a
+    // patch. This is a ceiling, not a charge: cost is per token actually
+    // emitted, so the headroom is free for models that do not reason.
+    maxTokens: 8192,
     temperature: 0,
   });
   if (opts.budget) opts.budget.remaining -= 1;

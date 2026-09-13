@@ -151,14 +151,24 @@ const SYSTEM =
 
 async function summarizeFindingsLlm(findings: Finding[], lang: Lang): Promise<string> {
   const hasHealed = findings.some((f) => f.heal?.status === "healed");
-  const text = (
-    await complete({
-      system: SYSTEM,
-      prompt: buildLlmPrompt(findings, lang, hasHealed),
-      maxTokens: 1024,
-      temperature: 0.2,
-    })
-  ).trim();
+  // The template is the floor, not a fallback for one case: an explanation is a
+  // nice-to-have, so a provider that errors, truncates or filters must not take
+  // the report down with it. `complete()` throws on an empty completion rather
+  // than returning "", so this catch is what keeps that contract from becoming a
+  // crash — the `||` then covers a reply that was whitespace.
+  let text = "";
+  try {
+    text = (
+      await complete({
+        system: SYSTEM,
+        prompt: buildLlmPrompt(findings, lang, hasHealed),
+        maxTokens: 1024,
+        temperature: 0.2,
+      })
+    ).trim();
+  } catch {
+    text = "";
+  }
   return text || summarizeFindingsTemplate(findings, lang);
 }
 

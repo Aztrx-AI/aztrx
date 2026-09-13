@@ -95,6 +95,33 @@ export async function complete(opts: CompleteOptions): Promise<string> {
     : openaiComplete(s, model, opts);
 }
 
+/**
+ * Turn an empty completion into a diagnosable error.
+ *
+ * Returning `""` here is what makes a provider-side failure reach the caller as
+ * `Unexpected end of JSON input` — a message that points at *our* parser rather
+ * than at the model, and which the heal path then degrades to a bland "no-llm".
+ * The stop reason is the entire diagnosis, so it is carried into the message.
+ *
+ * Real cases this covers: a free/contended endpoint failing mid-flight
+ * (`finish_reason: "error"` on OpenRouter), a reasoning model spending the whole
+ * budget before emitting any text (`length`), and provider-side filters.
+ */
+function emptyCompletion(provider: string, model: string, reason?: string): Error {
+  const why =
+    reason === "length" || reason === "max_tokens"
+      ? "the token limit was reached before any text was emitted — the model is most likely spending its whole budget on reasoning; pick a different one with --heal-model / AZTRX_MODEL"
+      : reason === "error"
+        ? "the provider failed mid-response"
+        : reason === "content_filter"
+          ? "the provider blocked the response"
+          : reason === "refusal"
+            ? "the model refused the request"
+            : "the provider returned no text";
+  const seen = reason ? `finish_reason: ${reason}` : "no finish_reason given";
+  return new Error(`${provider} returned no content (${seen}) — ${why}. Model: ${model}`);
+}
+
 async function anthropicComplete(
   s: LlmSettings,
   model: string,
@@ -126,11 +153,16 @@ async function anthropicComplete(
     throw new Error(`LLM request failed (${res.status}): ${body.slice(0, 300)}`);
   }
 
-  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-  return (data.content ?? [])
+  const data = (await res.json()) as {
+    content?: Array<{ type?: string; text?: string }>;
+    stop_reason?: string;
+  };
+  const text = (data.content ?? [])
     .filter((c) => c.type === "text")
     .map((c) => c.text ?? "")
     .join("\n");
+  if (!text.trim()) throw emptyCompletion("Anthropic", model, data.stop_reason);
+  return text;
 }
 
 async function openaiComplete(
@@ -160,17 +192,26 @@ async function openaiComplete(
     throw new Error(`LLM request failed (${res.status}): ${body.slice(0, 300)}`);
   }
 
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content;
+  const data = (await res.json()) as {
+    error?: { message?: string };
+    choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>;
+  };
+  // OpenRouter reports upstream failures in the body with HTTP 200, so `res.ok`
+  // alone does not mean the model answered.
+  if (data.error) throw new Error(`LLM request failed: ${data.error.message ?? "unknown error"}`);
+
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content === "string" && content.trim()) return content;
   if (Array.isArray(content)) {
-    return content
+    const text = content
       .filter(
         (c): c is { type?: string; text?: string } =>
           typeof c === "object" && c !== null && (c as { type?: string }).type === "text",
       )
       .map((c) => (c as { text?: string }).text ?? "")
       .join("\n");
+    if (text.trim()) return text;
   }
-  return "";
+  throw emptyCompletion("OpenAI-compatible endpoint", model, choice?.finish_reason);
 }
