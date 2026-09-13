@@ -183,7 +183,17 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 
 ---
 
-## 9. What shipped recently (v0.1.1 → v0.5.0)
+## 9. What shipped recently (v0.1.1 → v0.5.1)
+
+**0.5.1 — a fix is now proven, not assumed.** A healed patch could previously be
+reported as fixed *without the patched code ever running*: client findings were
+static-served, so a `.tsx` reached the browser as text it never executes; replays
+kept their original absolute URLs and walked back into the unpatched code; and an
+unreachable page emitted no telemetry, which read identically to a fixed bug. Each
+is closed — the app is booted when a start command exists, every recorded URL is
+rewritten to the served origin, and `ReplayResult.loaded` now gates `fixed`. Both
+PR openers stage only the files they healed instead of `git add -A`, so an
+automatic fix can no longer commit your unrelated working tree.
 
 - **CLI redesign** — grouped `--help`, the `--fix` verb (replacing `--magic-fix`), hidden aliases (`--swarm`, `--auth`, `--login-*`).
 - **README restructure** — leads with the one-command, zero-setup story.
@@ -193,6 +203,9 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 - **Noise fixes** — `net::ERR_ABORTED`/`ERR_BLOCKED_*` filtered; guard-blocked third-party requests now `blockedbyclient`.
 - **Multi-provider LLM** — any OpenAI-compatible model.
 - **`suggestNext`** — the "next flag" hint after a run.
+- **`--version` / `-V`** — reads `VERSION` from the installed `package.json`, so it cannot drift from what npm shipped. It did not exist before 0.5.1.
+- **Published `.d.ts`** — every `exports` subpath carries a `types` condition, so consumers stop getting implicit-any modules. `declarationMap` is deliberately off: its maps would point into `src/`, which `files` does not ship.
+- **Node floor is 20, and honest** — Playwright declares `>=20`, so the previously advertised 18 could never have worked. CI runs 20/22/24 to check the claim rather than assert it.
 
 ---
 
@@ -203,6 +216,7 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 - **Domain flip** — `aztrx.app` currently serves the marketing page; the QA dashboard was meant to live there eventually.
 - **Launch** — Show HN / public launch.
 - **Flagship demo** — the numbers behind the README's recall claim are recorded: `bench/frameworks/RESULTS.md` (13/13 found, 12/12 deterministic repros) and `bench/RESULTS.md` (13/13, 11/12).
+- **Orphan `v0.5.0` tag** — the tag is on origin but 0.5.0 was never published to npm, so `uses: Aztrx-AI/aztrx@v0.5.0` fails with ETARGET. Nothing tells users to pin it (the documented pin is `v0.5.1`), and the failure is safe — the check reports "aztrx did not run", not a verdict about the app — but the tag is dead weight. Deleting it or publishing 0.5.0 are both deliberate calls, so it is left standing.
 
 ---
 
