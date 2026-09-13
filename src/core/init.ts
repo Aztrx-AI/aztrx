@@ -68,13 +68,11 @@ export default {
   // Dev server Aztrx should attack.
   url: ${JSON.stringify(url)},
 
-  // Repo root for sourcemap → source resolution (defaults to this directory).
-  repo: ".",
-
-  // Max interactions per pass.
+  // Max interactions per pass (default: 100). --max-actions overrides this.
   maxActions: 100,
 
-  // Deny-by-default network allow-list for fuzz runs — add your API host here.
+  // Deny-by-default network allow-list — add your API host here, or every
+  // cross-origin request the app makes is refused. --allow-host adds to this.
   allowHosts: [],
 };
 `;

@@ -59,14 +59,47 @@ export function scriptPort(repoRoot: string): number | undefined {
   return m ? parseInt(m[1], 10) : undefined;
 }
 
-/** The URL from a generated `aztrx.config.ts`. Read as raw text rather than
- * imported — the config is an untrusted TypeScript file, not something to
- * execute just to read one string out of. */
-function configUrl(repoRoot: string): string | undefined {
+/** The raw text of a generated `aztrx.config.ts`, or undefined when there is
+ * none. Read as text rather than imported — the config is an untrusted
+ * TypeScript file, not something to execute just to read a value out of.
+ *
+ * Every reader below goes through this, so the file is read once per question
+ * and they cannot drift into parsing different files. */
+function readConfig(repoRoot: string): string | undefined {
   const configPath = path.join(repoRoot, "aztrx.config.ts");
   if (!fs.existsSync(configPath)) return undefined;
-  const m = fs.readFileSync(configPath, "utf-8").match(/url\s*[=:]\s*["']([^"']+)["']/);
+  try {
+    return fs.readFileSync(configPath, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** The URL a generated `aztrx.config.ts` declares. */
+function configUrl(repoRoot: string): string | undefined {
+  const m = readConfig(repoRoot)?.match(/url\s*[=:]\s*["']([^"']+)["']/);
   return m ? m[1] : undefined;
+}
+
+/** The `allowHosts` entries from a generated `aztrx.config.ts`.
+ *
+ * `init` scaffolds this key and tells the user to add their API host to it, so
+ * it has to actually do something — otherwise following the tool's own
+ * instructions changes nothing, and a real app's cross-origin API calls stay
+ * refused with no visible reason. Genuinely deny-by-default either way: this
+ * only extends the allow-list, and an unparseable value extends it by nothing. */
+export function configAllowHosts(repoRoot: string): string[] {
+  const m = readConfig(repoRoot)?.match(/allowHosts\s*[=:]\s*\[([^\]]*)\]/);
+  if (!m) return [];
+  return [...m[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((x) => x[1]);
+}
+
+/** The `maxActions` value from a generated `aztrx.config.ts`, when present. */
+export function configMaxActions(repoRoot: string): number | undefined {
+  const m = readConfig(repoRoot)?.match(/maxActions\s*[=:]\s*(\d+)/);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** The port a declared URL points at, or null when the host isn't loopback —

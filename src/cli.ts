@@ -321,7 +321,7 @@ program
   .argument("[url]", "dev server to inspect (auto-detected if omitted), e.g. http://localhost:3000")
   .configureHelp({ formatHelp })
   .addOption(opt("--repo <path>", "project root to inspect/watch (default: cwd)", "advanced"))
-  .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
+  .addOption(opt("--max-actions <n>", "max actions per pass (default: aztrx.config.ts, else 100)", "advanced"))
   .addOption(opt("--dry-run", "report what would be clicked without clicking", "detect"))
   .addOption(opt("--crash-test", "throw a deliberate error to verify capture", "advanced"))
   .addOption(opt("--no-boot", "never start a dev server — only attach to one already running", "detect"))
@@ -350,7 +350,7 @@ program
   .addOption(opt("--lang <en|ru>", "language for the human-language summary", "advanced").default("en"))
   .addOption(opt("--pr-comment [path]", "write a GitHub PR markdown comment (default .aztrx/pr-comment.md)", "ship"))
   .addOption(opt("--badge [path]", "write a self-contained SVG badge (default .aztrx/badge.svg)", "ship"))
-  .addOption(opt("--regression-test [dir]", "copy validated repro specs into the project test dir (default: e2e/ or tests/)", "ship"))
+  .addOption(opt("--regression-test [dir]", "copy validated repro specs into the project test dir (default: first of e2e/, tests/, test/, __tests__/; else .aztrx/regression/)", "ship"))
   .addOption(opt("--telemetry", "opt-in: collect anonymized crash→repro→patch tuples locally (.aztrx/telemetry)", "advanced"))
   .addOption(opt("--share-data", "opt-in: also upload the sanitized tuples to the telemetry endpoint", "advanced"))
   .addOption(opt("--upload", "opt-in: stream run results to the Aztrx AI cloud dashboard (needs --api-key)", "advanced"))
@@ -374,6 +374,9 @@ program
       // `--fix` is the memorable verb; `--magic-fix` is a hidden alias.
       const magicFix = opts.magicFix || opts.fix;
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      // Defaults the scaffolded aztrx.config.ts supplies, read here (lazily, like
+      // the target resolver) because only this command knows the repo root.
+      const { configAllowHosts, configMaxActions } = await import("./core/devServer.js");
       // `--json` is a machine contract: one JSON document on stdout, nothing
       // else. Every human-facing write below is suppressed, and the run itself
       // gets `ui: true` (which already means "emit nothing, the caller renders").
@@ -431,7 +434,11 @@ program
       const runOpts: RunOptions = {
         url: targetUrl,
         repoRoot,
-        maxActions: parseInt(opts.maxActions, 10),
+        // Config-file defaults, with the flag winning: `--max-actions` now has no
+        // commander default, so an unset flag is distinguishable from a set one.
+        maxActions: opts.maxActions
+          ? parseInt(opts.maxActions, 10)
+          : (configMaxActions(repoRoot) ?? 100),
         dryRun: opts.dryRun,
         crashTest: opts.crashTest,
         fuzz: opts.fuzz,
@@ -442,7 +449,7 @@ program
         repro: opts.repro || opts.heal || magicFix,
         seed: parseInt(opts.seed, 10),
         workers,
-        allowHosts: opts.allowHost ?? [],
+        allowHosts: [...(opts.allowHost ?? []), ...configAllowHosts(repoRoot)],
         reproRuns: parseInt(opts.reproRuns, 10),
         heal: opts.heal || magicFix,
         healModel: opts.healModel,
@@ -624,11 +631,14 @@ program
   .addOption(opt("--retry-after <s>", "cooldown before an unfixed bug is retried", "advanced").default("1800"))
   .addOption(opt("--batch", "group all fixes of a cycle into one PR", "advanced"))
   .addOption(opt("--once", "run a single scan then exit (no loop)", "advanced"))
-  .addOption(opt("--max-actions <n>", "max actions per pass", "advanced").default("100"))
+  .addOption(opt("--max-actions <n>", "max actions per pass (default: aztrx.config.ts, else 100)", "advanced"))
   .addOption(opt("--fuzz", "chaos fuzzing instead of the deterministic walk", "detect"))
   .addOption(opt("--workers <n>", "number of parallel detection workers", "detect"))
   .addOption(opt("--lang <en|ru>", "language for the diagnosis", "advanced").default("en"))
-  .addOption(opt("--login", "auto-login before each pass", "auth"))
+  .addOption(opt("--login", "auto-login before each pass (needs AZTRX_AUTH_EMAIL/AZTRX_AUTH_PASSWORD env)", "auth"))
+  .addOption(opt("--login-email <email>", "email for --login (default: $AZTRX_AUTH_EMAIL)").hideHelp())
+  .addOption(opt("--login-password <pass>", "password for --login (default: $AZTRX_AUTH_PASSWORD)").hideHelp())
+  .addOption(opt("--login-url <url>", "explicit login page URL for --login (default: current page)").hideHelp())
   .addOption(opt("--storage-state <path>", "Playwright storage-state JSON for authenticated pages", "auth"))
   .addOption(opt("--heal-model <model>", "LLM model for healing (default: claude-sonnet-5)", "advanced"))
   .addOption(opt("--test-command <cmd>", "test command run against a healed patch", "advanced"))
@@ -651,6 +661,9 @@ program
         workers?: string;
         lang: string;
         login?: boolean;
+        loginEmail?: string;
+        loginPassword?: string;
+        loginUrl?: string;
         storageState?: string;
         healModel?: string;
         testCommand?: string;
@@ -660,12 +673,30 @@ program
       }
     ) => {
       const repoRoot = path.resolve(opts.repo ?? (program.opts().repo as string));
+      const { configAllowHosts, configMaxActions } = await import("./core/devServer.js");
       let booted: (() => Promise<void>) | undefined;
       let targetUrl = url;
       if (!targetUrl) {
         const target = await resolveTargetOrExit(repoRoot, opts.boot === false);
         targetUrl = target.url;
         booted = target.close;
+      }
+
+      // Resolve credentials the same way `run` does — then refuse if they are
+      // incomplete. Patrol is unattended, so it cannot prompt the way `run`
+      // does, and `swarm`'s login block needs all three fields and has no else
+      // branch: without this, `patrol --login` was accepted and silently did
+      // nothing, scanning the logged-out app and opening PRs from those results.
+      const loginEmail = opts.loginEmail ?? process.env.AZTRX_AUTH_EMAIL;
+      const loginPassword = opts.loginPassword ?? process.env.AZTRX_AUTH_PASSWORD;
+      if (opts.login && (!loginEmail || !loginPassword)) {
+        console.error(
+          "aztrx: --login needs credentials, but none were found.\n" +
+            "  Set AZTRX_AUTH_EMAIL and AZTRX_AUTH_PASSWORD, or pass --login-email / --login-password.\n" +
+            "  Refusing to run: an unattended patrol that silently scans the logged-out app " +
+            "would open pull requests from the wrong pages."
+        );
+        process.exit(2);
       }
 
       const { patrol } = await import("./core/patrol/loop.js");
@@ -678,11 +709,20 @@ program
         retryAfterMs: parseInt(opts.retryAfter, 10) * 1000,
         batch: Boolean(opts.batch),
         once: Boolean(opts.once),
-        maxActions: parseInt(opts.maxActions, 10),
+        maxActions: opts.maxActions
+          ? parseInt(opts.maxActions, 10)
+          : (configMaxActions(repoRoot) ?? 100),
+        // Patrol exposes no --allow-host, so the config file is the only way to
+        // allow a cross-origin API here. Absent either, the allow-list stays
+        // deny-by-default at the target's own origin.
+        allowHosts: configAllowHosts(repoRoot),
         fuzz: opts.fuzz,
         workers: opts.workers ? parseInt(opts.workers, 10) : undefined,
         lang: opts.lang,
         login: opts.login,
+        loginEmail,
+        loginPassword,
+        loginUrl: opts.loginUrl,
         storageState: opts.storageState,
         healModel: opts.healModel,
         testCommand: opts.testCommand,
