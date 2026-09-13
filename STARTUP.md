@@ -183,7 +183,18 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 
 ---
 
-## 9. What shipped recently (v0.1.1 → v0.5.1)
+## 9. What shipped recently (v0.1.1 → v0.5.2)
+
+**0.5.2 — the sandbox stopped deleting your `node_modules`.** The heal sandbox
+links the repo's `node_modules` into its throwaway worktree, and on Windows that
+link is a junction. `git worktree remove --force` recurses *through* a junction,
+so the routine cleanup was recursively deleting the real `node_modules` — on
+every `--fix` run, on Windows. It was found by running the loop for real rather
+than by reading the code: this repo's own `node_modules` came back empty. The
+cleanup now unlinks directory links before git is handed the worktree. The fix is
+verified twice over — a regression test that fails without it, and an A/B on a
+live target where a real heal run empties the target's `node_modules` with the
+fix removed and leaves a sentinel file untouched with it in place.
 
 **0.5.1 — a fix is now proven, not assumed.** A healed patch could previously be
 reported as fixed *without the patched code ever running*: client findings were
@@ -195,6 +206,9 @@ rewritten to the served origin, and `ReplayResult.loaded` now gates `fixed`. Bot
 PR openers stage only the files they healed instead of `git add -A`, so an
 automatic fix can no longer commit your unrelated working tree.
 
+- **A provider failure now says what it was** — an empty completion used to reach the user as `Unexpected end of JSON input`, which blames our parser rather than the model. Both transports now throw with the stop reason ("the token limit was reached before any text was emitted…", "the provider failed mid-response"), and `data.error` is checked because OpenRouter reports upstream failures in the body under HTTP 200.
+- **Heal's token ceiling is 8192** — a patch is a few hundred tokens, but a reasoning model spends the budget on its thinking first and at 2048 hit the cap before emitting a single character. It is a ceiling, not a charge, so the headroom is free for models that do not reason.
+- **The loop is proven, not just wired** — find → prove → heal → apply now has a real run behind it: a live OpenRouter key, a real crash, `✓ deterministic (3/3 runs)`, `✓ healed`, `✓ applied heal-llm.html (1 edit)`. It needed a new fixture to get there — every other fixture in the repo is a null-deref, so the free rule engine answered them all and the LLM path was never reached.
 - **CLI redesign** — grouped `--help`, the `--fix` verb (replacing `--magic-fix`), hidden aliases (`--swarm`, `--auth`, `--login-*`).
 - **README restructure** — leads with the one-command, zero-setup story.
 - **Version fix** — the banner reads from `package.json` (was hardcoded).
@@ -211,7 +225,6 @@ automatic fix can no longer commit your unrelated working tree.
 
 ## 10. What's left / open questions
 
-- **Real-key heal test** — the full find→prove→heal→apply loop hasn't run against a real LLM key yet (only graceful no-key degradation).
 - **Cloud dashboard** — `api.aztrx.app` (`server/`) exists but isn't fully wired/launched.
 - **Domain flip** — `aztrx.app` currently serves the marketing page; the QA dashboard was meant to live there eventually.
 - **Launch** — Show HN / public launch.
