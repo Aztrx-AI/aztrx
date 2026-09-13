@@ -262,13 +262,22 @@ export async function resolveFrame(frame: RawFrame, repoRoot: string): Promise<M
       resolvedFrom: "unresolved",
     };
   }
+  // The frame's line is only as good as the code it came from: for a
+  // `webpack-internal://` frame it indexes webpack's *generated* module, not the
+  // source on disk (see reanchorPosition), so re-anchor before showing it — and
+  // before `generateRulePatch` reads it, which is the difference between a free
+  // fix and a paid one.
+  const readable = isFile(directPath) && !isSensitive(directPath);
+  const at = readable
+    ? reanchorPosition(fs.readFileSync(directPath, "utf-8"), frame.line, frame.column, frame.message)
+    : { line: frame.line, column: frame.column };
   return {
     message: frame.message,
     sourceFile: path.relative(repoRoot, directPath),
-    line: frame.line,
-    column: frame.column,
-    codeSnippet: extractSnippet(directPath, frame.line),
-    resolvedFrom: isFile(directPath) && !isSensitive(directPath) ? "direct" : "unresolved",
+    line: at.line,
+    column: at.column,
+    codeSnippet: extractSnippet(directPath, at.line),
+    resolvedFrom: readable ? "direct" : "unresolved",
   };
 }
 
@@ -437,4 +446,83 @@ export function extractSnippet(filePath: string, targetLine: number, window = 4)
       return `${marker}${String(n).padStart(4, " ")} │ ${line}`;
     })
     .join("\n");
+}
+
+/** The property a null-deref message was reading:
+ * `Cannot read properties of undefined (reading 'agents')` → `agents`.
+ * Null for every other error, which is what keeps the correction below scoped
+ * to the one message shape that proves where the throw happened. */
+function readProperty(message: string): string | null {
+  const m = message.match(/reading ['"]([^'"]+)['"]/);
+  return m ? m[1] : null;
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Drop a trailing `//` comment. The `:` guard keeps `https://` intact. */
+function stripComment(line: string): string {
+  const i = line.indexOf("//");
+  if (i <= 0 || line[i - 1] === ":") return line;
+  return line.slice(0, i);
+}
+
+/** Does this line read `.prop`? */
+function readsProperty(line: string, prop: string): boolean {
+  return new RegExp(`\\.${escapeRe(prop)}\\b`).test(line);
+}
+
+/** True when every read of `.prop` on this line is optional-chained. A guarded
+ * read cannot throw, so such a line is never the crash site — which is what
+ * separates `d?.agents ?? []` from the `d.agents.map(…)` that actually threw. */
+function allReadsGuarded(line: string, prop: string): boolean {
+  const re = new RegExp(`(\\?)?\\.${escapeRe(prop)}\\b`, "g");
+  let seen = false;
+  for (let m = re.exec(line); m; m = re.exec(line)) {
+    seen = true;
+    if (!m[1]) return false;
+  }
+  return seen;
+}
+
+/**
+ * Re-anchor a position that a transpiled frame reported wrongly.
+ *
+ * `webpack-internal://` frames carry a position in the module webpack
+ * *generated*, not in the `.tsx` on disk. Next dev reported
+ * `app/page.tsx:29:21` for a crash that is on line 15 — and because the URL
+ * path is the real source path, the file is found and a confidently wrong line
+ * is shown. Worse, `generateRulePatch` looks for the property on the mapped
+ * line, finds a `</div>` instead, and declines — so the free no-key fix never
+ * fires on Next.js.
+ *
+ * The error message is the signal. `Cannot read properties of undefined
+ * (reading 'agents')` can only be thrown by a line that reads `.agents`, so a
+ * mapped line that does not read it is provably not the throw site, and the
+ * real one is findable. Ambiguity is left alone rather than guessed at.
+ */
+export function reanchorPosition(
+  content: string,
+  line: number,
+  column: number,
+  message: string
+): { line: number; column: number } {
+  const prop = readProperty(message);
+  if (!prop) return { line, column };
+
+  const lines = content.split("\n");
+  const mapped = lines[line - 1];
+  if (mapped && readsProperty(stripComment(mapped), prop)) return { line, column };
+
+  const candidates: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const text = stripComment(lines[i]);
+    if (!readsProperty(text, prop) || allReadsGuarded(text, prop)) continue;
+    candidates.push(i + 1);
+  }
+  if (candidates.length !== 1) return { line, column }; // ambiguous — don't guess
+
+  const found = lines[candidates[0] - 1];
+  // Point the column at the property too: the frame's column is as transpiled
+  // as its line was.
+  return { line: candidates[0], column: found.indexOf(`.${prop}`) + 1 };
 }
