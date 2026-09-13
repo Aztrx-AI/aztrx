@@ -8,7 +8,7 @@
 #     pull_request:
 #   jobs:
 #     aztrx:
-#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.1
+#       uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.2
 #       secrets:
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #
@@ -55,7 +55,7 @@ on:
         type: string
         default: "npm ci"
       aztrx:
-        description: "Override the command that invokes aztrx-cli, e.g. 'npx --yes aztrx-cli@0.5.1'. Empty runs this workflow's own version."
+        description: "Override the command that invokes aztrx-cli, e.g. 'npx --yes aztrx-cli@0.5.2'. Empty runs this workflow's own version."
         required: false
         type: string
         default: ""
@@ -105,7 +105,7 @@ jobs:
 
       - name: Run Aztrx AI
         id: aztrx
-        uses: Aztrx-AI/aztrx@v0.5.1
+        uses: Aztrx-AI/aztrx@v0.5.2
         with:
           url: ${{ inputs.url }}
           token: ${{ github.token }}
