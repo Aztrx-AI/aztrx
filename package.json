@@ -52,7 +52,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Aztrx-AI/aztrx.git"
+    "url": "git+https://github.com/Aztrx-AI/aztrx.git"
   },
   "scripts": {
     "build": "tsc",
@@ -90,5 +90,13 @@
     "vite": {
       "optional": true
     }
-  }
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "bugs": {
+    "url": "https://github.com/Aztrx-AI/aztrx/issues"
+  },
+  "homepage": "https://aztrx.app"
 }
