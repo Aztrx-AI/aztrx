@@ -3,12 +3,12 @@
 > **Catch the runtime crash your Error Boundary hid — and prove it with a test, not a log line.**
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-green.svg?style=flat-square)](https://nodejs.org)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://github.com/Aztrx-AI/aztrx/blob/main/LICENSE)
 
 Aztrx AI finds **runtime** bugs, not security holes. It drives your web app like a hostile
 user and catches the crashes that ship to real users — *including ones a React Error Boundary
 swallows* (the errors `window.onerror` never sees). Each crash comes back as an exact source
-line plus an executable **Playwright repro** that fails `3/3` times. Then it fixes it.
+line, and with `--repro` an executable **Playwright repro** that replays it. Then it fixes it.
 
 ```bash
 npx aztrx-cli                    # find crashes — no key, no config, no URL to look up
@@ -20,7 +20,7 @@ nothing is listening, scans, and stops the server again on the way out. Already 
 one running? It attaches and leaves it alone. Pass a URL (`aztrx-cli run http://…`)
 and it goes exactly there instead.
 
-![aztrx demo](media/demo.gif)
+![aztrx demo](https://raw.githubusercontent.com/Aztrx-AI/aztrx/main/media/demo.gif)
 
 ---
 
@@ -28,7 +28,7 @@ and it goes exactly there instead.
 
 - **Sees swallowed errors.** Error Boundaries and `window.onerror` miss the errors your app *catches*. Aztrx reads the real throw-site stack off the `Error` object — a crash you've never seen in your logs becomes a finding you can't ignore.
 - **Explains the crash in one line.** Every crash/error ships with a one-sentence diagnosis — why it happened and what to change (e.g. `the value before `.cart` is undefined — guard with `?.`). Free, no key, right in the terminal and `report.html`.
-- **Proves, not reports.** Every crash ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 3/3]`, `[flaky 3/5]`, or `[unreliable]`.
+- **Proves, not reports.** With `--repro` (implied by `--fix`), every interaction crash ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 3/3]`, `[flaky 3/5]`, or `[unreliable]`. A crash that can't be replayed reliably is reported as `[unreliable]` rather than dressed up as proof.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
 
 ---
@@ -76,8 +76,10 @@ export AZTRX_MODEL="anthropic/claude-sonnet-5"
 ```
 
 Every fix is redacted, sandboxed in a detached git worktree, compiler-checked, and gated on
-your test suite before you see it. Aztrx never commits. `--pr` opens a merge-ready PR;
-`--regression-test` drops the repro into your test dir so the bug can't come back.
+your test suite before you see it. `--fix` writes a patch and stops — nothing is committed to
+the branch you are on. `--pr` is the opt-in that goes further: it commits to a new
+`aztrx/fix-…` branch and opens a merge-ready PR from it. `--regression-test` drops the repro
+into your test dir so the bug can't come back.
 
 ---
 
@@ -236,7 +238,7 @@ Aztrx blocks a push because it found a crash — never because it is broken:
 A hook that blocks pushes when it is merely broken gets turned off, and then it catches
 nothing.
 
-The installed file is a 15-line shim that calls back into the CLI, so `npm i -g
+The installed file is a short POSIX shim that calls back into the CLI, so `npm i -g
 aztrx-cli@latest` upgrades the hook as well — nothing to reinstall. `hook install` is
 idempotent, installs where git actually looks (so `core.hooksPath` — husky, Lefthook — is
 respected), and refuses to overwrite a `pre-push` hook it did not write unless you pass
@@ -306,7 +308,8 @@ by per-request metadata. Editors are split across that line — Claude Code spea
 revision, and Cursor still speaks `2025-11-25`.
 
 `aztrx mcp` speaks **both** and picks per request, which is why it works in both editors
-today and will keep working as the others move. It is ~300 lines with zero new dependencies;
+today and will keep working as the others move. It is ~550 lines — the protocol layer and the
+server — with zero new dependencies;
 neither official SDK covers both revisions, and the legacy one pulls seventeen runtime
 dependencies (express, cors, jose, ajv…) for a stdio server that needs none of them.
 
@@ -334,6 +337,8 @@ aztrx-cli patrol http://localhost:3000 --batch # group a cycle's fixes into one 
 | `--batch` | Group all of a cycle's fixes into one PR | one PR per bug |
 | `--once` | Run a single scan then exit | loop forever |
 | `--fuzz` / `--workers <n>` | Detection mode / parallelism (pass-through to `run`) | — |
+| `--login` | Auto-login before each pass — needs `$AZTRX_AUTH_EMAIL` + `$AZTRX_AUTH_PASSWORD`, or `--login-email` / `--login-password` | off |
+| `--storage-state <path>` | Playwright storage-state JSON for authenticated pages | — |
 
 Guardrails keep the loop from running away: it only stages the files a patch touched
 (never `git add -A`), dedups by crash fingerprint (a re-scan won't re-open the same PR),
@@ -344,7 +349,7 @@ backs off from unfixable bugs, and respects a session-wide LLM spend cap.
 ## Security
 
 - **Local-first.** Nothing leaves your machine unless you opt in.
-- **Never commits for you.** `--fix` and `--heal` land a patch in a detached worktree for your review — `git diff` is the review. The one exception is `patrol`, whose entire job is to open a PR: it commits and pushes only to the branch of the PR it opened.
+- **Never touches the branch you are on.** `--fix` and `--heal` land a patch in a detached worktree for your review — `git diff` is the review. The two things that do commit are the two whose entire job is to open a PR: `--pr`, and `patrol`. Both commit to their own `aztrx/fix-…` branch, stage **only** the files a patch touched, and return you to the branch you started on.
 - **Redacted.** Secrets are stripped from the file, error, and stack before any LLM call.
 - **Deny-by-default network.** Off-origin calls are blocked; destructive clicks (delete/pay/logout) are refused.
 - **`.aztrx/` is gitignored** — repros, reports, and patches stay out of history.
@@ -366,7 +371,7 @@ jobs:
     permissions: { contents: read, pull-requests: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: Aztrx-AI/aztrx@v0.5.0
+      - uses: Aztrx-AI/aztrx@v0.5.1
         with:
           token: ${{ github.token }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — enables --heal
@@ -389,7 +394,7 @@ CI on every push.
 
 ### What the check tells you
 
-`uses: Aztrx-AI/aztrx@v0.5.0` runs **aztrx-cli 0.5.0** — the action reads its own version, so
+`uses: Aztrx-AI/aztrx@v0.5.1` runs **aztrx-cli 0.5.1** — the action reads its own version, so
 the tag selects the engine, not just the wrapper.
 
 A red check has two different meanings, and the message says which:
@@ -412,7 +417,7 @@ Prefer not to wire it inline? The same thing is packaged as a reusable workflow:
 ```yaml
 jobs:
   aztrx:
-    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.0
+    uses: Aztrx-AI/aztrx/.github/workflows/aztrx-pr.yml@v0.5.1
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -469,7 +474,7 @@ The commands that are not `run`:
 | `--start-command <cmd>` | Command to boot the app for server healing | `scripts.dev` → `scripts.start` |
 | `--pr-comment [path]` | Write a GitHub PR markdown comment | `.aztrx/pr-comment.md` |
 | `--badge [path]` | Write a self-contained SVG status badge | `.aztrx/badge.svg` |
-| `--regression-test [dir]` | Copy validated repro specs into the project test dir | `e2e/` or `tests/` |
+| `--regression-test [dir]` | Copy validated repro specs into the project test dir | first of `e2e/`, `tests/`, `test/`, `__tests__/`; else `.aztrx/regression/` |
 | `--telemetry` | Collect anonymized tuples locally (opt-in) | — |
 | `--share-data` | Also upload the sanitized tuples (opt-in) | — |
 | `--repo <path>` | Root path for sourcemap → source resolution | cwd |
@@ -536,8 +541,8 @@ regression would fail the benchmark.
 
 Reproduce it yourself: `npm run bench` (archetypes) and `cd bench/frameworks && npm run bench`
 (Next.js corpus). Per-case results and scope notes live in
-[`bench/frameworks/RESULTS.md`](bench/frameworks/RESULTS.md) and
-[`bench/RESULTS.md`](bench/RESULTS.md).
+[`bench/frameworks/RESULTS.md`](https://github.com/Aztrx-AI/aztrx/blob/main/bench/frameworks/RESULTS.md) and
+[`bench/RESULTS.md`](https://github.com/Aztrx-AI/aztrx/blob/main/bench/RESULTS.md).
 
 ## Contributing
 

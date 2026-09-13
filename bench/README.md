@@ -30,9 +30,9 @@ error text) plus its trigger. The runner:
 Bugs are seeded as *runtime* crashes (uncaught exceptions and unhandled
 rejections) because that is what the detector targets — the category is
 framework-agnostic by design: the engine captures `pageerror` /
-`unhandledrejection` off the renderer, not framework internals. A real
-Next.js/Vite corpus is the natural next step; these cases cover the *archetype*
-matrix first.
+`unhandledrejection` off the renderer, not framework internals. This corpus
+pins the *archetype* matrix; `bench/frameworks/` is the real-project corpus
+built on top of it and is now the primary benchmark.
 
 ## Run
 

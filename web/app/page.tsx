@@ -14,7 +14,6 @@ const SUPPORT = "https://buy.polar.sh/polar_cl_f1vBaxUv3S4fJ0o28GfgzQz7gHDHXkecC
    and `#security` is a section in it, not a page we never wrote. */
 const DOCS = `${GITHUB}#readme`;
 const SECURITY = `${GITHUB}#security`;
-const RELEASES = `${GITHUB}/releases`;
 
 /* ────────────────────────── primitives ────────────────────────── */
 
@@ -837,9 +836,6 @@ function Footer() {
             </a>
             <a href={SECURITY} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
               Security
-            </a>
-            <a href={RELEASES} target="_blank" rel="noreferrer" className="transition-colors hover:text-white">
-              Changelog
             </a>
           </div>
         </Reveal>

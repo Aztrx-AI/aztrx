@@ -26,13 +26,13 @@ The whole pitch is three verbs: **find → prove → fix.**
 | 2026-08-21 | **Pivot.** The user decided to build a *local CLI stress-tester* instead. PRD v1.0 drafted. |
 | 2026-08-22 | Tracker **archived** (tag `archive/focus-tracker-2026-08-22`, not deleted). The stress-tester became a **new startup that took the "Aztrx" name + `aztrx.app` domain**. F1–F9 done. |
 | 2026-08-23 | Repo renamed to free the `aztrx` GitHub name; landing page deployed to `aztrx.app` on Vercel; Ink TUI added. |
-| late Aug | npm publish → `aztrx-cli` (the bare `aztrx` npm name was taken). |
-| now | v0.3.0 live. |
+| late Aug | npm publish → `aztrx-cli`. |
+| now | v0.5.1 in `package.json`; npm `latest` is 0.4.5. |
 
 **Key early decisions:**
 - **Codename lineage:** `stt/synapse` (stale "SynapseQA") → `seism` (a passing invention) → **`aztrx`** (your choice).
 - **Dropped the white-box idea.** The original SynapseQA concept relied on "React Fiber introspection." You dropped it — Aztrx is now **fully black-box**: it drives the browser over CDP and reads errors from `console.error` / `pageerror` / network. That was the right call (it works on React, Next, Vue, Svelte, anything).
-- **Open-core.** The CLI core is free (Apache-2.0); the LLM healing + cloud dashboard are the paid Pro/Team layer.
+- **Free, bring your own key.** The whole CLI is free and Apache-2.0; healing runs on *your* model key (`ANTHROPIC_API_KEY`, or any OpenAI-compatible endpoint via `AZTRX_API_BASE`). There is no paid tier.
 
 **Who it's for:** solo devs and 2–20 person React/Next.js teams who have no QA.
 
@@ -42,21 +42,21 @@ The whole pitch is three verbs: **find → prove → fix.**
 
 | Layer | Tech |
 | --- | --- |
-| Language | TypeScript (ESM, `"type": "module"`), Node ≥ 18 |
+| Language | TypeScript (ESM, `"type": "module"`), Node ≥ 20 |
 | CLI arg parsing | `commander@12` |
 | Terminal UI | `ink@5` + `react@18` (a live React panel in the terminal) |
 | Colors | `picocolors` |
-| Browser automation | `playwright@1.49` (headless Chromium, drives via Chrome DevTools Protocol) |
+| Browser automation | `playwright@1.62.1` (headless Chromium, drives via Chrome DevTools Protocol) |
 | Source maps | `@jridgewell/trace-mapping` |
 | Build / run | `tsc` (build), `tsx` (server + bench) |
 | Package | `aztrx-cli` (bin `aztrx-cli`) on npm |
 | Cloud server | `server/` — TypeScript HTTP ingest (api.aztrx.app) |
 | Marketing site | `web/` — Next.js 16 + Tailwind v4, deployed on Vercel (`aztrx.app`) |
 | CI | GitHub Actions — `action.yml` (composite) + `.github/workflows/aztrx-pr.yml` (reusable) |
-| Payments | Polar.sh (donation link today; the old tracker used Polar $8/mo) |
+| Payments | None — no billing, plan or pricing code in the repo. A Polar.sh donation link lives in the README |
 | Old infra (parked) | Supabase (from the tracker), Vercel project `aztrx` |
 
-The repo is `C:\Users\dchap\aztrx`, GitHub `github.com/DanisChaparov/aztrx`, authored solely as **Danis Chaparov** (no co-author trailer — your explicit preference).
+The repo is `C:\Users\dchap\aztrx`, GitHub `github.com/Aztrx-AI/aztrx`, authored solely as **Danis Chaparov** (no co-author trailer — your explicit preference).
 
 ---
 
@@ -74,7 +74,7 @@ Aztrx is a **decoupled, event-driven pipeline**. Modules talk only through a typ
                    [ Playwright spec (.spec.ts) ] ─▶ [ flake-rate validator ]
 ```
 
-The stages (named F1–F13 in the code):
+The stages (named F1–F14 in the code):
 
 | Stage | Module | What it does |
 | --- | --- | --- |
@@ -92,6 +92,7 @@ The stages (named F1–F13 in the code):
 | F11 | `telemetry/` | Opt-in anonymized crash→repro→patch tuples (local, or `--share-data`). |
 | F12 | `cloud/` | Opt-in upload of sanitized findings to the dashboard. |
 | F13 | `summarize.ts` + `heal/apply.ts` | Human-language "X-ray" summary + opt-in apply of verified patches. |
+| F14 | `diagnose.ts` | The one-line "why + what to change" headline rendered inline with every crash/error — deterministic, keyed on the V8 message shape, no key needed. |
 
 **The swarm** (`swarm.ts`): one run = a roster of workers, each with its own browser
 context, recorder, and classifier. Default is one "walk" worker; `--swarm`/`--workers`
@@ -137,7 +138,7 @@ native (default) and any OpenAI-compatible `/v1/chat/completions` endpoint, sele
 - **`studio`** — a localhost dashboard (`:7331`) streaming findings live.
 - **`init`** — scaffold `aztrx.config.ts` and gitignore `.aztrx/`.
 
-### Multi-provider LLM (v0.3.0)
+### Multi-provider LLM
 Any model via one OpenAI-compatible endpoint:
 ```bash
 export AZTRX_API_BASE="https://openrouter.ai/api/v1"  # or api.x.ai/v1, api.openai.com/v1, ...
@@ -156,15 +157,15 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 4. **"Report as teacher."** Instead of dumping every flag, the tool suggests the *next* flag after a run (`Tip: run with --fix …`) so users learn on demand, not by memorizing.
 5. **Progressive disclosure.** The `--help` is grouped by intent (Detect / Prove / Fix / Report & ship / Auth), aliases and niche knobs are hidden (but still work), and `--fix` is the one memorable verb.
 6. **No lock-in.** Any LLM provider via `AZTRX_API_BASE` — "works with the key you already have" is table stakes.
-7. **Open-core.** The detect/prove/report core is free Apache-2.0; healing + cloud are the paid layer.
+7. **Free and open source.** Everything — detect, prove, heal, cloud — is Apache-2.0 and free. The only cost is your own model key.
 
 ---
 
 ## 7. Monetization & business model
 
-- **Open-core:** CLI is free (Apache-2.0). Paid Pro/Team = closed-loop healing (LLM) + cloud dashboard (api.aztrx.app). Target price point was **$29/mo**.
+- **No paid product.** Everything in the repo — the CLI (`src/`), the cloud ingest (`server/`) and the landing page (`web/`) — is free under Apache-2.0. There is no pricing, plan, subscription or billing code anywhere in `src/`, and the README sells nothing.
+- **Bring your own key.** The one thing that can cost money is the LLM healing, and it runs on the user's own key: `ANTHROPIC_API_KEY`, or `AZTRX_API_BASE` + `AZTRX_API_KEY` + `AZTRX_MODEL` for any OpenAI-compatible provider. Scanning, proving and the null-deref `--fix` rule need no key at all.
 - **Donations:** a Polar.sh "name your price" link in the README.
-- The old tracker's Polar.sh subscription ($8/mo, `upstreamai` org) is parked with the archived tracker.
 
 ---
 
@@ -172,17 +173,17 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 
 | Resource | Where |
 | --- | --- |
-| Repo | `github.com/DanisChaparov/aztrx` (local `C:\Users\dchap\aztrx`) |
-| npm | `aztrx-cli` (v0.3.0 = `latest`; account `karnezz`, headless publish via a granular token with **Bypass 2FA**) |
+| Repo | `github.com/Aztrx-AI/aztrx` (local `C:\Users\dchap\aztrx`) |
+| npm | `aztrx-cli` (`latest` = 0.4.5; account `karnezz`) |
 | Landing page | `https://aztrx.app` (Vercel project `aztrx`, Next.js) |
 | Cloud API | `https://api.aztrx.app` (the `server/` dir) |
 | Donations | Polar.sh link in the README |
-| Benchmarks | `bench/` (13 seeded Next.js apps) + `fixtures/` (crash/kitchen/app/login/http500) |
+| Benchmarks | `bench/frameworks/` (13 Next.js 16 apps) + `bench/cases/` (13 vanilla archetypes) + `fixtures/` (crash/kitchen/app/login/http500) |
 | Parked | Supabase + old tracker git (tag `archive/focus-tracker-2026-08-22`) |
 
 ---
 
-## 9. What shipped recently (v0.1.1 → v0.3.0)
+## 9. What shipped recently (v0.1.1 → v0.5.0)
 
 - **CLI redesign** — grouped `--help`, the `--fix` verb (replacing `--magic-fix`), hidden aliases (`--swarm`, `--auth`, `--login-*`).
 - **README restructure** — leads with the one-command, zero-setup story.
@@ -201,7 +202,7 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 - **Cloud dashboard** — `api.aztrx.app` (`server/`) exists but isn't fully wired/launched.
 - **Domain flip** — `aztrx.app` currently serves the marketing page; the QA dashboard was meant to live there eventually.
 - **Launch** — Show HN / public launch.
-- **Flagship demo** — the 13-app `bench/` (100% recall claim in the README) needs `npm install` + a run to back the numbers.
+- **Flagship demo** — the numbers behind the README's recall claim are recorded: `bench/frameworks/RESULTS.md` (13/13 found, 12/12 deterministic repros) and `bench/RESULTS.md` (13/13, 11/12).
 
 ---
 

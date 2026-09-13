@@ -67,12 +67,13 @@ fault line in the page.
 
 ## Scope and caveats (read this before citing the number)
 
-1. **Synthetic archetype corpus, not real Next.js/Vite projects yet.** These 13
-   cases pin the *archetype* matrix (null deref, async race, JSON parse,
-   stack overflow, route transition, etc.) in framework-agnostic vanilla HTML.
-   The engine captures `pageerror`/`unhandledrejection` off the renderer, so the
-   runtime behaviour is what matters — but the number is not yet a claim over a
-   real-project corpus. That is the next benchmark stage.
+1. **Synthetic archetype corpus, not real projects.** These 13 cases pin the
+   *archetype* matrix (null deref, async race, JSON parse, stack overflow, route
+   transition, etc.) in framework-agnostic vanilla HTML. The engine captures
+   `pageerror`/`unhandledrejection` off the renderer, so the runtime behaviour is
+   what matters — but this number is a claim about archetypes, not about real
+   apps. The real-project corpus is `bench/frameworks/` (13 Next.js App Router
+   apps); see its `RESULTS.md` for that claim.
 2. **Repro is scored via `--repro`.** That flag exercises F7 (ddmin minimize) →
    F8 (compile to a Playwright `.spec.ts`) → F9 (flake-rate validate). 11/12
    interaction findings replay deterministically. The `json-parse` case is

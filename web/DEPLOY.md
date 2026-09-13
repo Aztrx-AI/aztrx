@@ -1,20 +1,22 @@
 # Deploying aztrx.app
 
 The repo is a small monorepo: the **CLI** at the root, this **Next.js landing
-page** in `web/`. There is no git remote yet, and `aztrx.app` currently serves
-the retired focus-tracker (Vercel deploys it from a separate `aztrx` GitHub
-repo). Deploying this page takes over the domain.
+page** in `web/`. It lives at `github.com/Aztrx-AI/aztrx`, and `aztrx.app`
+already serves an earlier deploy of this page — pushing `web/` to `main` is how
+the next version reaches it.
 
 ## 1. Push to GitHub
 
-The repo has no remote. Create one and push:
+`origin` is already the project repo, so there is nothing to add:
 
 ```bash
-git remote add origin git@github.com:<you>/<repo>.git
-git push -u origin main
+git push origin main
 ```
 
 ## 2. Connect Vercel
+
+Already linked — `web/.vercel/project.json` names the `aztrx` project. These are
+the settings it was created with, for reference:
 
 1. Vercel → **Add New Project** → import the repo.
 2. **Root Directory → `web/`** (critical — the repo root is the CLI package,
@@ -26,14 +28,6 @@ git push -u origin main
 
 1. Project → **Settings → Domains** → add `aztrx.app` (and `www.aztrx.app`).
 2. Update DNS if Vercel asks (A record `76.76.21.21`, CNAME `cname.vercel-dns.com`).
-3. This supersedes the tracker's deploy at `aztrx.app` — the tracker code stays
-   archived in git; only its live site swaps.
-
-## 4. Fix the Supabase redirects (still pending)
-
-The Supabase project's Auth **Site URL / Redirect URLs** still point at the dead
-`stt-opal.vercel.app`. Update them to `https://aztrx.app` (dashboard →
-Authentication → URL Configuration).
 
 ## Local preview
 
@@ -41,5 +35,5 @@ Authentication → URL Configuration).
 cd web
 npm install
 npm run dev        # http://localhost:3000
-npm run build      # production build, static output
+npm run build      # production build (.next)
 ```
