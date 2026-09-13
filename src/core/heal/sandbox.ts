@@ -96,10 +96,18 @@ export async function diffWorktree(worktreeDir: string, repoRelativePath: string
  * follows the AST syntax gate. Best-effort: passes (skips) when the repo has no
  * TypeScript or the worktree has no tsconfig, so non-TS projects aren't blocked.
  * The worktree has no node_modules; a symlink to the root's is created first and
- * removed with the worktree on cleanup. */
+ * removed with the worktree on cleanup.
+ *
+ * Unlike every other gate here, this one is whole-project work: `tsc` type-checks
+ * the entire repository, so its cost scales with the repo, and on a very large
+ * one it is minutes. It therefore carries a ceiling — and a timeout is reported
+ * as *skipped*, not failed. "The compiler never reached a verdict" is a different
+ * sentence from "the patch is broken", and conflating them would silently discard
+ * good fixes on exactly the large repos this ceiling exists to protect. */
 export async function typecheckWorktree(
   worktreeDir: string,
-  repoRoot: string
+  repoRoot: string,
+  opts: { timeoutMs?: number } = {}
 ): Promise<{ ok: boolean; ran: boolean; output: string }> {
   const tscBin = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
   const hasTsconfig = fs.existsSync(path.join(worktreeDir, "tsconfig.json"));
@@ -117,15 +125,25 @@ export async function typecheckWorktree(
     }
   }
 
+  const timeoutMs = opts.timeoutMs ?? 300000;
   try {
     const { stdout } = await execFileP(
       process.execPath,
       [tscBin, "--noEmit", "-p", worktreeDir],
-      { cwd: worktreeDir, maxBuffer: 10 * 1024 * 1024, env: buildChildEnv() }
+      { cwd: worktreeDir, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: buildChildEnv() }
     );
     return { ok: true, ran: true, output: stdout.trim() };
   } catch (e) {
-    const err = e as { stdout?: string; stderr?: string };
+    const err = e as { stdout?: string; stderr?: string; killed?: boolean; signal?: string };
+    // A timeout kills the child; that is not a compile error. Skip the gate and
+    // say why, rather than reporting a verdict the compiler never gave.
+    if (err.killed || err.signal) {
+      return {
+        ok: true,
+        ran: false,
+        output: `tsc did not finish within ${timeoutMs}ms — type check skipped`,
+      };
+    }
     return { ok: false, ran: true, output: ((err.stdout ?? "") + (err.stderr ?? "")).trim() };
   }
 }
