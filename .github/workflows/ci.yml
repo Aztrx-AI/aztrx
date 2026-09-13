@@ -1,0 +1,47 @@
+name: CI
+
+# The repo's own gate. `aztrx-pr.yml` next to this file is a *template consumers
+# call* (`on: workflow_call` only) — it never runs here, so before this file the
+# 147-test suite only ran when a human typed `npm test`, and nothing stopped the
+# engine from regressing.
+#
+# Node 20 deliberately matches `action.yml`'s `node-version`: the version this
+# product ships to consumers is the one worth protecting.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A force-push to a PR branch should cancel the superseded run, not queue
+  # behind it — but never cancel a run on main, where the result is the record.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Pin the browser to the Playwright version aztrx itself depends on, so the
+      # driver and the browser never drift apart. Same pin as action.yml:106.
+      # The Vite-plugin test boots a real dev server and drives a real page.
+      - run: npx --yes playwright@1.62.1 install --with-deps chromium
+
+      - run: npm run typecheck
+
+      # `pretest` builds dist/ first — the MCP tests spawn the built CLI.
+      - run: npm test
