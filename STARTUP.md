@@ -27,7 +27,7 @@ The whole pitch is three verbs: **find → prove → fix.**
 | 2026-08-22 | Tracker **archived** (tag `archive/focus-tracker-2026-08-22`, not deleted). The stress-tester became a **new startup that took the "Aztrx" name + `aztrx.app` domain**. F1–F9 done. |
 | 2026-08-23 | Repo renamed to free the `aztrx` GitHub name; landing page deployed to `aztrx.app` on Vercel; Ink TUI added. |
 | late Aug | npm publish → `aztrx-cli`. |
-| now | v0.5.2 in `package.json`; npm `latest` is 0.5.1 (0.5.2 is committed, not yet published). |
+| now | **v0.5.2 is released** — `package.json`, npm `latest`, the `v0.5.2` tag, and all five documented pins agree. |
 
 **Key early decisions:**
 - **Codename lineage:** `stt/synapse` (stale "SynapseQA") → `seism` (a passing invention) → **`aztrx`** (your choice).
@@ -174,7 +174,7 @@ Covers Grok, DeepSeek, Gemini, GPT, Kimi, Mistral, OpenRouter, and local Ollama/
 | Resource | Where |
 | --- | --- |
 | Repo | `github.com/Aztrx-AI/aztrx` (local `C:\Users\dchap\aztrx`) |
-| npm | `aztrx-cli` (`latest` = 0.5.1; account `karnezz`) |
+| npm | `aztrx-cli` (`latest` = 0.5.2; account `karnezz`) |
 | Landing page | `https://aztrx.app` (Vercel project `aztrx`, Next.js) |
 | Cloud API | `https://api.aztrx.app` (the `server/` dir) |
 | Donations | Polar.sh link in the README |
@@ -218,8 +218,11 @@ reported `aztrx did not run (exit code: N)`, wording chosen so it cannot be
 mistaken for a verdict about the app, which means it read as infrastructure
 rather than as a wrong README. The pins were bumped in a commit titled "Release
 0.5.2 … on npm" four commits before that publish existed. The bump was never the
-mistake — doing it early was. So the pins now name 0.5.1, the last version a
-stranger can actually install, and three checks keep it that way.
+mistake — doing it early was. So the pins went back to naming the last version a
+stranger could actually install, and three checks now hold them there: the README,
+`action.yml` and the reusable workflow must agree with each other, and none may
+name a version *ahead* of `package.json`. That is what made 0.5.2's own release
+mechanical — publish, tag, bump the five pins, one push.
 
 **0.5.1 — a fix is now proven, not assumed.** A healed patch could previously be
 reported as fixed *without the patched code ever running*: client findings were
@@ -263,13 +266,13 @@ automatic fix can no longer commit your unrelated working tree.
 - **Domain flip** — `aztrx.app` currently serves the marketing page; the QA dashboard was meant to live there eventually.
 - **Launch** — Show HN / public launch.
 - **Flagship demo** — the numbers behind the README's recall claim are recorded: `bench/frameworks/RESULTS.md` (13/13 found, 12/12 deterministic repros) and `bench/RESULTS.md` (13/13, 11/12).
-- **Orphan `v0.5.0` tag** — the tag is on origin but 0.5.0 was never published to npm, so `uses: Aztrx-AI/aztrx@v0.5.0` fails with ETARGET. Nothing tells users to pin it (the documented pin is `v0.5.1`), and the failure is safe — the check reports "aztrx did not run", not a verdict about the app — but the tag is dead weight. Deleting it or publishing 0.5.0 are both deliberate calls, so it is left standing.
-- **Release sequence, and why 0.5.2 is deliberately not in the README yet** — `package.json` says 0.5.2 and the code is on `main`, but npm `latest` is still 0.5.1. That gap is intentional: the README's CI examples pin `@v0.5.1`, *the last version a stranger can actually install*, because a pin only means something once the tag and the tarball both exist. The order is not interchangeable:
+- **Orphan `v0.5.0` tag** — the tag is on origin but 0.5.0 was never published to npm, so `uses: Aztrx-AI/aztrx@v0.5.0` fails with ETARGET. Nothing tells users to pin it (the documented pin is `v0.5.2`), and the failure is safe — the check reports "aztrx did not run", not a verdict about the app — but the tag is dead weight. Deleting it or publishing 0.5.0 are both deliberate calls, so it is left standing.
+- **Release sequence — why a pin trails the tree and never leads it** — this is the normal state between releases: `main` and `package.json` run ahead, and the documented pin sits at *the last version a stranger can actually install*, because a pin only means something once the tag and the tarball both exist. 0.5.2 is the released state, so all five agree today; the next release reopens the gap on purpose. The order is not interchangeable:
   1. `npm publish` — never with `--ignore-scripts`; `prepublishOnly` is what rebuilds `dist/`, and the committed `dist/` is stale.
   2. `git push && git tag v0.5.2 && git push origin v0.5.2` — the tag comes **after** the publish. Tagging first is exactly how `v0.5.0` became an orphan above.
   3. Bump the advertised version — `README.md` (three refs), `action.yml`, and `.github/workflows/aztrx-pr.yml` (two refs) — commit, and push that commit **in the same push as the tag**. `tests/version-pins.test.ts` and `tests/action.test.ts` enforce that the five agree and that none leads `package.json`; they are what makes step 3 mechanical rather than remembered.
 
-  A tag pushed before its publish is a broken pin for everyone who copies the README out of the repo; a README bump before its publish is the same breakage one step earlier. Both are why `main` advertises 0.5.1 today.
+  A tag pushed before its publish is a broken pin for everyone who copies the README out of the repo; a README bump before its publish is the same breakage one step earlier. Both are why a pin trails the tree between releases — and why the five agreeing today is a fact about 0.5.2, not a standing property of `main`.
 
 ---
 
