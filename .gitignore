@@ -14,3 +14,4 @@ bench/frameworks/**/CLAUDE.md
 # Cloud ingest server — runtime state + operator key registry
 server/.data/
 server/keys.json
+server/dist/

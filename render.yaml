@@ -1,0 +1,20 @@
+# Render blueprint for the Aztrx cloud ingest (api.aztrx.app).
+# Import this repo in the Render dashboard and it spins up the server with a
+# persistent disk for the JSON-file store. AZTRX_API_KEYS is intentionally
+# sync:false — the operator-managed key registry, set in the dashboard, never
+# committed here. Shape: {"<apiKey>": {"org": "<slug>", "label": "<human name>"}}
+services:
+  - type: web
+    name: aztrx-ingest
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: AZTRX_API_KEYS
+        sync: false
+      - key: AZTRX_DATA_DIR
+        value: /data
+    disk:
+      name: store
+      mountPath: /data
+      sizeGB: 1
