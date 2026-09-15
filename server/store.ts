@@ -123,6 +123,11 @@ export class Store {
     return results;
   }
 
+  getFinding(org: string, fingerprint: string): StoredFinding | null {
+    const file = path.join(this.findingsDir(org), `${safeSegment(fingerprint)}.json`);
+    return readJson<StoredFinding | null>(file, null);
+  }
+
   listFindings(org: string): StoredFinding[] {
     const dir = this.findingsDir(org);
     if (!fs.existsSync(dir)) return [];

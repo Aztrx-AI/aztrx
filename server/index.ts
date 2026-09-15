@@ -126,6 +126,22 @@ export function createIngestServer(cfg: Config = loadConfig()): http.Server {
       });
     }
 
+    if (req.method === "GET" && pathname === "/api/runs") {
+      return sendJson(res, 200, {
+        ok: true,
+        org: meta.org,
+        label: meta.label,
+        runs: store.listRuns(meta.org),
+      });
+    }
+
+    if (req.method === "GET" && pathname.startsWith("/api/findings/")) {
+      const fingerprint = decodeURIComponent(pathname.slice("/api/findings/".length));
+      const finding = store.getFinding(meta.org, fingerprint);
+      if (!finding) return sendJson(res, 404, { ok: false, error: "unknown fingerprint" });
+      return sendJson(res, 200, { ok: true, finding });
+    }
+
     return sendJson(res, 404, { ok: false, error: "not found" });
   }
 

@@ -181,3 +181,56 @@ test("ingest: an unknown route under a valid key is a 404, not a silent success"
     assert.equal(res.status, 404);
   });
 });
+
+test("dashboard: /api/runs returns the run timeline for the org", async () => {
+  await withServer(async (base) => {
+    await post(base, "/api/runs", runPayload("fp-r1"), KEY);
+    await post(base, "/api/runs", runPayload("fp-r2"), KEY);
+
+    const res = await fetch(`${base}/api/runs`, { headers: { "x-api-key": KEY } });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      org: string;
+      runs: { run_id: string; findings: string[]; target: string; mode: string }[];
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.org, "acme");
+    assert.equal(body.runs.length, 2, "two runs on the timeline, newest first");
+    assert.equal(body.runs[0].findings[0], "fp-r2", "the latest run sorts first");
+  });
+});
+
+test("dashboard: /api/runs needs a key like everything else", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/api/runs`);
+    assert.equal(res.status, 401);
+  });
+});
+
+test("dashboard: /api/findings/:fp returns one canonical finding", async () => {
+  await withServer(async (base) => {
+    await post(base, "/api/runs", runPayload("fp-detail"), KEY);
+    await post(base, "/api/runs", runPayload("fp-detail"), KEY);
+
+    const res = await fetch(`${base}/api/findings/fp-detail`, { headers: { "x-api-key": KEY } });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      finding: { fingerprint: string; occurrences: number; seen_runs: number; latest: { run_id: string } };
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.finding.fingerprint, "fp-detail");
+    assert.equal(body.finding.occurrences, 2, "dedup counts both sightings");
+    assert.equal(body.finding.seen_runs, 2);
+    assert.ok(body.finding.latest.run_id, "the latest sighting names its run");
+  });
+});
+
+test("dashboard: a fingerprint nobody reported is a 404, not an empty page", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/api/findings/never-seen`, { headers: { "x-api-key": KEY } });
+    assert.equal(res.status, 404);
+    assert.deepEqual(await res.json(), { ok: false, error: "unknown fingerprint" });
+  });
+});
