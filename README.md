@@ -30,6 +30,7 @@ and it goes exactly there instead.
 - **Explains the crash in one line.** Every crash/error ships with a one-sentence diagnosis — why it happened and what to change (e.g. `the value before `.cart` is undefined — guard with `?.`). Free, no key, right in the terminal and `report.html`.
 - **Proves, not reports.** With `--repro` (implied by `--fix`), every interaction crash ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 3/3]`, `[flaky 3/5]`, or `[unreliable]`. A crash that can't be replayed reliably is reported as `[unreliable]` rather than dressed up as proof.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
+- **Knows your audience.** `--swarm` scouts the app first — package.json, README, and the running UI — and synthesizes the people who actually use it. A shop gets rushed buyers and coupon hunters; a dashboard gets night-shift operators and filter wizards. Then it swarms the app with **1000 agents by default**, weighted to that audience.
 
 ---
 
@@ -89,9 +90,9 @@ into your test dir so the bug can't come back.
 | --- | --- |
 | `--fuzz` | coverage-guided chaos fuzz — steers toward code it hasn't reached |
 | `--http-fuzz` | attack the server's endpoints (turns every `5xx` into a repro) |
-| `--swarm` | a QA team of ten roles — each drives the app its own way, in parallel |
-| `--roles <ids>` | a subset of the swarm, e.g. `novice,hostile,race-hunter` |
-| `--agents N` | scale the swarm to N missions (tasks, not browsers) |
+| `--swarm` | analyze the app, synthesize its audience, swarm it with 1000 agents |
+| `--roles <ids>` | a subset of the standing catalog, e.g. `novice,hostile,race-hunter` |
+| `--agents N` | total agent missions (tasks, not browsers) |
 | `--login` | auto-login to test authenticated pages |
 | `--badge` / `--pr-comment` / `--fail-on` | CI artifacts |
 | `patrol <url>` | autonomous loop — re-scan, fix, open a PR per bug |
@@ -467,9 +468,9 @@ The commands that are not `run`:
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
 | `--workers <n>` | Max concurrent browser contexts (the swarm's pool size) | `1` |
-| `--swarm` | Run the full ten-role catalog: novice, power user, hooligan, session killer, race hunter, observer, a11y tester, HTTP raider, regressor, slow internet | — |
-| `--roles <ids>` | Comma-separated catalog roles to run | — |
-| `--agents <n>` | Total agent missions across the selected roles — a mission is a task, not a browser | 1 per role |
+| `--swarm` | Scout the app (package.json + README + the running UI), synthesize its audience, and swarm it with 1000 agents by default | — |
+| `--roles <ids>` | Comma-separated standing-catalog roles — skips the analysis | — |
+| `--agents <n>` | Total agent missions: default `1000` with `--swarm`, 1 per role with `--roles`. A mission is a task, not a browser | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` / `$AZTRX_MODEL` |
 | `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5-20251001` / `$AZTRX_FAST_MODEL` |

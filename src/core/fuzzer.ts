@@ -12,6 +12,9 @@ export interface FuzzOptions {
   /** Opt-in: include controls the deny-list skips (delete/pay/logout/checkout…).
    * Off by default — these can mutate real state. */
   allowDestructive?: boolean;
+  /** Extra hostile payloads — domain-flavored garbage from the role catalog
+   * (coupon codes, malformed keys, …). Merged with the built-in GARBAGE. */
+  payloads?: string[];
 }
 
 export interface FuzzResult {
@@ -60,6 +63,7 @@ interface Actionable {
 export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): Promise<FuzzResult> {
   const max = opts.maxActions ?? 100;
   const rnd = mulberry32(opts.seed ?? 42);
+  const payloads = [...GARBAGE, ...(opts.payloads ?? [])];
   const startUrl = page.url();
   let acted = 0;
   let newCoverage = 0;
@@ -181,7 +185,7 @@ export async function fuzz(page: Page, bus: EventBus, opts: FuzzOptions = {}): P
 
     if (tag === "input" || tag === "textarea") {
       if (roll < 0.6) {
-        const value = pick(rnd, GARBAGE);
+        const value = pick(rnd, payloads);
         const action: RecordedAction = { type: "input", selectors, value, timestamp: Date.now() };
         bus.emit("action", action);
         if (!opts.dryRun) await handle.fill(value).catch(() => {});

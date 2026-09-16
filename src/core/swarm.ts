@@ -21,10 +21,13 @@ import type { Browser } from "playwright";
 import { launchChromium } from "./browser.js";
 import { EventBus } from "./eventBus.js";
 import { collapseSignals } from "./classifier.js";
-import type { BehaviorKind, Role } from "./roles.js";
-import { resolveRoles } from "./roles.js";
+import type { Role } from "./roles.js";
+import { ROLE_CATALOG, resolveRoles } from "./roles.js";
 import type { AgentOptions, Mission, MissionResult } from "./agent.js";
 import { runAgentMission, runRaceMission } from "./agent.js";
+import { analyzeTarget } from "./profile.js";
+import type { ProjectProfile } from "./profile.js";
+import { synthesizeRoles } from "./synthesize.js";
 import type { Finding } from "./types.js";
 
 export interface SwarmOptions {
@@ -39,7 +42,11 @@ export interface SwarmOptions {
   workers: number;
   /** `--roles novice,hostile` — run these catalog roles. Empty = legacy mode. */
   roles?: string[];
-  /** `--agents N` — total missions across the selected roles (default: 1 per role). */
+  /** Analyze the target first and synthesize audience roles for it (--swarm).
+   * Default agents = 1000; per-mission budgets shrink to keep the run bounded. */
+  synthesize?: boolean;
+  /** `--agents N` — total missions across the selected roles (default: 1 per
+   * role in `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
   /** Max concurrent browser contexts (default: min(missions, 8)). */
   concurrency?: number;
@@ -77,34 +84,93 @@ export interface SwarmResult {
   /** Per-role totals — who did what, for the summary and the dashboard. */
   roleStats: RoleStat[];
   sawLoginForm: boolean;
+  /** The scout pass's read of the target (synthesized swarm mode only). */
+  profile?: ProjectProfile;
+  /** How many persona roles the synthesizer added on top of the catalog. */
+  personaCount?: number;
 }
 
 /** A synthetic role for the legacy (non-catalog) modes. */
-function syntheticRole(id: string, label: string, kind: BehaviorKind, budget: number): Role {
+function syntheticRole(id: string, label: string, kind: "walk" | "fuzz", budget: number): Role {
   return { id, name: label, emoji: "", mission: "", mode: "solo", behaviors: [{ kind, budget }] };
 }
 
-/**
- * Build the mission roster for a run.
- * - Catalog mode (`--swarm`/`--roles`): one mission per role, scaled by
- *   `--agents N` (round-robin across roles, each with its own seed).
- * - Legacy mode: `workers = 1` is the single walk; `workers > 1` fans out as
- *   walk + fuzz seeds (`--fuzz` makes every worker fuzz). `--http-fuzz` is not
- *   a mission — it folds into the walk/fuzz mission as before.
- */
-export function buildMissions(opts: SwarmOptions): Mission[] {
-  const missions: Mission[] = [];
+/** Per-mission budget under a swarm-wide cap: shrink so `total` missions stay
+ * around `cap` actions altogether, but never below 3 (an agent that pokes
+ * less than three times isn't an agent). */
+function effectiveBudget(role: Role, total: number, cap: number | undefined): number {
+  const roleBudget = role.behaviors[0]?.budget ?? 100;
+  if (!cap) return roleBudget;
+  return Math.max(3, Math.min(roleBudget, Math.ceil(cap / total)));
+}
 
-  if (opts.roles && opts.roles.length > 0) {
-    const catalog = resolveRoles(opts.roles);
-    const total = opts.agents ?? catalog.length;
-    for (let i = 0; i < total; i++) {
-      missions.push({ role: catalog[i % catalog.length], seed: opts.seed + i });
+export interface CatalogMissionsInput {
+  roles: Role[];
+  /** Total missions to allocate across the roles. */
+  total: number;
+  seed: number;
+  /** Allocate by role weight (the synthesized audience mix). Default: round-robin. */
+  weighted?: boolean;
+  /** Swarm-wide action cap — per-mission budgets shrink to honor it. */
+  budgetCap?: number;
+}
+
+/**
+ * Allocate `total` missions across the role roster. Weighted allocation
+ * mirrors the audience: each role gets floor(total × weight / totalWeight)
+ * missions, the remainder is distributed round-robin in roster order. Every
+ * mission gets its own seed.
+ */
+export function buildCatalogMissions(input: CatalogMissionsInput): Mission[] {
+  const { roles, total, seed } = input;
+  const counts = new Map<string, number>();
+  let assigned = 0;
+
+  if (input.weighted) {
+    const totalWeight = roles.reduce((s, r) => s + (r.weight ?? 1), 0);
+    for (const r of roles) {
+      const n = Math.floor((total * (r.weight ?? 1)) / totalWeight);
+      counts.set(r.id, n);
+      assigned += n;
     }
-    return missions;
+  }
+  let i = 0;
+  while (assigned < total) {
+    const r = roles[i % roles.length];
+    counts.set(r.id, (counts.get(r.id) ?? 0) + 1);
+    assigned++;
+    i++;
   }
 
+  // Emit interleaved — role A, B, C, A, B, C — so the first queued missions
+  // span the whole roster and an interrupted run still sampled everyone.
+  const remaining = new Map(counts);
+  const missions: Mission[] = [];
+  let s = seed;
+  let pushed = true;
+  while (pushed) {
+    pushed = false;
+    for (const r of roles) {
+      const left = remaining.get(r.id) ?? 0;
+      if (left > 0) {
+        remaining.set(r.id, left - 1);
+        missions.push({ role: r, seed: s++, budget: effectiveBudget(r, total, input.budgetCap) });
+        pushed = true;
+      }
+    }
+  }
+  return missions;
+}
+
+/**
+ * The legacy roster: `workers = 1` is the single walk; `workers > 1` fans out
+ * as walk + fuzz seeds (`--fuzz` makes every worker fuzz). `--http-fuzz` is
+ * not a mission — it folds into the walk/fuzz mission as before.
+ */
+export function buildLegacyMissions(opts: { workers: number; fuzz?: boolean; seed: number; maxActions: number }): Mission[] {
+  const missions: Mission[] = [];
   const w = Math.max(1, opts.workers);
+
   if (w === 1) {
     missions.push({
       role: syntheticRole(opts.fuzz ? "fuzz" : "walk", opts.fuzz ? `fuzz seed ${opts.seed}` : "walk", opts.fuzz ? "fuzz" : "walk", opts.maxActions),
@@ -170,14 +236,62 @@ async function runPool<T>(items: T[], limit: number, fn: (item: T, index: number
 
 /** Build the mission roster, run it through a bounded context pool, merge. */
 export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
-  const missions = buildMissions(opts);
-  const catalogMode = Boolean(opts.roles?.length);
+  const browser = await launchChromium();
+
+  // Roster: the synthesized swarm (--swarm) scouts the target first and builds
+  // its audience; --roles picks catalog roles outright; otherwise the legacy
+  // walk/fuzz roster runs untouched.
+  let profile: ProjectProfile | undefined;
+  let personaCount = 0;
+  let missions: Mission[];
+  let catalogMode = Boolean(opts.roles?.length);
+
+  if (opts.synthesize) {
+    try {
+      // The scout: one quiet page load to read what this app is. The interceptor
+      // and guard are irrelevant here — nothing is clicked, nothing is sent.
+      const scout = await browser.newContext();
+      try {
+        const scoutPage = await scout.newPage();
+        await scoutPage.goto(opts.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+        await scoutPage.waitForTimeout(1500);
+        profile = await analyzeTarget(scoutPage, opts.repoRoot);
+      } finally {
+        await scout.close();
+      }
+      const roster = synthesizeRoles(profile);
+      personaCount = roster.length - ROLE_CATALOG.length;
+      // The orchestrator prints the profile line — this module only emits
+      // per-mission logs.
+      // The audience mix, weighted, scaled to a thousand missions by default.
+      // Budgets shrink so the whole swarm stays within `maxActions` of work.
+      missions = buildCatalogMissions({
+        roles: roster,
+        total: opts.agents ?? 1000,
+        seed: opts.seed,
+        weighted: true,
+        budgetCap: opts.maxActions,
+      });
+      catalogMode = true;
+    } catch (e) {
+      // A failed scout must not kill the run — fall back to the standing catalog.
+      opts.log(`scout failed (${(e as Error)?.message ?? String(e)}) — falling back to the base catalog`);
+      const roster = resolveRoles(undefined);
+      missions = buildCatalogMissions({ roles: roster, total: opts.agents ?? roster.length, seed: opts.seed });
+      catalogMode = true;
+    }
+  } else if (opts.roles?.length) {
+    const roster = resolveRoles(opts.roles);
+    missions = buildCatalogMissions({ roles: roster, total: opts.agents ?? roster.length, seed: opts.seed });
+  } else {
+    missions = buildLegacyMissions({ workers: opts.workers, fuzz: opts.fuzz, seed: opts.seed, maxActions: opts.maxActions });
+  }
+
   // `--workers` overrides the pool size; otherwise catalog mode caps at 8
   // contexts (a desktop-size default), legacy mode runs exactly its roster.
   const concurrency =
     opts.concurrency ?? (opts.workers > 1 ? opts.workers : Math.min(missions.length, catalogMode ? 8 : missions.length));
 
-  const browser = await launchChromium();
   const results = new Map<number, MissionResult>();
 
   try {
@@ -206,11 +320,15 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
             ? await runRaceMission(browser, agentOpts, mission, opts.forwardBus)
             : await runAgentMission(browser, agentOpts, mission, opts.forwardBus);
         results.set(i, result);
-        opts.log(
-          catalogMode
-            ? `[${mission.role.id}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
-            : `[w${i}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
-        );
+        // A thousand-mission swarm logs per-mission lines only when there is
+        // something to say — the per-role summary carries the totals.
+        if (result.findings.length > 0 || missions.length <= 20) {
+          opts.log(
+            catalogMode
+              ? `[${mission.role.id}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
+              : `[w${i}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
+          );
+        }
       } catch (e) {
         opts.log(`mission ${i} (${mission.role.id}) failed: ${(e as Error)?.message ?? String(e)}`);
       }
@@ -251,8 +369,10 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
     totalActions,
     totalCoverage,
     workerCount: settled.length,
-    roles: missions.map((m) => m.role.name),
+    roles: [...new Set(missions.map((m) => m.role.name))],
     roleStats,
     sawLoginForm: settled.some((r) => r.sawLoginForm),
+    profile,
+    personaCount,
   };
 }

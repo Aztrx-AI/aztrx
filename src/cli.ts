@@ -340,9 +340,9 @@ program
   .addOption(opt("--allow-destructive", "opt-in: test destructive controls/endpoints (delete/pay/logout/checkout) — can mutate real data", "advanced"))
   .addOption(opt("--seed <n>", "RNG seed for fuzz", "advanced").default("42"))
   .addOption(opt("--workers <n>", "max concurrent browser contexts (default: min(missions, 8))", "detect"))
-  .addOption(opt("--swarm", "run the full role catalog — ten agent roles attacking the app at once", "detect"))
-  .addOption(opt("--roles <ids>", "comma-separated catalog roles to run (e.g. novice,hostile,race-hunter)", "detect"))
-  .addOption(opt("--agents <n>", "total agent missions across the selected roles (default: 1 per role) — missions are tasks, not browsers", "detect"))
+  .addOption(opt("--swarm", "analyze the app, synthesize its audience, swarm it with 1000 agents", "detect"))
+  .addOption(opt("--roles <ids>", "comma-separated catalog roles to run (e.g. novice,hostile,race-hunter) — skips the analysis", "detect"))
+  .addOption(opt("--agents <n>", "total agent missions (default: 1000 with --swarm, 1 per role with --roles) — missions are tasks, not browsers", "detect"))
   .addOption(opt("--repro", "minimize + compile + validate each finding (F7-F9)", "prove"))
   .addOption(opt("--repro-runs <n>", "replay iterations for the flake-rate gate", "advanced").default("3"))
   .addOption(opt("--fix", "find → explain → heal → apply: one-command fix", "fix"))
@@ -421,13 +421,14 @@ program
       }
       const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
 
-      // Resolve the swarm roster: `--roles a,b` runs exactly those catalog
-      // roles, `--swarm` runs the full catalog. Unknown ids are a hard error —
-      // a typo silently dropping half the swarm would corrupt the run.
+      // Resolve the swarm roster: `--swarm` analyzes the app and synthesizes
+      // its audience (roles are born, not chosen); `--roles a,b` runs exactly
+      // those catalog roles and skips the analysis. Explicit roles beat the
+      // synthesizer. Unknown ids are a hard error — a typo silently dropping
+      // half the swarm would corrupt the run.
+      const synthesize = Boolean(opts.swarm && !opts.roles);
       let roleIds: string[] | undefined;
-      if (opts.swarm) {
-        roleIds = ROLE_CATALOG.map((r) => r.id);
-      } else if (opts.roles) {
+      if (opts.roles) {
         roleIds = opts.roles.split(",").map((s) => s.trim()).filter(Boolean);
         const known = new Set(ROLE_CATALOG.map((r) => r.id));
         const unknown = roleIds.filter((id) => !known.has(id));
@@ -442,17 +443,19 @@ program
       }
       const agents = opts.agents ? parseInt(opts.agents, 10) : undefined;
 
-      const mode = roleIds
-        ? `swarm (${roleIds.length} role${roleIds.length === 1 ? "" : "s"}${agents ? `, ${agents} missions` : ""})`
-        : (workers ?? 1) > 1 || opts.httpFuzz
-          ? `swarm (${workers ?? 1} worker${(workers ?? 1) === 1 ? "" : "s"})`
-          : opts.fuzz
-            ? `fuzz (seed ${opts.seed})`
-            : opts.heal
-              ? "repro → heal"
-              : opts.repro
-                ? "repro"
-                : "deterministic walk";
+      const mode = synthesize
+        ? `swarm (synthesized, ${agents ?? 1000} agents)`
+        : roleIds
+          ? `swarm (${roleIds.length} role${roleIds.length === 1 ? "" : "s"}${agents ? `, ${agents} missions` : ""})`
+          : (workers ?? 1) > 1 || opts.httpFuzz
+            ? `swarm (${workers ?? 1} worker${(workers ?? 1) === 1 ? "" : "s"})`
+            : opts.fuzz
+              ? `fuzz (seed ${opts.seed})`
+              : opts.heal
+                ? "repro → heal"
+                : opts.repro
+                  ? "repro"
+                  : "deterministic walk";
 
       // Interactive login: if --login was passed without credentials, ask for them
       // so the user never has to remember the AZTRX_AUTH_* env vars.
@@ -483,6 +486,7 @@ program
         seed: parseInt(opts.seed, 10),
         workers,
         roles: roleIds,
+        synthesize,
         agents,
         allowHosts: [...(opts.allowHost ?? []), ...configAllowHosts(repoRoot)],
         reproRuns: parseInt(opts.reproRuns, 10),

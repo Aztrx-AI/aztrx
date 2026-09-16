@@ -30,6 +30,10 @@ export interface RoleBehavior {
   kind: BehaviorKind;
   /** Per-mission budget (actions or requests). */
   budget: number;
+  /** Extra hostile payloads for fuzz missions — domain-flavored garbage
+   * (coupon codes for shops, SQL-ish strings for dashboards, …). Merged with
+   * the fuzzer's built-in payloads. */
+  payloads?: string[];
 }
 
 export interface Role {
@@ -41,6 +45,10 @@ export interface Role {
   mission: string;
   mode: AgentMode;
   behaviors: RoleBehavior[];
+  /** Share of the swarm's missions this role gets. Default 1. The synthesizer
+   * weights personas by how central they are to the audience (a shop's rushed
+   * buyers outnumber its coupon hunters). */
+  weight?: number;
 }
 
 export const ROLE_CATALOG: Role[] = [

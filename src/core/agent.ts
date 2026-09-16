@@ -33,6 +33,10 @@ import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js"
 export interface Mission {
   role: Role;
   seed: number;
+  /** Effective per-mission budget. Defaults to the role spec's budget; the
+   * scheduler shrinks it when scaling to thousands of missions so the total
+   * action count stays bounded. */
+  budget?: number;
 }
 
 export interface AgentOptions {
@@ -248,6 +252,7 @@ async function runBehavior(
 ): Promise<{ actions: number; newCoverage: number; sawLoginForm: boolean }> {
   const { page, workerBus } = wired;
   const kind = mission.role.behaviors[0]?.kind ?? "walk";
+  const payloads = mission.role.behaviors[0]?.payloads;
 
   switch (kind) {
     case "fuzz": {
@@ -256,6 +261,7 @@ async function runBehavior(
         maxActions: budget,
         dryRun: opts.dryRun,
         allowDestructive: opts.allowDestructive,
+        payloads,
       });
       return { actions: fr.actions, newCoverage: fr.newCoverage, sawLoginForm: false };
     }
@@ -320,7 +326,7 @@ export async function runAgentMission(
   mission: Mission,
   forwardBus?: EventBus
 ): Promise<MissionResult> {
-  const budget = mission.role.behaviors[0]?.budget ?? 100;
+  const budget = mission.budget ?? mission.role.behaviors[0]?.budget ?? 100;
   const wired = await openAgentPage(browser, opts, forwardBus);
 
   try {
@@ -369,12 +375,13 @@ export async function runRaceMission(
   mission: Mission,
   forwardBus?: EventBus
 ): Promise<MissionResult> {
-  const budget = mission.role.behaviors[0]?.budget ?? 100;
+  const budget = mission.budget ?? mission.role.behaviors[0]?.budget ?? 100;
   const a = await openAgentPage(browser, opts, forwardBus);
   const b = await openAgentPage(browser, opts, forwardBus);
 
   try {
     const kind = mission.role.behaviors[0]?.kind ?? "walk";
+    const payloads = mission.role.behaviors[0]?.payloads;
     const drive = async (wired: WiredPage): Promise<{ actions: number; newCoverage: number; sawLoginForm: boolean }> => {
       if (kind === "fuzz") {
         const fr = await fuzz(wired.page, wired.workerBus, {
@@ -382,6 +389,7 @@ export async function runRaceMission(
           maxActions: budget,
           dryRun: opts.dryRun,
           allowDestructive: opts.allowDestructive,
+          payloads,
         });
         return { actions: fr.actions, newCoverage: fr.newCoverage, sawLoginForm: false };
       }

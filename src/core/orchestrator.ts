@@ -45,8 +45,10 @@ export interface RunOptions {
   /** F-swarm roles: run these catalog role ids (`--roles novice,hostile`).
    * Empty = legacy walk/fuzz mode. */
   roles?: string[];
-  /** Total agent missions across the selected roles (default: 1 per role).
-   * `--agents 1000` scales the swarm without a thousand browsers. */
+  /** Analyze the target and synthesize its audience roles (`--swarm`). */
+  synthesize?: boolean;
+  /** Total agent missions across the selected roles (default: 1 per role in
+   * `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
   allowHosts?: string[];
   reproRuns?: number;
@@ -129,6 +131,7 @@ function printFinding(f: Finding, write: (s: string) => void, lang?: string): vo
 
 /** Human-readable run mode, surfaced in the cloud dashboard. */
 function runMode(o: RunOptions): string {
+  if (o.synthesize) return `swarm (synthesized, ${o.agents ?? 1000} agents)`;
   if (o.roles?.length) return `swarm (${o.roles.length} role(s))`;
   if ((o.workers ?? 1) > 1) return `swarm (${o.workers} workers)`;
   if (o.fuzz) return `fuzz (seed ${o.seed ?? 42})`;
@@ -212,6 +215,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     roles,
     roleStats,
     sawLoginForm,
+    profile,
+    personaCount,
   } = await swarmDetect({
     url,
     repoRoot,
@@ -224,6 +229,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     seed: options.seed ?? 42,
     workers,
     roles: options.roles,
+    synthesize: options.synthesize,
     agents: options.agents,
     allowHosts,
     storageState: options.storageState,
@@ -248,8 +254,12 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     printFinding(f, say, options.lang);
   }
 
-  if (options.roles?.length) {
-    // Catalog mode: per-role totals — who did what.
+  if (options.roles?.length || profile) {
+    // Catalog mode: the scout's read of the app, then per-role totals.
+    if (profile) {
+      const { profileSummary } = await import("./synthesize.js");
+      say(pc.dim(`Profile: ${profileSummary(profile, personaCount ?? 0)}`));
+    }
     for (const s of roleStats) {
       say(pc.dim(`  ${s.label || s.roleId}: ${s.missions} mission(s), ${s.actions} action(s), ${s.findings} finding(s)`));
     }
