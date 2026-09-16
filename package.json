@@ -28,7 +28,7 @@
       "types": "./dist/mcp/index.d.ts",
       "default": "./dist/mcp/index.js"
     },
-    "./core/*": {
+    "./core/*.js": {
       "types": "./dist/core/*.d.ts",
       "default": "./dist/core/*.js"
     },
