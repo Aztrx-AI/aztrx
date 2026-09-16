@@ -63,19 +63,25 @@ function stepsFor(f: Finding): string | null {
   return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
 }
 
-/** The patch block: a diff when healing already produced one, otherwise the
- * single command that generates it. Never a patch that wasn't verified. */
+/** The patch block: a ```diff fence when healing produced hunks — the client
+ * reads the fence and can offer the change natively — or the honest reason
+ * why there is no patch (never a stub, never an unverified diff). */
 function patchFor(f: Finding, lang: Lang): string {
   if (f.heal && f.heal.status === "healed" && f.heal.hunks.length > 0) {
-    const diff = f.heal.hunks
-      .map((h) => `--- ${f.heal!.filePath}\n-${h.search}\n+${h.replace}`)
-      .join("\n");
-    return `${lang === "ru" ? "Проверенный патч (прошёл тесты):" : "Verified patch (passed your tests):"}\n${diff}`;
+    const body = f.heal.hunks.map((h) => `-${h.search}\n+${h.replace}`).join("\n");
+    const label = lang === "ru" ? "Проверенный патч (прошёл тесты):" : "Verified patch (passed your tests):";
+    return `${label}\n\`\`\`diff\n--- ${f.heal.filePath}\n${body}\n\`\`\``;
   }
-  if (f.heal?.status === "healed" && f.heal.hunks.length === 0) {
+  if (f.heal && f.heal.status === "healed") {
     return lang === "ru"
       ? "Патч не потребовался — проблема ушла сама (или была в тестовом окружении)."
       : "No patch needed — the issue resolved itself (or was test-env only).";
+  }
+  if (f.heal && f.heal.status !== "skipped") {
+    const reason = f.heal.error ?? f.heal.status;
+    return lang === "ru"
+      ? `Патч не сгенерирован — ${reason}.`
+      : `No patch generated — ${reason}.`;
   }
   return lang === "ru"
     ? `Готово к фиксу — я сгенерирую и проверю патч по одному нажатию (aztrx_fix).`
