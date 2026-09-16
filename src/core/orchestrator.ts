@@ -170,7 +170,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const emitPhase = (phase: RunPhase, detail?: string) =>
     bus.emit("phase", { phase, detail, ts: Date.now() });
 
-  say(pc.cyan(`\nAztrx AI v${VERSION} — Runtime Detector`));
+  // The first impression: one brand line, one promise. Everything below is
+  // detail — the header must say "fast, modern, here to help", not "log dump".
+  say(pc.bold(pc.cyan("\naztrx")) + pc.dim(` v${VERSION} `) + pc.bold("— your app's worst users, on your side."));
   say(pc.dim(`Target: ${url}`));
   say(pc.dim(`Repo:   ${repoRoot}`));
   if (options.fuzz) say(pc.dim(`Mode:   fuzz (seed ${options.seed ?? 42})`));
@@ -194,6 +196,12 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const baseline = await loadBaseline(repoRoot);
   const workers = options.workers ?? 1;
 
+  // The synthesized swarm announces itself before it acts: analyze first,
+  // then swarm. The scout's verdict lands a moment later via the swarm's log.
+  if (options.synthesize) {
+    say(pc.cyan("Analyzing your app…"));
+  }
+
   // F-swarm — parallel detection. One worker is the legacy pass; `workers > 1`
   // fans out into a swarm. `--http-fuzz` folds into the walk/fuzz pass as a
   // post-pass on the same page (no extra worker). Findings come back merged by
@@ -216,7 +224,6 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     roleStats,
     sawLoginForm,
     profile,
-    personaCount,
   } = await swarmDetect({
     url,
     repoRoot,
@@ -255,11 +262,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   }
 
   if (options.roles?.length || profile) {
-    // Catalog mode: the scout's read of the app, then per-role totals.
-    if (profile) {
-      const { profileSummary } = await import("./synthesize.js");
-      say(pc.dim(`Profile: ${profileSummary(profile, personaCount ?? 0)}`));
-    }
+    // Catalog mode: per-role totals — who did what. The scout's profile line
+    // already landed up front, right after "Analyzing your app…".
     for (const s of roleStats) {
       say(pc.dim(`  ${s.label || s.roleId}: ${s.missions} mission(s), ${s.actions} action(s), ${s.findings} finding(s)`));
     }

@@ -288,9 +288,9 @@ function AztrxApp({ bus, done, targetUrl, repoRoot, mode }: AztrxAppProps) {
     <Box flexDirection="column">
       <Box>
         <Text color={C.azure} bold>
-          Aztrx AI
+          aztrx
         </Text>
-        <Text color={C.dim}> — Runtime Detector</Text>
+        <Text color={C.dim}> — your app's worst users, on your side.</Text>
         <Text color={C.dim}>   v{VERSION}</Text>
       </Box>
       <Text color={C.dim}>  target  {targetUrl}     repo  {repoRoot}</Text>

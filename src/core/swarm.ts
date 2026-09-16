@@ -18,6 +18,7 @@
  */
 
 import type { Browser } from "playwright";
+import pc from "picocolors";
 import { launchChromium } from "./browser.js";
 import { EventBus } from "./eventBus.js";
 import { collapseSignals } from "./classifier.js";
@@ -27,7 +28,7 @@ import type { AgentOptions, Mission, MissionResult } from "./agent.js";
 import { runAgentMission, runRaceMission } from "./agent.js";
 import { analyzeTarget } from "./profile.js";
 import type { ProjectProfile } from "./profile.js";
-import { synthesizeRoles } from "./synthesize.js";
+import { profileSummary, synthesizeRoles } from "./synthesize.js";
 import type { Finding } from "./types.js";
 
 export interface SwarmOptions {
@@ -261,8 +262,9 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
       }
       const roster = synthesizeRoles(profile);
       personaCount = roster.length - ROLE_CATALOG.length;
-      // The orchestrator prints the profile line — this module only emits
-      // per-mission logs.
+      // The scout's verdict, printed the moment it lands — the orchestrator
+      // announced "Analyzing your app…" before this.
+      opts.log(pc.dim(`audience: ${profileSummary(profile, personaCount)}`));
       // The audience mix, weighted, scaled to a thousand missions by default.
       // Budgets shrink so the whole swarm stays within `maxActions` of work.
       missions = buildCatalogMissions({
@@ -272,6 +274,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
         weighted: true,
         budgetCap: opts.maxActions,
       });
+      opts.log(pc.dim(`swarming: ${missions.length} mission(s) across ${roster.length} role(s)`));
       catalogMode = true;
     } catch (e) {
       // A failed scout must not kill the run — fall back to the standing catalog.
