@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Deref shop</title>
+</head>
+<body>
+  <h1>Deref shop</h1>
+  <button id="go">Go</button>
+  <div id="out"></div>
+  <script>
+    // The bug: __CONFIG__ is undefined (never set), and the click reads
+    // through it. The free rule engine can optional-chain this line and
+    // verify the crash is gone.
+    document.getElementById("go").addEventListener("click", () => {
+      const cfg = window.__CONFIG__;
+      document.getElementById("out").innerText = cfg.user.name;
+    });
+  </script>
+</body>
+</html>
