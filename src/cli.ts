@@ -117,6 +117,7 @@ interface CliOptions {
   workers?: string;
   swarm?: boolean;
   roles?: string;
+  intent?: string;
   agents?: string;
   repro?: boolean;
   reproRuns: string;
@@ -342,6 +343,7 @@ program
   .addOption(opt("--workers <n>", "max concurrent browser contexts (default: min(missions, 8))", "detect"))
   .addOption(opt("--swarm", "analyze the app, synthesize its audience, swarm it with 1000 agents", "detect"))
   .addOption(opt("--roles <ids>", "comma-separated catalog roles to run (e.g. novice,hostile,race-hunter) — skips the analysis", "detect"))
+  .addOption(opt("--intent <text>", "what you fear, in your words (\"проверь безопасность оплаты\") — the swarm picks the agents", "detect"))
   .addOption(opt("--agents <n>", "total agent missions (default: 1000 with --swarm, 1 per role with --roles) — missions are tasks, not browsers", "detect"))
   .addOption(opt("--repro", "minimize + compile + validate each finding (F7-F9)", "prove"))
   .addOption(opt("--repro-runs <n>", "replay iterations for the flake-rate gate", "advanced").default("3"))
@@ -443,8 +445,10 @@ program
       }
       const agents = opts.agents ? parseInt(opts.agents, 10) : undefined;
 
-      const mode = synthesize
-        ? `swarm (synthesized, ${agents ?? 1000} agents)`
+      const mode = opts.intent && !roleIds
+        ? `intent audit (${opts.intent.slice(0, 40)})`
+        : synthesize
+          ? `swarm (synthesized, ${agents ?? 1000} agents)`
         : roleIds
           ? `swarm (${roleIds.length} role${roleIds.length === 1 ? "" : "s"}${agents ? `, ${agents} missions` : ""})`
           : (workers ?? 1) > 1 || opts.httpFuzz
@@ -487,6 +491,7 @@ program
         workers,
         roles: roleIds,
         synthesize,
+        intent: opts.intent,
         agents,
         allowHosts: [...(opts.allowHost ?? []), ...configAllowHosts(repoRoot)],
         reproRuns: parseInt(opts.reproRuns, 10),

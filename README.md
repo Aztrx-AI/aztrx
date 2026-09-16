@@ -5,10 +5,12 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-green.svg?style=flat-square)](https://nodejs.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://github.com/Aztrx-AI/aztrx/blob/main/LICENSE)
 
-Aztrx AI finds **runtime** bugs, not security holes. It drives your web app like a hostile
-user and catches the crashes that ship to real users — *including ones a React Error Boundary
-swallows* (the errors `window.onerror` never sees). Each crash comes back as an exact source
-line, and with `--repro` an executable **Playwright repro** that replays it. Then it fixes it.
+Aztrx AI finds **runtime** bugs and **business-logic holes** — the crashes that ship to
+real users, *including ones a React Error Boundary swallows* (the errors `window.onerror`
+never sees), and the security gaps a scanner can't see: forged tokens the app believes,
+paywalls a direct link walks through, secrets the SSR spilled into HTML. Each finding
+comes back as an exact source line, a one-sentence business risk, and with `--repro` an
+executable **Playwright repro** that replays it. Then it fixes it.
 
 ```bash
 npx aztrx-cli                    # find crashes — no key, no config, no URL to look up
@@ -31,6 +33,7 @@ and it goes exactly there instead.
 - **Proves, not reports.** With `--repro` (implied by `--fix`), every interaction crash ships with an executable `.spec.ts` repro and a flake-rate verdict — `[deterministic 3/3]`, `[flaky 3/5]`, or `[unreliable]`. A crash that can't be replayed reliably is reported as `[unreliable]` rather than dressed up as proof.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
 - **Knows your audience.** `--swarm` scouts the app first — package.json, README, and the running UI — and synthesizes the people who actually use it. A shop gets rushed buyers and coupon hunters; a dashboard gets night-shift operators and filter wizards. Then it swarms the app with **1000 agents by default**, weighted to that audience.
+- **Audits what you fear.** `--intent "проверь безопасность оплаты"` — say what scares you in your own words, and the swarm picks the agents that answer it: key hunters scan every route's HTML for spilled secrets, identity forgers tamper with JWTs and check the app believes them, free riders walk straight onto premium routes. **Proof or silence**: a finding is reported only when the exploit worked end to end — and it's explained in business language ("a paid file can be downloaded for free"), not pentest jargon.
 
 ---
 
@@ -91,6 +94,7 @@ into your test dir so the bug can't come back.
 | `--fuzz` | coverage-guided chaos fuzz — steers toward code it hasn't reached |
 | `--http-fuzz` | attack the server's endpoints (turns every `5xx` into a repro) |
 | `--swarm` | analyze the app, synthesize its audience, swarm it with 1000 agents |
+| `--intent <text>` | what you fear, in your words ("проверь безопасность оплаты") — the swarm picks the agents |
 | `--roles <ids>` | a subset of the standing catalog, e.g. `novice,hostile,race-hunter` |
 | `--agents N` | total agent missions (tasks, not browsers) |
 | `--login` | auto-login to test authenticated pages |
@@ -276,10 +280,11 @@ it **refuses** rather than overwriting — a missing comma should never cost you
 and `--force` is the escape hatch, which saves a `.bak` first. `mcp uninstall` removes only
 our entry and keeps the file.
 
-### The three tools
+### The four tools
 
 | Tool | What it does | Costs |
 | --- | --- | --- |
+| `aztrx_audit` | The security co-founder: say what you fear ("проверь безопасность оплаты"), and the swarm exploits it — proven findings in business language, with a curl/steps proof and a patch or the one command that produces it. | tens of seconds to minutes |
 | `aztrx_scan` | Drives the app, reports crashes/errors with source locations. Boots the dev server itself if none is running. | tens of seconds |
 | `aztrx_repro` | The minimized steps and the compiled Playwright spec for one finding. Reads the scan that already ran. | free |
 | `aztrx_fix` | Patch → verify in a git worktree by replaying the repro → optionally write it into your tree. | one model call |
@@ -470,6 +475,7 @@ The commands that are not `run`:
 | `--workers <n>` | Max concurrent browser contexts (the swarm's pool size) | `1` |
 | `--swarm` | Scout the app (package.json + README + the running UI), synthesize its audience, and swarm it with 1000 agents by default | — |
 | `--roles <ids>` | Comma-separated standing-catalog roles — skips the analysis | — |
+| `--intent <text>` | The fear in your words ("проверь безопасность оплаты") — parsed into a focused role plan; roles win when both are given | — |
 | `--agents <n>` | Total agent missions: default `1000` with `--swarm`, 1 per role with `--roles`. A mission is a task, not a browser | — |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` / `$AZTRX_MODEL` |

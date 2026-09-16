@@ -5,6 +5,7 @@ import { EventBus } from "./eventBus.js";
 import type { NoticeLevel, RunPhase } from "./eventBus.js";
 import { loadBaseline } from "./classifier.js";
 import { diagnoseFinding } from "./diagnose.js";
+import { annotateBusinessRisks } from "./businessRisk.js";
 import { attachNetworkGuard, allowHostsFrom } from "./networkGuard.js";
 import { swarmDetect } from "./swarm.js";
 import { ReplayEngine } from "./replay.js";
@@ -47,6 +48,9 @@ export interface RunOptions {
   roles?: string[];
   /** Analyze the target and synthesize its audience roles (`--swarm`). */
   synthesize?: boolean;
+  /** A fear phrased in human words ("проверь безопасность оплаты") — parsed
+   * into a focused role plan (see intent.ts). Roles win when both are given. */
+  intent?: string;
   /** Total agent missions across the selected roles (default: 1 per role in
    * `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
@@ -126,11 +130,13 @@ function printFinding(f: Finding, write: (s: string) => void, lang?: string): vo
   }
   if (f.occurrences > 1) write(pc.dim(`   (×${f.occurrences})`));
   if (f.roles?.length) write(pc.dim(`   by: ${f.roles.join(", ")}`));
+  if (f.businessRisk) write(pc.yellow(`   ⚠ ${f.businessRisk}`));
   write("");
 }
 
 /** Human-readable run mode, surfaced in the cloud dashboard. */
 function runMode(o: RunOptions): string {
+  if (o.intent) return `intent audit (${o.intent.slice(0, 40)})`;
   if (o.synthesize) return `swarm (synthesized, ${o.agents ?? 1000} agents)`;
   if (o.roles?.length) return `swarm (${o.roles.length} role(s))`;
   if ((o.workers ?? 1) > 1) return `swarm (${o.workers} workers)`;
@@ -196,6 +202,17 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const baseline = await loadBaseline(repoRoot);
   const workers = options.workers ?? 1;
 
+  // Intent first: the user said what they fear — pick the agents that answer
+  // it. Explicit --roles beat the parser (a named team is a named team).
+  let effectiveRoles = options.roles;
+  if (options.intent && !options.roles?.length) {
+    const { parseIntent } = await import("./intent.js");
+    const plan = parseIntent(options.intent);
+    effectiveRoles = plan.roles;
+    say(pc.dim(`Intent: ${options.intent.slice(0, 80)} → ${plan.theme}`));
+    say(pc.cyan(plan.hint));
+  }
+
   // The synthesized swarm announces itself before it acts: analyze first,
   // then swarm. The scout's verdict lands a moment later via the swarm's log.
   if (options.synthesize) {
@@ -235,7 +252,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     allowDestructive: options.allowDestructive,
     seed: options.seed ?? 42,
     workers,
-    roles: options.roles,
+    roles: effectiveRoles,
     synthesize: options.synthesize,
     agents: options.agents,
     allowHosts,
@@ -254,6 +271,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   // Replays reuse the swarm-captured auth state, or the explicit --storage-state.
   const replayStorageState = swarmAuthState ?? options.storageState;
 
+  // Business language: every finding gets its one-sentence "what does this
+  // cost me" line before anything is printed.
+  annotateBusinessRisks(findings, options.lang ?? "en");
+
   // Surface the merged findings to the live panel, run log, and console.
   for (const f of findings) {
     bus.emit("finding", f);
@@ -261,7 +282,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     printFinding(f, say, options.lang);
   }
 
-  if (options.roles?.length || profile) {
+  // Per-role summary shows for every catalog run: explicit --roles, an
+  // intent-resolved plan, or the synthesized swarm.
+  const catalogRun = Boolean(effectiveRoles?.length) || Boolean(profile);
+  if (catalogRun) {
     // Catalog mode: per-role totals — who did what. The scout's profile line
     // already landed up front, right after "Analyzing your app…".
     for (const s of roleStats) {

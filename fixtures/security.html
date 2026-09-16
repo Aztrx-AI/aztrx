@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My shop</title>
+  <!-- A classic: env secrets shipped to the browser in a JSON blob. The key
+       is assembled at runtime from split literals so the committed file holds
+       no scannable secret — but the served page hands the browser a
+       real-shaped live key, which is exactly the leak this fixture demos. -->
+  <script type="application/json" id="__ENV__"></script>
+  <script>
+    document.getElementById("__ENV__").textContent = JSON.stringify({
+      stripeKey: "sk_live_" + "51ABCDefghijklmnopqrstuvwxyz0123456789ABCD",
+    });
+  </script>
+  <script>
+    // The app trusts a JWT it decodes client-side. Real apps do this more
+    // often than anyone admits.
+    const TOKEN =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
+      ".eyJyb2xlIjoidXNlciIsImVtYWlsIjoidGVzdEB4Lnl6In0" +
+      ".fake-signature-0000000000000000";
+    // Seeded on first visit only — a real app doesn't re-issue the token on
+    // every page load, and a tamper must survive the reload to count.
+    if (!localStorage.getItem("app_token")) localStorage.setItem("app_token", TOKEN);
+
+    function roleOf() {
+      try {
+        const payload = localStorage.getItem("app_token").split(".")[1];
+        const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+        return json.role;
+      } catch {
+        return "guest";
+      }
+    }
+
+    function refresh() {
+      document.getElementById("admin-panel").style.display =
+        roleOf() === "admin" ? "block" : "none";
+      document.getElementById("admin-status").innerText =
+        "role: " + roleOf();
+    }
+    window.addEventListener("DOMContentLoaded", refresh);
+  </script>
+</head>
+<body>
+  <h1>My shop</h1>
+  <p><a href="/security.html">Home</a> · <a href="/premium-leak.html">Premium content</a></p>
+  <p id="admin-status"></p>
+  <div id="admin-panel" style="display:none">
+    <h2>admin panel</h2>
+    <p>manage users: delete, ban, refund</p>
+  </div>
+  <p>Cart, checkout, buy now — a normal shop.</p>
+</body>
+</html>

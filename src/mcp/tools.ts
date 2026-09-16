@@ -63,6 +63,51 @@ const SCAN_ID_DESC = "The `scanId` returned by aztrx_scan.";
 
 export const TOOLS: ToolDefinition[] = [
   {
+    name: "aztrx_audit",
+    title: "Audit a running app for the fear you name",
+    description:
+      "The security co-founder: tell it what you're afraid of — \"проверь безопасность оплаты\", " +
+      "\"can someone download paid files for free\" — and it picks the right agents from the swarm, " +
+      "exploits the app, and answers in business language: swarm status, what would break, the exact " +
+      "proof (curl or steps), and a patch or the one command that produces it. Only exploits that " +
+      "worked end to end are reported — proof or silence. Takes tens of seconds to minutes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        intent: {
+          type: "string",
+          description:
+            "What you fear, in your own words. Themes: payment/paywall, auth/roles/tokens, data " +
+            "leaks/secrets, server crashes, file access. Empty runs the whole swarm.",
+        },
+        repoPath: {
+          type: "string",
+          description:
+            "Project root to audit (defaults to the directory the server was started in).",
+        },
+        url: {
+          type: "string",
+          description:
+            "Dev server to audit, e.g. http://localhost:3000. Omit and aztrx finds a running " +
+            "server or boots the project's own.",
+        },
+        lang: {
+          type: "string",
+          enum: ["en", "ru"],
+          description: "Report language. Default: auto — Russian intents get Russian reports.",
+        },
+        maxActions: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "How many interactions to attempt in one pass (default 100).",
+        },
+      },
+      required: ["intent"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "aztrx_scan",
     title: "Scan a running web app for runtime crashes",
     description:
@@ -273,6 +318,8 @@ export class McpRuntime {
 
   async call(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
     switch (name) {
+      case "aztrx_audit":
+        return this.audit(args);
       case "aztrx_scan":
         return this.scan(args);
       case "aztrx_repro":
@@ -325,6 +372,133 @@ export class McpRuntime {
       const oldest = [...this.records.values()].sort((a, b) => a.createdAt - b.createdAt)[0];
       this.records.delete(oldest.scanId);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // aztrx_audit
+  // -------------------------------------------------------------------------
+
+  private async audit(args: Record<string, unknown>): Promise<ToolCallResult> {
+    const intentArg = argString(args, "intent", 500);
+    if (!intentArg.ok) return fail(intentArg.error);
+    const repoArg = argString(args, "repoPath");
+    if (!repoArg.ok) return fail(repoArg.error);
+    const urlArg = argString(args, "url", 2048);
+    if (!urlArg.ok) return fail(urlArg.error);
+    const langArg = argString(args, "lang", 8);
+    if (!langArg.ok) return fail(langArg.error);
+    const maxActions = argInt(args, "maxActions", 1, 5000);
+    if (!maxActions.ok) return fail(maxActions.error);
+
+    const { parseIntent } = await import("../core/intent.js");
+    // `intent` is required by the schema; guard the type anyway.
+    if (intentArg.value === undefined) return fail("`intent` is required — what are you afraid of?");
+    const plan = parseIntent(intentArg.value);
+    // The report speaks the intent's language: Russian fears get Russian answers.
+    const lang =
+      (langArg.value === "en" || langArg.value === "ru" ? langArg.value : undefined) ??
+      (/[а-яё]/i.test(intentArg.value) ? "ru" : "en");
+
+    const repoRoot = path.resolve(repoArg.value ?? this.defaultRepo());
+    if (!fs.existsSync(repoRoot)) return fail(`repoPath does not exist: ${repoRoot}`);
+
+    const url = urlArg.value;
+    if (url !== undefined) {
+      try {
+        new URL(url);
+      } catch {
+        return fail(`\`url\` is not a valid URL: ${url}`);
+      }
+    }
+
+    return this.serialize(async () => {
+      let targetUrl = url;
+      let bootedClose: (() => Promise<void>) | undefined;
+      try {
+        if (targetUrl === undefined) {
+          const resolved = await this.bootOrAttach(repoRoot);
+          if (!resolved.ok) return fail(resolved.error);
+          targetUrl = resolved.url;
+          if (resolved.close) {
+            bootedClose = resolved.close;
+            this.openTargets.add(resolved.close);
+          }
+        }
+
+        // Count what the swarm does — the [Статус Роя] line needs real numbers.
+        const { EventBus } = await import("../core/eventBus.js");
+        const bus = new EventBus();
+        let actions = 0;
+        const routesSeen = new Set<string>();
+        bus.on("action", () => actions++);
+        bus.on("route", (r: { url: string }) => routesSeen.add(r.url));
+
+        const run = await this.loadRun();
+        const findings = await run({
+          url: targetUrl,
+          repoRoot,
+          // Same contract as aztrx_scan: emit nothing, the caller renders.
+          ui: true,
+          intent: intentArg.value,
+          repro: true,
+          bus,
+          maxActions: maxActions.value,
+        });
+
+        const scanId = randomUUID();
+        // The same record shape aztrx_scan keeps, so aztrx_repro / aztrx_fix
+        // work on audit findings unchanged.
+        this.remember({
+          scanId,
+          repoRoot,
+          url: targetUrl,
+          findings,
+          heals: new Map(),
+          createdAt: Date.now(),
+        });
+
+        const { formatAuditReport } = await import("../core/auditReport.js");
+        const byRole = new Map<string, number>();
+        for (const f of findings) {
+          for (const r of f.roles ?? []) byRole.set(r, (byRole.get(r) ?? 0) + 1);
+        }
+        const roleStats = [...byRole.entries()].map(([roleId, n]) => ({
+          roleId,
+          label: roleId,
+          missions: 0,
+          actions: 0,
+          findings: n,
+        }));
+
+        const report = formatAuditReport(
+          findings,
+          { totalActions: actions, workerCount: roleStats.length, roleStats, routes: routesSeen.size },
+          lang
+        );
+
+        const counts = {
+          crash: findings.filter((f) => f.severity === "crash").length,
+          error: findings.filter((f) => f.severity === "error").length,
+          warning: findings.filter((f) => f.severity === "warning").length,
+        };
+        const structured = {
+          scanId,
+          url: targetUrl,
+          repoRoot,
+          intent: intentArg.value,
+          theme: plan.theme,
+          plan: lang === "ru" ? plan.hint : `Focusing the swarm on ${plan.theme}.`,
+          counts,
+          findings: findings.map(projectFinding),
+        };
+
+        return ok(report, structured);
+      } catch (e) {
+        return fail(`The audit failed: ${(e as Error).message}`);
+      } finally {
+        if (bootedClose) await this.release(bootedClose);
+      }
+    });
   }
 
   // -------------------------------------------------------------------------

@@ -34,7 +34,7 @@ function profile(domains: string[], signals: string[]): ProjectProfile {
 
 test("synthesizeRoles: a shop gets its audience on top of the base catalog", () => {
   const roles = synthesizeRoles(profile(["e-commerce"], ["cart", "pricing"]));
-  assert.equal(roles.length, 13, "10 base + 3 shop personas");
+  assert.equal(roles.length, 16, "13 base + 3 shop personas");
   const ids = roles.map((r) => r.id);
   assert.ok(ids.includes("rushed-buyer"));
   assert.ok(ids.includes("coupon-hunter"));
@@ -59,7 +59,7 @@ test("synthesizeRoles: coupon hunters carry domain-flavored payloads", () => {
 
 test("synthesizeRoles: an unknown domain adds nothing", () => {
   const roles = synthesizeRoles(profile([], []));
-  assert.equal(roles.length, 10, "base catalog only");
+  assert.equal(roles.length, 13, "base catalog only");
 });
 
 test("synthesizeRoles: no duplicate ids when a domain repeats", () => {

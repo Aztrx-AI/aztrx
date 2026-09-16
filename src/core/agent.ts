@@ -25,6 +25,7 @@ import { fuzz } from "./fuzzer.js";
 import { httpFuzz } from "./httpFuzzer.js";
 import { keyboardWalk } from "./keyboardWalk.js";
 import { observe } from "./observe.js";
+import { ssrKeyScan, tokenTamper, paywallBypass } from "./security.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
@@ -301,6 +302,21 @@ async function runBehavior(
         allowDestructive: opts.allowDestructive,
       });
       return { actions, newCoverage: 0, sawLoginForm: false };
+    }
+    case "ssrScan": {
+      const sr = await ssrKeyScan(page, workerBus, { maxRoutes: budget, dryRun: opts.dryRun });
+      if (sr.leaks > 0) opts.log(`[key-hunt] ${sr.leaks} secret(s) across ${sr.routes} route(s)`);
+      return { actions: sr.routes, newCoverage: 0, sawLoginForm: false };
+    }
+    case "tokenTamper": {
+      const tr = await tokenTamper(page, workerBus, { maxTokens: budget, dryRun: opts.dryRun });
+      if (tr.tokens === 0) opts.log("[forger] no JWTs in storage — nothing to tamper");
+      return { actions: tr.tokens, newCoverage: 0, sawLoginForm: false };
+    }
+    case "paywallBypass": {
+      const pr = await paywallBypass(page, workerBus, { maxRoutes: budget, dryRun: opts.dryRun });
+      if (pr.routes === 0) opts.log("[free-rider] no premium markers found");
+      return { actions: pr.routes, newCoverage: 0, sawLoginForm: false };
     }
     case "walk":
     default: {

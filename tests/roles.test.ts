@@ -4,8 +4,8 @@ import { ROLE_CATALOG, resolveRoles } from "../src/core/roles.js";
 import { mergeFindings } from "../src/core/swarm.js";
 import type { Finding } from "../src/core/types.js";
 
-test("the catalog has the ten roles of the swarm", () => {
-  assert.equal(ROLE_CATALOG.length, 10);
+test("the catalog has the thirteen roles of the swarm", () => {
+  assert.equal(ROLE_CATALOG.length, 13);
   const ids = ROLE_CATALOG.map((r) => r.id);
   assert.deepEqual(new Set(ids).size, ids.length, "role ids must be unique");
   for (const role of ROLE_CATALOG) {

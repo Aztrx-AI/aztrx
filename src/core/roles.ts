@@ -18,7 +18,10 @@ export type BehaviorKind =
   | "chaosReload" // walk interrupted by reloads mid-operation
   | "observe" // passive: sit on each route, watch console/network
   | "httpStorm" // hostile HTTP requests at the API (mutations included)
-  | "slowWalk"; // walk under emulated slow network (3G-ish)
+  | "slowWalk" // walk under emulated slow network (3G-ish)
+  | "ssrScan" // fetch every route's raw HTML and scan for exposed secrets
+  | "tokenTamper" // forge JWTs (alg:none, role escalation) — evidence-first
+  | "paywallBypass"; // hit gated routes directly — proof or silence
 
 /** How a role's missions are scheduled. */
 export type AgentMode =
@@ -131,6 +134,30 @@ export const ROLE_CATALOG: Role[] = [
     mission: "walks under 3G throttle — skeletons, races, load-order timeouts",
     mode: "solo",
     behaviors: [{ kind: "slowWalk", budget: 100 }],
+  },
+  {
+    id: "ssr-leak",
+    name: "Key hunter",
+    emoji: "🔑",
+    mission: "fetches every route's raw HTML and scans for secrets the SSR spilled",
+    mode: "solo",
+    behaviors: [{ kind: "ssrScan", budget: 20 }],
+  },
+  {
+    id: "token-tamper",
+    name: "Identity forger",
+    emoji: "🎭",
+    mission: "forges JWTs — alg:none and role escalation — and checks if the app believes them",
+    mode: "solo",
+    behaviors: [{ kind: "tokenTamper", budget: 5 }],
+  },
+  {
+    id: "paywall-bypass",
+    name: "Free rider",
+    emoji: "🕳️",
+    mission: "walks straight onto premium routes with a clean slate and checks what renders",
+    mode: "solo",
+    behaviors: [{ kind: "paywallBypass", budget: 15 }],
   },
 ];
 

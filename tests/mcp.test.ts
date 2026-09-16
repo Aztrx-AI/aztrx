@@ -237,7 +237,7 @@ test("tools/list: deterministic order, cacheable, no pagination", async () => {
     assert.deepEqual(first.result.tools, second.result.tools);
     assert.deepEqual(
       first.result.tools.map((t: Message) => t.name),
-      ["aztrx_scan", "aztrx_repro", "aztrx_fix"]
+      ["aztrx_audit", "aztrx_scan", "aztrx_repro", "aztrx_fix"]
     );
     assert.equal(first.result.ttlMs, 300_000);
     assert.equal(first.result.cacheScope, "public");
@@ -951,7 +951,7 @@ test("over real stdio: SIGTERM does not leave a server running", { timeout: 60_0
   try {
     const deadline = Date.now() + 20_000;
     while (!s.err().includes("serving") && Date.now() < deadline) await sleep(25);
-    assert.match(s.err(), /serving 3 tools on stdio/, "the banner belongs on stderr, not stdout");
+    assert.match(s.err(), /serving 4 tools on stdio/, "the banner belongs on stderr, not stdout");
     assert.equal(s.out(), "", "nothing at all may reach stdout before a client asks for it");
 
     s.child.kill("SIGTERM");

@@ -5,7 +5,9 @@ export type FindingType =
   | "unhandled_rejection"
   | "console_error"
   | "network_5xx"
-  | "network_timeout";
+  | "network_timeout"
+  /** A secret (API key, private key, token) found in page source / SSR HTML. */
+  | "secret_leak";
 
 /** A server-side source location, e.g. a stack frame from a 500 response body. */
 export interface ServerFrame {
@@ -103,6 +105,9 @@ export interface Finding {
   actionHistory: RecordedAction[];
   /** Role ids of the swarm agents that found this fault (empty in solo runs). */
   roles?: string[];
+  /** One-sentence business risk ("a paid file can be downloaded for free"),
+   * attached by the audit layer. */
+  businessRisk?: string;
   repro?: ReproReport;
   /** F10 closed-loop healing result, attached when `--heal` ran for this finding. */
   heal?: import("./heal/types.js").HealResult;
