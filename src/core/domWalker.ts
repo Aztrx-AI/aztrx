@@ -2,6 +2,7 @@ import type { Page } from "playwright";
 import type { EventBus } from "./eventBus.js";
 import type { RecordedAction } from "./types.js";
 import { selectorCascade } from "./recorder.js";
+import { mulberry32 } from "./rng.js";
 
 // F6 guard-rail (part 1): never click anything that looks destructive. The
 // full deny-list (config regexps, data-aztrx-skip) is a later pass.
@@ -18,6 +19,10 @@ export interface WalkOptions {
    * Off by default — these can mutate real state, so they're refused unless the
    * caller explicitly accepts the risk. */
   allowDestructive?: boolean;
+  /** Session-killer jitter: after each action, with this probability the page
+   * reloads mid-flow and re-settles before the walk continues. The reload is
+   * recorded as a `navigate` action so a repro replays it. */
+  chaos?: { seed: number; chance: number };
 }
 
 /**
@@ -34,6 +39,7 @@ export async function walkDom(
   const max = opts.maxActions ?? 100;
   const startUrl = page.url();
   const startOrigin = originOf(startUrl);
+  const rnd = mulberry32(opts.chaos?.seed ?? 42);
   let actions = 0;
   let sawLoginForm = false;
   const visited = new Set<string>();
@@ -129,6 +135,17 @@ export async function walkDom(
 
       actions++;
       await page.waitForTimeout(120);
+
+      // Session-killer jitter: reload mid-flow with the configured probability,
+      // recorded as a navigate action so the repro replays the reload too.
+      if (opts.chaos && rnd() < opts.chaos.chance) {
+        const reload: RecordedAction = { type: "navigate", selectors: [], value: page.url(), timestamp: Date.now() };
+        bus.emit("action", reload);
+        if (!opts.dryRun) {
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+          await page.waitForTimeout(500);
+        }
+      }
 
       // A click may navigate (e.g. a submit) — queue the new URL and stop this
       // page's walk; the queue visits it next.

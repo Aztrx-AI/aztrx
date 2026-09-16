@@ -1,314 +1,31 @@
 /**
- * F-swarm — parallel detection. Runs N workers at once, each with its own
- * browser context, event bus, action recorder, and classifier, so the action
- * history attached to a finding belongs to the worker that saw it (never
- * interleaved). Workers attack different sides: a deterministic walk, several
- * chaos-fuzz seeds, and — optionally — the server-side HTTP fuzzer.
+ * The swarm scheduler — turns the role catalog into agent missions and runs
+ * them against the target.
  *
- * Findings are merged by fingerprint at the end (occurrences summed, the richest
- * action history / source mapping kept); the caller then runs repro/heal on the
- * merged set as usual.
+ * "A thousand agents" means a thousand MISSIONS per session, not a thousand
+ * simultaneous browsers (that would be 50–100 GB of RAM). Missions are tasks:
+ * each is one role instantiation (seed + budget) executed by agent.ts in its
+ * own browser context, bounded by a concurrency pool. Race roles are a pair
+ * of synchronized contexts inside one mission.
+ *
+ * Without `--swarm`/`--roles` this keeps the legacy shape: one deterministic
+ * walk, or `--workers N` fan-out of walk + chaos-fuzz seeds, wrapped as
+ * synthetic single-behavior missions so both paths share the same merge.
+ *
+ * Findings are merged by fingerprint at the end (occurrences summed, the
+ * richest action history / source mapping kept, role tags unioned); the caller
+ * then runs repro/heal on the merged set as usual.
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import type { Browser } from "playwright";
 import { launchChromium } from "./browser.js";
 import { EventBus } from "./eventBus.js";
-import { attachInterceptor } from "./interceptor.js";
-import { establishLogin } from "./auth.js";
-import { SignalClassifier, collapseSignals } from "./classifier.js";
-import { ActionRecorder } from "./recorder.js";
-import { walkDom } from "./domWalker.js";
-import { fuzz } from "./fuzzer.js";
-import { httpFuzz } from "./httpFuzzer.js";
-import { attachNetworkGuard } from "./networkGuard.js";
-import { resolveFrame, resolveServerFrame } from "./resolver.js";
-import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
-
-export type WorkerStrategy =
-  | { kind: "walk" }
-  | { kind: "fuzz"; seed: number };
-
-export interface DetectResult {
-  findings: Finding[];
-  actions: number;
-  /** New JS code ranges covered by this worker's fuzz pass (0 for walk). */
-  newCoverage: number;
-  /** Whether the walk encountered a login form (a password input). */
-  sawLoginForm: boolean;
-  /** Auth-state path saved by worker 0 (used to authenticate replays). */
-  replayStorageState?: string;
-}
-
-export interface DetectWorkerOptions {
-  url: string;
-  repoRoot: string;
-  allowHosts: Set<string>;
-  maxActions: number;
-  dryRun?: boolean;
-  guardOn: boolean;
-  storageState?: string;
-  login?: boolean;
-  loginEmail?: string;
-  loginPassword?: string;
-  loginUrl?: string;
-  crashTest?: boolean;
-  saveAuthState?: boolean;
-  httpFuzzMutations?: boolean;
-  /** Fold the HTTP fuzzer in as a post-pass on this worker's page. */
-  httpFuzz?: boolean;
-  /** Opt-in: include destructive controls/endpoints (delete/pay/logout/…). */
-  allowDestructive?: boolean;
-  baseline: string[];
-  log: (msg: string) => void;
-}
-
-/**
- * Run one worker's detection pass and return its findings. All internal events
- * flow through a local bus (isolation); only `action`/`route`/`noise` are
- * forwarded to `forwardBus` so a live panel can aggregate, never per-worker
- * findings (those are merged by the caller first).
- */
-export async function detectWorker(
-  browser: Browser,
-  opts: DetectWorkerOptions,
-  strategy: WorkerStrategy,
-  forwardBus?: EventBus
-): Promise<DetectResult> {
-  const workerBus = new EventBus();
-  const recorder = new ActionRecorder();
-  const classifier = new SignalClassifier(opts.baseline);
-
-  workerBus.on("action", (a: RecordedAction) => {
-    recorder.record(a);
-    forwardBus?.emit("action", a);
-  });
-  workerBus.on("route", (r) => forwardBus?.emit("route", r));
-  workerBus.on("noise", (n) => forwardBus?.emit("noise", n));
-
-  // Classify telemetry with THIS worker's recorder, so action history is correct.
-  workerBus.on("telemetry", async (payload: TelemetryErrorPayload) => {
-    const finding = classifier.classify(payload);
-    if (!finding) return;
-    finding.actionHistory = recorder.snapshot();
-    if (finding.severity === "noise") {
-      workerBus.emit("noise", { ts: Date.now() });
-      return;
-    }
-
-    if (payload.serverError) {
-      finding.serverError = { message: payload.serverError.message, body: payload.serverError.body };
-    }
-
-    if (payload.url && payload.line) {
-      const resolved = await resolveFrame(
-        { url: payload.url, line: payload.line, column: payload.column ?? 0, message: payload.rawMessage },
-        opts.repoRoot
-      );
-      finding.mappedLocation = {
-        filePath: resolved.sourceFile,
-        line: resolved.line,
-        column: resolved.column,
-        codeContext: resolved.codeSnippet,
-        isOwnCode: resolved.resolvedFrom !== "unresolved",
-      };
-    } else if (payload.serverError?.frame) {
-      const resolved = resolveServerFrame(payload.serverError.frame, opts.repoRoot);
-      finding.mappedLocation = {
-        filePath: resolved.sourceFile,
-        line: resolved.line,
-        column: resolved.column,
-        codeContext: resolved.codeSnippet,
-        isOwnCode: resolved.resolvedFrom !== "unresolved",
-      };
-    }
-  });
-
-  const context = await browser.newContext(
-    opts.storageState ? { storageState: opts.storageState } : {}
-  );
-  const page = await context.newPage();
-  attachInterceptor(page, workerBus);
-
-  // Collect every same-origin URL the page issues — including `fetch()` fired
-  // from click handlers — so the folded HTTP fuzzer can probe endpoints a fresh
-  // page never sees (performance resources only capture on-load fetches).
-  const observedUrls = new Set<string>();
-  const targetOrigin = new URL(opts.url).origin;
-  page.on("request", (req) => {
-    try {
-      if (new URL(req.url()).origin === targetOrigin) observedUrls.add(req.url());
-    } catch {
-      // malformed URL — skip
-    }
-  });
-
-  if (opts.guardOn) {
-    await attachNetworkGuard(page, {
-      allowHosts: opts.allowHosts,
-      onBlock: (u) => opts.log(`[guard] blocked ${u}`),
-    });
-  }
-  // The last URL this listener recorded as a `navigate`, to drop the duplicate.
-  // Playwright fires `framenavigated` twice for a single `page.goto` — measured
-  // against Chromium, not assumed: one goto to `/agents` produced two events
-  // for the same URL. Recording both would put a redundant full page load in
-  // every trace, and the buffer is only 25 actions deep.
-  let lastNavUrl = "";
-  page.on("framenavigated", (frame) => {
-    if (frame !== page.mainFrame()) return; // an iframe's URL is not the page's
-    const url = frame.url();
-    workerBus.emit("route", { url, ts: Date.now() });
-
-    // A trace has to say which page it was on, and nothing recorded that. The
-    // walker reaches each crawled route with `page.goto`, which emits no action
-    // at all, so a finding on `/agents` produced a trace of clicks that only
-    // mean anything *there* — replayed from the start URL every one of them
-    // resolved to nothing, the crash was never reached, and a bug that fires
-    // every single time came back `unreliable` (0/3 replays). `navigate` is
-    // already understood by everything that consumes a trace: `replayActions`
-    // and the spec compiler act on it, heal rewrites its origin to the booted
-    // server, and the patrol GIF skips it. Only the producer was missing.
-    if (!/^https?:/i.test(url)) return; // about:blank, and the first empty frame
-    if (url === lastNavUrl) return; // the second of the pair described above
-    lastNavUrl = url;
-    workerBus.emit("action", { type: "navigate", selectors: [], value: url, timestamp: Date.now() });
-  });
-
-  let loaded = true;
-  await page.goto(opts.url, { waitUntil: "load", timeout: 30000 }).catch((e) => {
-    loaded = false;
-    opts.log(`Failed to load target: ${(e as Error).message}`);
-  });
-
-  if (loaded) {
-    // Settle for hydration and mount-time effects before acting.
-    await page.waitForTimeout(2000);
-  }
-
-  // Auto-login (best-effort).
-  let replayStorageState: string | undefined;
-  if (loaded && opts.login && opts.loginEmail && opts.loginPassword) {
-    const res = await establishLogin(page, {
-      email: opts.loginEmail,
-      password: opts.loginPassword,
-      loginUrl: opts.loginUrl,
-    });
-    if (res.ok) {
-      if (opts.saveAuthState) {
-        const state = await context.storageState();
-        const authStatePath = path.join(opts.repoRoot, ".aztrx", "auth-state.json");
-        fs.mkdirSync(path.dirname(authStatePath), { recursive: true });
-        fs.writeFileSync(authStatePath, JSON.stringify(state, null, 2), "utf-8");
-        replayStorageState = authStatePath;
-        opts.log(`[auth] logged in → ${path.relative(opts.repoRoot, authStatePath)}`);
-      } else {
-        opts.log("[auth] logged in");
-      }
-      await page.goto(opts.url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
-    } else {
-      opts.log(`[auth] skipped: ${res.reason}`);
-    }
-  }
-
-  if (loaded && opts.crashTest) {
-    await page.evaluate(() => {
-      setTimeout(() => {
-        throw new Error("Aztrx test: Cannot read properties of undefined (reading 'token')");
-      }, 300);
-    });
-    await page.waitForTimeout(800);
-  }
-
-  let actions = 0;
-  let newCoverage = 0;
-  let sawLoginForm = false;
-  if (loaded) {
-    if (strategy.kind === "walk") {
-      const wr = await walkDom(page, workerBus, { maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
-      actions = wr.actions;
-      sawLoginForm = wr.sawLoginForm;
-    } else {
-      const fr = await fuzz(page, workerBus, { seed: strategy.seed, maxActions: opts.maxActions, dryRun: opts.dryRun, allowDestructive: opts.allowDestructive });
-      actions = fr.actions;
-      newCoverage = fr.newCoverage;
-    }
-
-    // Folded HTTP fuzzer: post-pass on this same page, seeded with every URL the
-    // walk/fuzz actually issued — including JS-fetch-only endpoints a standalone
-    // worker (snapshot before clicks) would never discover.
-    if (opts.httpFuzz) {
-      actions += await httpFuzz(page, opts.url, workerBus, {
-        maxRequests: opts.maxActions,
-        dryRun: opts.dryRun,
-        allowHosts: opts.allowHosts,
-        mutations: opts.httpFuzzMutations,
-        allowDestructive: opts.allowDestructive,
-        seedUrls: [...observedUrls],
-        navigate: false,
-      });
-    }
-  }
-
-  await page.waitForTimeout(500);
-  await context.close();
-
-  return { findings: classifier.findings(), actions, newCoverage, sawLoginForm, replayStorageState };
-}
-
-/** Dedup findings across workers by fingerprint: sum occurrences, keep the richest. */
-export function mergeFindings(arrays: Finding[][]): Finding[] {
-  const byFingerprint = new Map<string, Finding>();
-  for (const arr of arrays) {
-    for (const f of arr) {
-      const existing = byFingerprint.get(f.fingerprint);
-      if (!existing) {
-        byFingerprint.set(f.fingerprint, { ...f, actionHistory: [...f.actionHistory] });
-        continue;
-      }
-      existing.occurrences += f.occurrences;
-      if (!existing.mappedLocation && f.mappedLocation) existing.mappedLocation = f.mappedLocation;
-      if (existing.actionHistory.length < f.actionHistory.length) existing.actionHistory = f.actionHistory;
-    }
-  }
-  return [...byFingerprint.values()];
-}
-
-/** Build the worker roster for a run. `workers = 1` is the legacy single pass;
- * `workers > 1` fans out. `--http-fuzz` is not a worker here — it folds into
- * whichever pass runs (see `detectWorker`). */
-function buildStrategies(opts: {
-  workers: number;
-  fuzz?: boolean;
-  seed: number;
-}): WorkerStrategy[] {
-  const strategies: WorkerStrategy[] = [];
-
-  const w = Math.max(1, opts.workers);
-  if (w === 1) {
-    strategies.push(opts.fuzz ? { kind: "fuzz", seed: opts.seed } : { kind: "walk" });
-    return strategies;
-  }
-
-  if (opts.fuzz) {
-    for (let i = 0; i < w; i++) strategies.push({ kind: "fuzz", seed: opts.seed + i });
-  } else {
-    strategies.push({ kind: "walk" });
-    for (let i = 1; i < w; i++) strategies.push({ kind: "fuzz", seed: opts.seed + i });
-  }
-  return strategies;
-}
-
-/** Human-readable label for a worker's role in the swarm. */
-function strategyLabel(s: WorkerStrategy): string {
-  switch (s.kind) {
-    case "walk":
-      return "walk";
-    case "fuzz":
-      return `fuzz seed ${s.seed}`;
-  }
-}
+import { collapseSignals } from "./classifier.js";
+import type { BehaviorKind, Role } from "./roles.js";
+import { resolveRoles } from "./roles.js";
+import type { AgentOptions, Mission, MissionResult } from "./agent.js";
+import { runAgentMission, runRaceMission } from "./agent.js";
+import type { Finding } from "./types.js";
 
 export interface SwarmOptions {
   url: string;
@@ -320,6 +37,12 @@ export interface SwarmOptions {
   httpFuzzMutations?: boolean;
   seed: number;
   workers: number;
+  /** `--roles novice,hostile` — run these catalog roles. Empty = legacy mode. */
+  roles?: string[];
+  /** `--agents N` — total missions across the selected roles (default: 1 per role). */
+  agents?: number;
+  /** Max concurrent browser contexts (default: min(missions, 8)). */
+  concurrency?: number;
   allowHosts: Set<string>;
   storageState?: string;
   login?: boolean;
@@ -336,6 +59,14 @@ export interface SwarmOptions {
   forwardBus?: EventBus;
 }
 
+export interface RoleStat {
+  roleId: string;
+  label: string;
+  missions: number;
+  actions: number;
+  findings: number;
+}
+
 export interface SwarmResult {
   findings: Finding[];
   replayStorageState?: string;
@@ -343,69 +74,185 @@ export interface SwarmResult {
   totalCoverage: number;
   workerCount: number;
   roles: string[];
+  /** Per-role totals — who did what, for the summary and the dashboard. */
+  roleStats: RoleStat[];
   sawLoginForm: boolean;
 }
 
-/** Launch one browser, run the worker roster concurrently, merge findings. */
+/** A synthetic role for the legacy (non-catalog) modes. */
+function syntheticRole(id: string, label: string, kind: BehaviorKind, budget: number): Role {
+  return { id, name: label, emoji: "", mission: "", mode: "solo", behaviors: [{ kind, budget }] };
+}
+
+/**
+ * Build the mission roster for a run.
+ * - Catalog mode (`--swarm`/`--roles`): one mission per role, scaled by
+ *   `--agents N` (round-robin across roles, each with its own seed).
+ * - Legacy mode: `workers = 1` is the single walk; `workers > 1` fans out as
+ *   walk + fuzz seeds (`--fuzz` makes every worker fuzz). `--http-fuzz` is not
+ *   a mission — it folds into the walk/fuzz mission as before.
+ */
+export function buildMissions(opts: SwarmOptions): Mission[] {
+  const missions: Mission[] = [];
+
+  if (opts.roles && opts.roles.length > 0) {
+    const catalog = resolveRoles(opts.roles);
+    const total = opts.agents ?? catalog.length;
+    for (let i = 0; i < total; i++) {
+      missions.push({ role: catalog[i % catalog.length], seed: opts.seed + i });
+    }
+    return missions;
+  }
+
+  const w = Math.max(1, opts.workers);
+  if (w === 1) {
+    missions.push({
+      role: syntheticRole(opts.fuzz ? "fuzz" : "walk", opts.fuzz ? `fuzz seed ${opts.seed}` : "walk", opts.fuzz ? "fuzz" : "walk", opts.maxActions),
+      seed: opts.seed,
+    });
+    return missions;
+  }
+
+  if (opts.fuzz) {
+    for (let i = 0; i < w; i++) {
+      missions.push({
+        role: syntheticRole(`fuzz-${i}`, `fuzz seed ${opts.seed + i}`, "fuzz", opts.maxActions),
+        seed: opts.seed + i,
+      });
+    }
+  } else {
+    missions.push({ role: syntheticRole("walk", "walk", "walk", opts.maxActions), seed: opts.seed });
+    for (let i = 1; i < w; i++) {
+      missions.push({
+        role: syntheticRole(`fuzz-${i}`, `fuzz seed ${opts.seed + i}`, "fuzz", opts.maxActions),
+        seed: opts.seed + i,
+      });
+    }
+  }
+  return missions;
+}
+
+/** Dedup findings across missions by fingerprint: sum occurrences, keep the
+ * richest action history/source mapping, union the role tags. */
+export function mergeFindings(arrays: Finding[][]): Finding[] {
+  const byFingerprint = new Map<string, Finding>();
+  for (const arr of arrays) {
+    for (const f of arr) {
+      const existing = byFingerprint.get(f.fingerprint);
+      if (!existing) {
+        // Keep untagged findings untagged — a solo run's report has no `roles`.
+        const roles = f.roles?.length ? [...f.roles] : undefined;
+        byFingerprint.set(f.fingerprint, { ...f, actionHistory: [...f.actionHistory], roles });
+        continue;
+      }
+      existing.occurrences += f.occurrences;
+      if (!existing.mappedLocation && f.mappedLocation) existing.mappedLocation = f.mappedLocation;
+      if (existing.actionHistory.length < f.actionHistory.length) existing.actionHistory = f.actionHistory;
+      const roles = new Set(existing.roles ?? []);
+      for (const r of f.roles ?? []) roles.add(r);
+      existing.roles = [...roles];
+    }
+  }
+  return [...byFingerprint.values()];
+}
+
+/** Run `fn` over `items` with at most `limit` concurrent calls. */
+async function runPool<T>(items: T[], limit: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+/** Build the mission roster, run it through a bounded context pool, merge. */
 export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
-  const strategies = buildStrategies(opts);
+  const missions = buildMissions(opts);
+  const catalogMode = Boolean(opts.roles?.length);
+  // `--workers` overrides the pool size; otherwise catalog mode caps at 8
+  // contexts (a desktop-size default), legacy mode runs exactly its roster.
+  const concurrency =
+    opts.concurrency ?? (opts.workers > 1 ? opts.workers : Math.min(missions.length, catalogMode ? 8 : missions.length));
+
   const browser = await launchChromium();
+  const results = new Map<number, MissionResult>();
 
   try {
-    const settled = await Promise.allSettled(
-      strategies.map((strategy, i) =>
-        detectWorker(
-          browser,
-          {
-            url: opts.url,
-            repoRoot: opts.repoRoot,
-            allowHosts: opts.allowHosts,
-            maxActions: opts.maxActions,
-            dryRun: opts.dryRun,
-            guardOn: opts.guardOn,
-            storageState: opts.storageState,
-            login: opts.login,
-            loginEmail: opts.loginEmail,
-            loginPassword: opts.loginPassword,
-            loginUrl: opts.loginUrl,
-            crashTest: i === 0 ? opts.crashTest : false,
-            saveAuthState: i === 0,
-            httpFuzzMutations: opts.httpFuzzMutations,
-            httpFuzz: opts.httpFuzz,
-            allowDestructive: opts.allowDestructive,
-            baseline: opts.baseline,
-            log: (m) => opts.log(strategies.length > 1 ? `[w${i}] ${m}` : m),
-          },
-          strategy,
-          opts.forwardBus
-        )
-      )
-    );
+    await runPool(missions, concurrency, async (mission, i) => {
+      const agentOpts: AgentOptions = {
+        url: opts.url,
+        repoRoot: opts.repoRoot,
+        allowHosts: opts.allowHosts,
+        dryRun: opts.dryRun,
+        guardOn: opts.guardOn,
+        storageState: opts.storageState,
+        login: opts.login,
+        loginEmail: opts.loginEmail,
+        loginPassword: opts.loginPassword,
+        loginUrl: opts.loginUrl,
+        crashTest: i === 0 ? opts.crashTest : false,
+        saveAuthState: i === 0,
+        allowDestructive: opts.allowDestructive,
+        baseline: opts.baseline,
+        log: (m) => opts.log(catalogMode ? `[${mission.role.id}] ${m}` : `[w${i}] ${m}`),
+      };
 
-    const results: DetectResult[] = [];
-    settled.forEach((r, i) => {
-      if (r.status === "fulfilled") results.push(r.value);
-      else opts.log(`worker ${i} failed: ${(r.reason as Error)?.message ?? String(r.reason)}`);
+      try {
+        const result =
+          mission.role.mode === "race"
+            ? await runRaceMission(browser, agentOpts, mission, opts.forwardBus)
+            : await runAgentMission(browser, agentOpts, mission, opts.forwardBus);
+        results.set(i, result);
+        opts.log(
+          catalogMode
+            ? `[${mission.role.id}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
+            : `[w${i}] done — ${result.actions} action(s), ${result.findings.length} finding(s)`
+        );
+      } catch (e) {
+        opts.log(`mission ${i} (${mission.role.id}) failed: ${(e as Error)?.message ?? String(e)}`);
+      }
     });
-
-    let replayStorageState: string | undefined;
-    for (const r of results) if (r.replayStorageState) replayStorageState = r.replayStorageState;
-
-    // Merge identical fingerprints across workers, then collapse distinct
-    // capture paths of the same fault (5xx + console + timeout + throw) into one.
-    const findings = collapseSignals(mergeFindings(results.map((r) => r.findings)));
-    const totalActions = results.reduce((sum, r) => sum + r.actions, 0);
-    const totalCoverage = results.reduce((sum, r) => sum + r.newCoverage, 0);
-    return {
-      findings,
-      replayStorageState,
-      totalActions,
-      totalCoverage,
-      workerCount: strategies.length,
-      roles: strategies.map(strategyLabel),
-      sawLoginForm: results.some((r) => r.sawLoginForm),
-    };
   } finally {
     await browser.close();
   }
+
+  const settled: MissionResult[] = [...results.values()];
+
+  let replayStorageState: string | undefined;
+  for (const r of settled) if (r.replayStorageState) replayStorageState = r.replayStorageState;
+
+  // Merge identical fingerprints across missions, then collapse distinct
+  // capture paths of the same fault (5xx + console + timeout + throw) into one.
+  const findings = collapseSignals(mergeFindings(settled.map((r) => r.findings)));
+  const totalActions = settled.reduce((sum, r) => sum + r.actions, 0);
+  const totalCoverage = settled.reduce((sum, r) => sum + r.newCoverage, 0);
+
+  // Per-role totals: group settled missions by role id, count their findings.
+  const byRole = new Map<string, RoleStat>();
+  for (const r of settled) {
+    const stat = byRole.get(r.roleId) ?? { roleId: r.roleId, label: "", missions: 0, actions: 0, findings: 0 };
+    stat.missions += 1;
+    stat.actions += r.actions;
+    stat.findings += r.findings.length;
+    byRole.set(r.roleId, stat);
+  }
+  for (const m of missions) {
+    const stat = byRole.get(m.role.id);
+    if (stat && !stat.label) stat.label = `${m.role.emoji} ${m.role.name}`.trim();
+  }
+  const roleStats = [...byRole.values()];
+
+  return {
+    findings,
+    replayStorageState,
+    totalActions,
+    totalCoverage,
+    workerCount: settled.length,
+    roles: missions.map((m) => m.role.name),
+    roleStats,
+    sawLoginForm: settled.some((r) => r.sawLoginForm),
+  };
 }

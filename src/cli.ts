@@ -8,6 +8,7 @@ import { opt, formatHelp } from "./cli/help.js";
 import { resolveRepoRoot } from "./cli/repo.js";
 import type { RunOptions } from "./core/orchestrator.js";
 import type { Finding } from "./core/types.js";
+import { ROLE_CATALOG } from "./core/roles.js";
 import { initProject } from "./core/init.js";
 import { VERSION } from "./core/version.js";
 import { installHook, runPrePush, uninstallHook } from "./hooks/index.js";
@@ -115,6 +116,8 @@ interface CliOptions {
   seed: string;
   workers?: string;
   swarm?: boolean;
+  roles?: string;
+  agents?: string;
   repro?: boolean;
   reproRuns: string;
   allowHost?: string[];
@@ -336,8 +339,10 @@ program
   .addOption(opt("--http-fuzz-mutations", "with --http-fuzz: also send POST/PUT body mutations (default: GET-only)", "advanced"))
   .addOption(opt("--allow-destructive", "opt-in: test destructive controls/endpoints (delete/pay/logout/checkout) — can mutate real data", "advanced"))
   .addOption(opt("--seed <n>", "RNG seed for fuzz", "advanced").default("42"))
-  .addOption(opt("--workers <n>", "number of parallel detection workers (default 1)", "detect"))
-  .addOption(opt("--swarm", "auto-size the swarm to the machine's CPU cores (alias: --workers auto)").hideHelp())
+  .addOption(opt("--workers <n>", "max concurrent browser contexts (default: min(missions, 8))", "detect"))
+  .addOption(opt("--swarm", "run the full role catalog — ten agent roles attacking the app at once", "detect"))
+  .addOption(opt("--roles <ids>", "comma-separated catalog roles to run (e.g. novice,hostile,race-hunter)", "detect"))
+  .addOption(opt("--agents <n>", "total agent missions across the selected roles (default: 1 per role) — missions are tasks, not browsers", "detect"))
   .addOption(opt("--repro", "minimize + compile + validate each finding (F7-F9)", "prove"))
   .addOption(opt("--repro-runs <n>", "replay iterations for the flake-rate gate", "advanced").default("3"))
   .addOption(opt("--fix", "find → explain → heal → apply: one-command fix", "fix"))
@@ -415,8 +420,31 @@ program
         });
       }
       const workers = opts.workers ? parseInt(opts.workers, 10) : opts.swarm ? autoWorkers() : undefined;
-      const mode =
-        (workers ?? 1) > 1 || opts.httpFuzz
+
+      // Resolve the swarm roster: `--roles a,b` runs exactly those catalog
+      // roles, `--swarm` runs the full catalog. Unknown ids are a hard error —
+      // a typo silently dropping half the swarm would corrupt the run.
+      let roleIds: string[] | undefined;
+      if (opts.swarm) {
+        roleIds = ROLE_CATALOG.map((r) => r.id);
+      } else if (opts.roles) {
+        roleIds = opts.roles.split(",").map((s) => s.trim()).filter(Boolean);
+        const known = new Set(ROLE_CATALOG.map((r) => r.id));
+        const unknown = roleIds.filter((id) => !known.has(id));
+        if (unknown.length > 0) {
+          console.error(
+            pc.red(
+              `Unknown role(s): ${unknown.join(", ")}. Known roles: ${ROLE_CATALOG.map((r) => `${r.id} (${r.name})`).join(", ")}`
+            )
+          );
+          process.exit(1);
+        }
+      }
+      const agents = opts.agents ? parseInt(opts.agents, 10) : undefined;
+
+      const mode = roleIds
+        ? `swarm (${roleIds.length} role${roleIds.length === 1 ? "" : "s"}${agents ? `, ${agents} missions` : ""})`
+        : (workers ?? 1) > 1 || opts.httpFuzz
           ? `swarm (${workers ?? 1} worker${(workers ?? 1) === 1 ? "" : "s"})`
           : opts.fuzz
             ? `fuzz (seed ${opts.seed})`
@@ -454,6 +482,8 @@ program
         repro: opts.repro || opts.heal || magicFix,
         seed: parseInt(opts.seed, 10),
         workers,
+        roles: roleIds,
+        agents,
         allowHosts: [...(opts.allowHost ?? []), ...configAllowHosts(repoRoot)],
         reproRuns: parseInt(opts.reproRuns, 10),
         heal: opts.heal || magicFix,

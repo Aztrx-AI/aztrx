@@ -89,7 +89,9 @@ into your test dir so the bug can't come back.
 | --- | --- |
 | `--fuzz` | coverage-guided chaos fuzz — steers toward code it hasn't reached |
 | `--http-fuzz` | attack the server's endpoints (turns every `5xx` into a repro) |
-| `--swarm` / `--workers N` | parallel detection workers |
+| `--swarm` | a QA team of ten roles — each drives the app its own way, in parallel |
+| `--roles <ids>` | a subset of the swarm, e.g. `novice,hostile,race-hunter` |
+| `--agents N` | scale the swarm to N missions (tasks, not browsers) |
 | `--login` | auto-login to test authenticated pages |
 | `--badge` / `--pr-comment` / `--fail-on` | CI artifacts |
 | `patrol <url>` | autonomous loop — re-scan, fix, open a PR per bug |
@@ -464,8 +466,10 @@ The commands that are not `run`:
 | `--cloud-url <url>` | Ingest server base URL | `https://api.aztrx.app` |
 | `--max-actions <n>` | Max actions per pass | `100` |
 | `--seed <n>` | PRNG seed for deterministic fuzz | `42` |
-| `--workers <n>` | Number of parallel detection workers | `1` |
-| `--swarm` | Auto-size the swarm to CPU cores (capped at 8) | — |
+| `--workers <n>` | Max concurrent browser contexts (the swarm's pool size) | `1` |
+| `--swarm` | Run the full ten-role catalog: novice, power user, hooligan, session killer, race hunter, observer, a11y tester, HTTP raider, regressor, slow internet | — |
+| `--roles <ids>` | Comma-separated catalog roles to run | — |
+| `--agents <n>` | Total agent missions across the selected roles — a mission is a task, not a browser | 1 per role |
 | `--repro-runs <n>` | Flake-rate replay iterations | `3` |
 | `--heal-model <model>` | Fallback LLM tier | `claude-sonnet-5` / `$AZTRX_MODEL` |
 | `--heal-fast-model <model>` | Fast/cheap first tier | `claude-haiku-4-5-20251001` / `$AZTRX_FAST_MODEL` |

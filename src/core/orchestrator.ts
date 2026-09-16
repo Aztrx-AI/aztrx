@@ -42,6 +42,12 @@ export interface RunOptions {
   seed?: number;
   /** F-swarm: number of parallel detection workers (default 1). `--swarm` = auto. */
   workers?: number;
+  /** F-swarm roles: run these catalog role ids (`--roles novice,hostile`).
+   * Empty = legacy walk/fuzz mode. */
+  roles?: string[];
+  /** Total agent missions across the selected roles (default: 1 per role).
+   * `--agents 1000` scales the swarm without a thousand browsers. */
+  agents?: number;
   allowHosts?: string[];
   reproRuns?: number;
   /** Path to a Playwright storage-state JSON (cookies + localStorage) so the
@@ -117,11 +123,13 @@ function printFinding(f: Finding, write: (s: string) => void, lang?: string): vo
     write(pc.dim(`   server: ${f.serverError.message}`));
   }
   if (f.occurrences > 1) write(pc.dim(`   (×${f.occurrences})`));
+  if (f.roles?.length) write(pc.dim(`   by: ${f.roles.join(", ")}`));
   write("");
 }
 
 /** Human-readable run mode, surfaced in the cloud dashboard. */
 function runMode(o: RunOptions): string {
+  if (o.roles?.length) return `swarm (${o.roles.length} role(s))`;
   if ((o.workers ?? 1) > 1) return `swarm (${o.workers} workers)`;
   if (o.fuzz) return `fuzz (seed ${o.seed ?? 42})`;
   if (o.httpFuzz) return "http fuzz";
@@ -202,6 +210,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     totalCoverage,
     workerCount,
     roles,
+    roleStats,
     sawLoginForm,
   } = await swarmDetect({
     url,
@@ -214,6 +223,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     allowDestructive: options.allowDestructive,
     seed: options.seed ?? 42,
     workers,
+    roles: options.roles,
+    agents: options.agents,
     allowHosts,
     storageState: options.storageState,
     login: options.login,
@@ -237,7 +248,13 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     printFinding(f, say, options.lang);
   }
 
-  if (workerCount > 1) {
+  if (options.roles?.length) {
+    // Catalog mode: per-role totals — who did what.
+    for (const s of roleStats) {
+      say(pc.dim(`  ${s.label || s.roleId}: ${s.missions} mission(s), ${s.actions} action(s), ${s.findings} finding(s)`));
+    }
+    say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} mission(s).\n`));
+  } else if (workerCount > 1) {
     say(pc.dim(`\nSwarm: ${totalActions} action(s) across ${workerCount} worker(s) — ${roles.join(", ")}.\n`));
   } else if (options.fuzz) {
     say(pc.dim(`\nFuzzed ${totalActions} action(s) — covered ${totalCoverage} new code range(s).\n`));

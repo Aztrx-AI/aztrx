@@ -101,6 +101,8 @@ export interface Finding {
   /** Server's own error response, captured by `--http-fuzz` (message + body). */
   serverError?: { message: string; body: string };
   actionHistory: RecordedAction[];
+  /** Role ids of the swarm agents that found this fault (empty in solo runs). */
+  roles?: string[];
   repro?: ReproReport;
   /** F10 closed-loop healing result, attached when `--heal` ran for this finding. */
   heal?: import("./heal/types.js").HealResult;
