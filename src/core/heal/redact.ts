@@ -26,6 +26,9 @@ const WHOLE_MATCH: Array<{ re: RegExp; label: string }> = [
   { re: /\bBasic [A-Za-z0-9+/=]{10,}\b/g, label: "basic_auth" },
   { re: /\bAIza[0-9A-Za-z_-]{30,}\b/g, label: "google_api_key" },
   { re: /\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g, label: "stripe_key" },
+  // A long random-looking quoted literal — catches keys that were split at
+  // build time ("sk_live_" + "51ABC…") so no single regex sees them whole.
+  { re: /["'][A-Za-z0-9]{24,}["']/g, label: "opaque_literal" },
 ];
 
 // Prefix-preserving: group 1 stays in place (so the code structure — the key
@@ -38,7 +41,7 @@ const VALUE_MATCH: Array<{ re: RegExp; label: string }> = [
     // `aws_secret_access_key` / `FOO_ACCESS_KEY`, while a plain `secret = x`
     // still matches. (JS `\b` treats `_` as a word char, which would miss the
     // compound forms — hence the explicit lookarounds.)
-    re: /(["']?[A-Za-z0-9._-]*(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)(?![A-Za-z0-9])[A-Za-z0-9._-]*["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
+    re: /(["']?[A-Za-z0-9._-]*(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|stripe[_-]?key|access[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)(?![A-Za-z0-9])[A-Za-z0-9._-]*["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
     label: "secret_value",
   },
   {
@@ -46,7 +49,7 @@ const VALUE_MATCH: Array<{ re: RegExp; label: string }> = [
     // lookaround form above misses these because the keyword is glued to a
     // letter. No boundary here, so a keyword directly before `:`/`=` matches
     // even mid-identifier.
-    re: /(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
+    re: /(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|stripe[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|auth[_-]?token|credential|authorization)["']?\s*[:=]\s*)(["']?(?!__AZTRX_REDACTED_)[^"'\s;,&}{=]{8,}["']?)/gi,
     label: "secret_value",
   },
   {

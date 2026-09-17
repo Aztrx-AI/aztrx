@@ -15,6 +15,28 @@ function repoWith(scripts: Record<string, string> | null): string {
   return dir;
 }
 
+/** The keyless paths are part of the contract — run them hermetic, so an
+ * ambient key in the developer's shell (or the CI runner's) can't flip the
+ * flow these tests pin down. */
+const LLM_KEY_ENV = ["AZTRX_API_BASE", "AZTRX_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"] as const;
+
+async function withoutLlmKeys<T>(fn: () => Promise<T>): Promise<T> {
+  const saved = new Map<string, string | undefined>();
+  for (const k of LLM_KEY_ENV) {
+    saved.set(k, process.env[k]);
+    delete process.env[k];
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const k of LLM_KEY_ENV) {
+      const v = saved.get(k);
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 function findingFor(filePath: string, type: Finding["type"] = "runtime_error"): Finding {
   return {
     id: "f1",
@@ -47,40 +69,46 @@ test("heal refuses to verify a source file it cannot run (no start command)", as
 });
 
 test("heal still serves a self-contained HTML fixture statically", async () => {
-  // The fixture/benchmark path must keep working without a start command — an
-  // HTML entry really does execute when served, so the verification is honest.
-  const repoRoot = repoWith(null);
-  fs.writeFileSync(path.join(repoRoot, "crash.html"), "<html><body>hi</body></html>", "utf-8");
+  await withoutLlmKeys(async () => {
+    // The fixture/benchmark path must keep working without a start command — an
+    // HTML entry really does execute when served, so the verification is honest.
+    const repoRoot = repoWith(null);
+    fs.writeFileSync(path.join(repoRoot, "crash.html"), "<html><body>hi</body></html>", "utf-8");
 
-  const r = await heal(findingFor("crash.html"), { repoRoot, url: "http://localhost:3000", actions: [], fingerprint: "fp", allowHosts: [] });
-  // No LLM key and no rule fix applies here, so it stops at that gate — which
-  // proves it got *past* the serve guard rather than being refused by it.
-  assert.equal(r.status, "no-llm");
-  assert.doesNotMatch(r.error ?? "", /without running it/);
+    const r = await heal(findingFor("crash.html"), { repoRoot, url: "http://localhost:3000", actions: [], fingerprint: "fp", allowHosts: [] });
+    // No LLM key and no rule fix applies here, so it stops at that gate — which
+    // proves it got *past* the serve guard rather than being refused by it.
+    assert.equal(r.status, "no-llm");
+    assert.doesNotMatch(r.error ?? "", /without running it/);
+  });
 });
 
 test("heal accepts a source file when a start command exists", async () => {
-  const repoRoot = repoWith({ dev: "vite" });
-  fs.writeFileSync(path.join(repoRoot, "App.tsx"), "export const App = () => null;\n", "utf-8");
+  await withoutLlmKeys(async () => {
+    const repoRoot = repoWith({ dev: "vite" });
+    fs.writeFileSync(path.join(repoRoot, "App.tsx"), "export const App = () => null;\n", "utf-8");
 
-  const r = await heal(findingFor("App.tsx"), { repoRoot, url: "http://localhost:3000", actions: [], fingerprint: "fp", allowHosts: [] });
-  assert.equal(r.status, "no-llm");
-  assert.doesNotMatch(r.error ?? "", /without running it/);
+    const r = await heal(findingFor("App.tsx"), { repoRoot, url: "http://localhost:3000", actions: [], fingerprint: "fp", allowHosts: [] });
+    assert.equal(r.status, "no-llm");
+    assert.doesNotMatch(r.error ?? "", /without running it/);
+  });
 });
 
 test("heal accepts a source file when an explicit serve hook is injected", async () => {
-  const repoRoot = repoWith(null);
-  fs.writeFileSync(path.join(repoRoot, "App.tsx"), "export const App = () => null;\n", "utf-8");
+  await withoutLlmKeys(async () => {
+    const repoRoot = repoWith(null);
+    fs.writeFileSync(path.join(repoRoot, "App.tsx"), "export const App = () => null;\n", "utf-8");
 
-  const r = await heal(findingFor("App.tsx"), {
-    repoRoot,
-    url: "http://localhost:3000",
-    actions: [],
-    fingerprint: "fp",
-    allowHosts: [],
-    serve: async () => ({ url: "http://127.0.0.1:1", close: async () => {} }),
+    const r = await heal(findingFor("App.tsx"), {
+      repoRoot,
+      url: "http://localhost:3000",
+      actions: [],
+      fingerprint: "fp",
+      allowHosts: [],
+      serve: async () => ({ url: "http://127.0.0.1:1", close: async () => {} }),
+    });
+    assert.equal(r.status, "no-llm");
   });
-  assert.equal(r.status, "no-llm");
 });
 
 test("heal still requires a start command for a server finding, HTML or not", async () => {

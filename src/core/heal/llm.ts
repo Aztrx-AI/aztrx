@@ -40,18 +40,26 @@ export function modelTiers(fallbackModel?: string, fastFallback?: string): Model
   return tiers;
 }
 
-const SYSTEM = `You are a meticulous bug-fixing engineer. You are given a single source file and a runtime error that occurs in it. Produce a MINIMAL fix as a Search & Replace diff.
+const SYSTEM = `You are a meticulous bug-fixing engineer. You are given a single source file and a runtime error that occurs in it. Produce a MINIMAL fix as a unified diff.
 
-Return ONLY a JSON object, no markdown fences, no prose. Shape:
-{ "explanation": "one sentence", "edits": [ { "search": "<exact substring from the file>", "replace": "<the fixed version>" } ] }
+Return ONLY a unified diff block, no prose outside it:
+\`\`\`diff
+--- <file path>
+@@ -<line>,<n> +<line>,<n> @@
+-<original lines>
++<fixed lines>
+\`\`\`
+
+(For full compatibility a JSON Search & Replace object is also accepted:
+{ "explanation": "one sentence", "edits": [ { "search": "<exact substring>", "replace": "<fixed version>" } ] }
+— but prefer the unified diff.)
 
 Hard rules:
-- "search" must be an EXACT, unique substring of the file you were shown (include enough surrounding lines to be unique).
-- "replace" is the corrected version of exactly that substring.
+- Every removed line must appear EXACTLY as shown in the file (include enough surrounding unchanged lines to be unique).
 - Change as little as possible. Do not reformat unrelated code.
 - Do NOT add any new import/require/import(). Do NOT use eval or new Function. Do NOT write an empty catch block (catch {}). Do NOT touch child_process, exec, spawn, fork, process.exit.
 - If you see __AZTRX_REDACTED_N__ placeholders, treat them as opaque tokens and carry them through unchanged — do not invent values for them.
-- If you cannot fix the bug, return { "explanation": "cannot fix", "edits": [] }.`;
+- If you cannot fix the bug, return an empty diff (no -/+ lines).`;
 
 export interface GenerateOptions {
   model?: string;
@@ -78,33 +86,109 @@ function buildPrompt(ctx: HealContext): string {
   if (loc) parts.push(`Bug location: line ${loc.line}, column ${loc.column}`);
   parts.push(`Error: ${msg.split("\n")[0].slice(0, 200)}`);
   if (stack) parts.push(`Stack (truncated):\n${stack.split("\n").slice(0, 12).join("\n")}`);
+
+  // The business risk and the exact repro steps — the model fixes the bug,
+  // but it must understand what the bug costs and how it was reached.
+  if (ctx.finding.businessRisk) parts.push(`Business risk: ${ctx.finding.businessRisk}`);
+  const steps = ctx.finding.actionHistory
+    .slice(0, 8)
+    .map((a, i) => {
+      switch (a.type) {
+        case "navigate":
+          return `${i + 1}. open ${a.value}`;
+        case "click":
+          return `${i + 1}. click ${a.selectors[0] ?? "the element"}`;
+        case "input":
+          return `${i + 1}. type ${JSON.stringify(a.value ?? "")} into ${a.selectors[0] ?? "the field"}`;
+        case "keypress":
+          return `${i + 1}. press ${a.value ?? "Enter"}`;
+        case "request":
+          return `${i + 1}. send ${a.request?.method ?? "GET"} ${a.request?.url ?? ""}`;
+        default:
+          return null;
+      }
+    })
+    .filter((s): s is string => Boolean(s));
+  if (steps.length) parts.push(`Repro steps:\n${steps.join("\n")}`);
+
   parts.push(`--- file: ${ctx.filePath} ---`);
   parts.push(ctx.redactedContent);
   parts.push("--- end file ---");
-  parts.push("Return the JSON Search & Replace diff that fixes this error.");
+  parts.push("Return the unified diff that fixes this error.");
   return parts.join("\n");
 }
 
-/** Parse a model reply into a Patch. Tolerates markdown fences and leading text. */
+/** Convert a unified diff block into a single Search & Replace hunk. */
+function parseUnifiedDiff(text: string): PatchHunk[] | null {
+  const lines = text.split("\n");
+  let inHunk = false;
+  const search: string[] = [];
+  const replace: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (line.startsWith("---") || line.startsWith("+++")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("-")) search.push(line.slice(1));
+    else if (line.startsWith("+")) replace.push(line.slice(1));
+    else {
+      search.push(line);
+      replace.push(line);
+    }
+  }
+  if (search.length === 0 && replace.length === 0) return null;
+  // A unified diff without context lines cannot apply exactly — refuse it
+  // rather than produce an apply-failed round trip.
+  if (search.length === 0) return null;
+  return [{ search: search.join("\n"), replace: replace.join("\n") }];
+}
+
+/** Parse a model reply into a Patch. Tolerates markdown fences, leading text,
+ * unified diff blocks, and the legacy JSON Search & Replace shape. */
 export function parsePatch(raw: string): Patch {
   let text = raw.trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fence = text.match(/```(?:json|diff)?\s*([\s\S]*?)```/i);
   if (fence) text = fence[1].trim();
+
+  // Unified diff first — the model's preferred format.
+  if (/^---\s+/.test(text) || text.includes("\n-") || text.includes("\n+")) {
+    const hunks = parseUnifiedDiff(text);
+    if (hunks) {
+      const m = text.match(/^---\s+(\S+)/m);
+      return { explanation: m ? `Patch for ${m[1]}` : "Unified diff patch", hunks };
+    }
+  }
+
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start >= 0 && end > start) text = text.slice(start, end + 1);
 
-  const data = JSON.parse(text) as {
-    explanation?: string;
-    edits?: Array<{ search?: unknown; replace?: unknown }>;
-  };
-  const hunks: PatchHunk[] = (data.edits ?? [])
-    .filter(
-      (e): e is { search: string; replace: string } =>
-        typeof e?.search === "string" && e.search.length > 0 && typeof e?.replace === "string"
-    )
-    .map((e) => ({ search: e.search, replace: e.replace }));
-  return { explanation: typeof data.explanation === "string" ? data.explanation : "", hunks };
+  // A reply that is neither a diff nor JSON (prose, an apology, an empty
+  // fence) is "cannot fix", not a parse crash — the caller reports it as
+  // `rejected` with the model's own words instead of a JSON error.
+  try {
+    const data = JSON.parse(text) as {
+      explanation?: string;
+      edits?: Array<{ search?: unknown; replace?: unknown }>;
+    };
+    const hunks: PatchHunk[] = (data.edits ?? [])
+      .filter(
+        (e): e is { search: string; replace: string } =>
+          typeof e?.search === "string" && e.search.length > 0 && typeof e?.replace === "string"
+      )
+      .map((e) => ({ search: e.search, replace: e.replace }));
+    return { explanation: typeof data.explanation === "string" ? data.explanation : "", hunks };
+  } catch {
+    return {
+      explanation: "the model did not return a patch",
+      hunks: [],
+    };
+  }
 }
 
 /** Sentinel model name for the free, no-key rule-based fixer. */
@@ -184,6 +268,9 @@ export async function generatePatch(ctx: HealContext, opts: GenerateOptions = {}
     maxTokens: 8192,
     temperature: 0,
   });
+  if (process.env.AZTRX_DEBUG_LLM) {
+    process.stderr.write(`[llm-debug] model reply (${text.length} chars):\n${text.slice(0, 1200)}\n--- end reply ---\n`);
+  }
   if (opts.budget) opts.budget.remaining -= 1;
   return parsePatch(text);
 }

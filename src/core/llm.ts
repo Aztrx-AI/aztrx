@@ -22,12 +22,30 @@ export interface LlmSettings {
 
 /** Resolve the active provider from the environment. */
 export function resolveSettings(): LlmSettings {
+  // OpenAI-compatible providers, most-specific first:
+  //  1) AZTRX_API_BASE — an explicit endpoint (OpenAI, Grok, OpenRouter, …)
+  //  2) DEEPSEEK_API_KEY — DeepSeek's OpenAI-compatible API
+  //  3) OPENAI_API_KEY — OpenAI proper, or whatever OPENAI_BASE_URL names
   const base = process.env.AZTRX_API_BASE?.trim();
   if (base) {
     return {
       provider: "openai",
       apiKey: process.env.AZTRX_API_KEY || process.env.OPENAI_API_KEY,
       baseUrl: base.replace(/\/+$/, ""),
+    };
+  }
+  if (process.env.DEEPSEEK_API_KEY) {
+    return {
+      provider: "openai",
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseUrl: (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/+$/, ""),
+    };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      provider: "openai",
+      apiKey: process.env.OPENAI_API_KEY,
+      baseUrl: (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, ""),
     };
   }
   return {
@@ -45,7 +63,8 @@ export function hasLlmKey(): boolean {
 export function primaryModel(): string {
   const s = resolveSettings();
   if (s.provider === "anthropic") return process.env.AZTRX_MODEL || "claude-sonnet-5";
-  return process.env.AZTRX_MODEL || "";
+  if ((s.baseUrl ?? "").includes("deepseek")) return process.env.AZTRX_MODEL || "deepseek-chat";
+  return process.env.AZTRX_MODEL || "gpt-4o-mini";
 }
 
 /** The cheap/fast first tier, or undefined when the provider has none. */
@@ -86,7 +105,7 @@ export async function complete(opts: CompleteOptions): Promise<string> {
     throw new Error(
       s.provider === "anthropic"
         ? "ANTHROPIC_API_KEY is not set"
-        : "AZTRX_API_KEY (or OPENAI_API_KEY) is not set"
+        : "no OpenAI-compatible key is set — AZTRX_API_KEY, OPENAI_API_KEY or DEEPSEEK_API_KEY"
     );
   }
   announce(model, s.provider, s.baseUrl);

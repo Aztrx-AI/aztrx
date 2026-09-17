@@ -16,8 +16,10 @@ import type { Page } from "playwright";
 import { EventBus } from "./eventBus.js";
 import { originOf } from "./domWalker.js";
 
-/** Secret patterns that must never appear in HTML delivered to a browser. */
-const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
+/** Secret patterns that must never appear in HTML delivered to a browser.
+ * Exported so heal's verification can re-scan a patched page with the same
+ * table the detection used. */
+export const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: "Stripe live key", regex: /sk_live_[0-9a-zA-Z]{16,}/ },
   { name: "Stripe test key", regex: /sk_test_[0-9a-zA-Z]{16,}/ },
   { name: "AWS access key", regex: /\bAKIA[0-9A-Z]{16}\b/ },
@@ -55,10 +57,14 @@ export async function ssrKeyScan(
       const m = html.match(pattern.regex);
       if (!m) continue;
       leaks++;
+      // `url` + `line` give the finding a source location (resolveFrame maps
+      // the route to the file), so heal can read and patch the leaking file.
       bus.emit("telemetry", {
         type: "secret_leak",
         rawMessage: `Secret exposed in page source: ${pattern.name} on ${new URL(url).pathname || "/"} (from SSR/hydration HTML)`,
         rawStack: "",
+        url,
+        line: 1,
       });
     }
   };

@@ -109,6 +109,37 @@ export function applyHunks(content: string, hunks: PatchHunk[]): ApplyResult {
   return { ok: true, patched, applied: hunks.length, errors: [] };
 }
 
+/**
+ * Whitespace-tolerant apply — the fallback for model-written diffs whose
+ * context lines lost (or gained) a leading space here and there. Lines match
+ * by trimmed content, so indentation drift on one line no longer sinks the
+ * whole hunk. Used only after the exact match failed; the result still passes
+ * the same gate and verification as any other patch.
+ */
+export function applyHunksLoose(content: string, hunks: PatchHunk[]): ApplyResult {
+  let lines = content.split("\n");
+  for (const h of hunks) {
+    const searchLines = h.search.split("\n").map((l) => l.trim());
+    let start = -1;
+    for (let i = 0; i <= lines.length - searchLines.length && start < 0; i++) {
+      let ok = true;
+      for (let j = 0; j < searchLines.length; j++) {
+        if (lines[i + j].trim() !== searchLines[j]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) start = i;
+    }
+    if (start < 0) {
+      return { ok: false, patched: content, applied: 0, errors: [`loose match failed: ${preview(h.search)}`] };
+    }
+    const replaceLines = h.replace.split("\n");
+    lines = [...lines.slice(0, start), ...replaceLines, ...lines.slice(start + searchLines.length)];
+  }
+  return { ok: true, patched: lines.join("\n"), applied: hunks.length, errors: [] };
+}
+
 /** Write the patched file into the worktree, refusing to escape it. */
 export function writeWorktreeFile(worktreeDir: string, repoRelativePath: string, content: string): string | null {
   const root = path.resolve(worktreeDir);

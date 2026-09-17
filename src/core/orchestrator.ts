@@ -319,6 +319,43 @@ export async function run(options: RunOptions): Promise<Finding[]> {
       emitPhase("repro");
       for (const f of targets) {
         try {
+          if (f.type === "secret_leak") {
+            // A secret scan is deterministic by construction — the same HTML
+            // yields the same secret. Replay-validation would add nothing
+            // (the replay drives the browser, not the scan), so the repro is
+            // the recorded trace itself, and the REAL proof happens in heal's
+            // verification: the patched page is fetched and re-scanned.
+            f.repro = {
+              actions: f.actionHistory,
+              specPath: "",
+              verdict: "deterministic",
+              rate: 1,
+              runs: 1,
+              reproductions: 1,
+            };
+            bus.emit("repro", {
+              finding: f,
+              verdict: "deterministic",
+              runs: 1,
+              reproductions: 1,
+              steps: f.actionHistory.length,
+              totalSteps: f.actionHistory.length,
+              specPath: "",
+            });
+            runLog.append({
+              type: "repro",
+              fingerprint: f.fingerprint,
+              verdict: "deterministic",
+              runs: 1,
+              reproductions: 1,
+              steps: f.actionHistory.length,
+              totalSteps: f.actionHistory.length,
+              specPath: "",
+            });
+            say(pc.green(`  ✓ deterministic (static scan)  ${pc.bold(f.rawMessage.split("\n")[0].slice(0, 60))}`));
+            continue;
+          }
+
           const minimal = await minimize(engine, f.actionHistory, { url, fingerprint: f.fingerprint });
           const specPath = writeSpec(repoRoot, f, minimal, url);
           const v = await validate(engine, url, f, minimal, options.reproRuns ?? 3);

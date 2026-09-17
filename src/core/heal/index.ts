@@ -23,9 +23,9 @@ import { auditPatch } from "./gates.js";
 import { generatePatch, generateRulePatch, modelTiers, RULE_TIER, BudgetExhaustedError } from "./llm.js";
 import { hasLlmKey } from "../llm.js";
 import type { ModelTier } from "./llm.js";
-import { applyHunks, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
+import { applyHunks, applyHunksLoose, createWorktree, diffWorktree, runTests, typecheckWorktree, writeWorktreeFile } from "./sandbox.js";
 import { bootServer, detectStartCommand } from "./boot.js";
-import { verifyFix } from "./verify.js";
+import { verifyFix, verifySecretFix } from "./verify.js";
 import type { Finding } from "../types.js";
 import type { HealContext, HealOptions, HealResult, Patch, TestGateResult, VerifyResult } from "./types.js";
 
@@ -232,13 +232,38 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
       }
 
       // Unredact the diff back onto the raw bytes before anything is applied.
-      const hunks = patch.hunks.map((h) => ({
+      let hunks = patch.hunks.map((h) => ({
         search: unredact(h.search, red.map),
         replace: unredact(h.replace, red.map),
       }));
 
       // Apply in memory (exact-match), then gate the resulting file.
-      const applied = applyHunks(original, hunks);
+      let applied = applyHunks(original, hunks);
+      if (!applied.ok) {
+        // The classic LLM diff artifact: a space added after the marker
+        // ("-  <script>" instead of "- <script>") pads every line by one.
+        // One relaxed retry — drop a single leading space from every line of
+        // both sides — before declaring the patch unapplicable.
+        const drop = (s: string) =>
+          s
+            .split("\n")
+            .map((l) => (l.startsWith(" ") ? l.slice(1) : l))
+            .join("\n");
+        const relaxed = hunks.map((h) => ({ search: drop(h.search), replace: drop(h.replace) }));
+        if (relaxed.some((h, i) => h.search !== hunks[i].search)) {
+          const retry = applyHunks(original, relaxed);
+          if (retry.ok) {
+            hunks = relaxed;
+            applied = retry;
+          }
+        }
+      }
+      if (!applied.ok) {
+        // Model diffs also drift by a space on SOME lines only (context lines
+        // copied with one less indent than the file). Trimmed-content matching
+        // tolerates that — same gate and verification still apply afterwards.
+        applied = applyHunksLoose(original, hunks);
+      }
       if (!applied.ok) {
         last = {
           ...base,
@@ -318,19 +343,24 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
       // 4. Verify — the bug must stop reproducing, against the *patched* code.
       // Mirror the selection made before generation: an injected hook wins, then
       // booting the worktree, then static serving for a real HTML entry.
+      // Secret leaks verify by re-scanning the patched page (the replay engine
+      // cannot re-drive a static scan).
       const serve =
         opts.serve ??
         (startCommand
           ? (dir: string) => bootServer({ worktreeDir: dir, repoRoot: opts.repoRoot, startCommand })
           : (dir: string, fp: string) => staticServe(dir, fp));
-      const v = await verifyFix({
-        url: opts.url,
-        actions: opts.actions,
-        fingerprint: opts.fingerprint,
-        runs: opts.verifyRuns ?? 3,
-        serve: () => serve(wt.dir, filePath),
-        targetType: isNetwork ? finding.type : undefined,
-      });
+      const v =
+        finding.type === "secret_leak"
+          ? await verifySecretFix({ serve: () => serve(wt.dir, filePath), finding })
+          : await verifyFix({
+              url: opts.url,
+              actions: opts.actions,
+              fingerprint: opts.fingerprint,
+              runs: opts.verifyRuns ?? 3,
+              serve: () => serve(wt.dir, filePath),
+              targetType: isNetwork ? finding.type : undefined,
+            });
 
       savedPatch = patch;
       savedVerification = v;

@@ -8,6 +8,8 @@
 import { ReplayEngine } from "../replay.js";
 import type { ReplayResult } from "../replay.js";
 import type { FindingType, RecordedAction } from "../types.js";
+import type { Finding } from "../types.js";
+import { SECRET_PATTERNS } from "../security.js";
 import type { VerifyResult } from "./types.js";
 
 /** The slice of the replay engine verification depends on. Production passes a
@@ -94,6 +96,55 @@ export async function verifyFix(opts: VerifyOptions): Promise<VerifyResult> {
     return { runs, reproductions, loaded, fixed: loaded > 0 && reproductions === 0 };
   } finally {
     await engine.close();
+    await close().catch(() => {});
+  }
+}
+
+export interface SecretVerifyOptions {
+  /** Serves the patched worktree (same contract as VerifyOptions.serve). */
+  serve: () => Promise<{ url: string; close: () => Promise<void> }>;
+  /** The finding whose secret kind must be gone from the patched page. */
+  finding: Finding;
+}
+
+/**
+ * Verification for secret leaks — the replay engine cannot re-drive a static
+ * scan, so the honest equivalent is to re-run the scan against the patched
+ * page: fetch the patched HTML and check the exact secret kind the finding
+ * reported no longer matches. "Fixed" requires the page to load AND the
+ * pattern to be gone — same discipline as the replay path.
+ */
+export async function verifySecretFix(opts: SecretVerifyOptions): Promise<VerifyResult> {
+  const { url: serveUrl, close } = await opts.serve();
+  try {
+    const kind = SECRET_PATTERNS.find((p) => opts.finding.rawMessage.includes(p.name));
+    if (!kind) return { runs: 0, reproductions: 0, loaded: 0, fixed: false };
+
+    // The route the leak was seen on: the recorded trace's last navigation,
+    // or the mapped file served directly.
+    let route = "";
+    for (let i = opts.finding.actionHistory.length - 1; i >= 0; i--) {
+      const a = opts.finding.actionHistory[i];
+      if (a.type === "navigate" && a.value) {
+        try {
+          route = new URL(a.value).pathname;
+        } catch {
+          route = a.value;
+        }
+        break;
+      }
+    }
+    if (!route && opts.finding.mappedLocation) {
+      route = "/" + opts.finding.mappedLocation.filePath.replace(/\\/g, "/").split("/").pop();
+    }
+    if (!route) return { runs: 0, reproductions: 0, loaded: 0, fixed: false };
+
+    const html = await fetch(serveUrl + route).then((r) => r.text()).catch(() => "");
+    if (!html) return { runs: 1, reproductions: 0, loaded: 0, fixed: false };
+
+    const stillLeaks = kind.regex.test(html);
+    return { runs: 1, reproductions: stillLeaks ? 1 : 0, loaded: 1, fixed: !stillLeaks };
+  } finally {
     await close().catch(() => {});
   }
 }
