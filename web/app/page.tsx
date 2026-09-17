@@ -627,20 +627,19 @@ function McpSection() {
             Put the swarm inside your agent.
           </h2>
           <p className="mt-6 max-w-2xl text-zinc-400">
-            An agent can write code but cannot run it — so it calls a change working when all it
-            knows is that the change parsed. Aztrx over MCP supplies the missing step: your editor
-            gains the whole swarm — audit, scan, repro, fix — as four tools it can call.
+            The same install gives your editor the whole swarm, not just a scan — audit, repro,
+            and fix arrive alongside it as four tools the agent can call on its own.
           </p>
         </Reveal>
 
         <Reveal delay={0.1} className="mt-10">
           <div className="inline-flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-5 py-4">
-            <code className="font-mono text-sm text-zinc-200">aztrx mcp install</code>
+            <code className="font-mono text-sm text-zinc-200">npx aztrx-cli mcp install</code>
             <span className="text-zinc-500">→</span>
             <span className="text-sm text-zinc-400">
-              writes the server into your editor&apos;s config; restart the editor, ask the agent
-              to <code className="font-mono text-xs text-zinc-300">run_security_audit</code>, and
-              it answers.
+              writes the server into your editor&apos;s config; restart the editor, then ask it to
+              run <code className="font-mono text-xs text-zinc-300">aztrx_audit</code>, and it
+              answers.
             </span>
           </div>
         </Reveal>
