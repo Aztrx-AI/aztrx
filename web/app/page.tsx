@@ -192,15 +192,31 @@ function Mark({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
+const SECTION_LINKS = [
+  { href: "#magic", label: "Magic" },
+  { href: "#integrations", label: "Integrations" },
+  { href: "#mcp", label: "MCP" },
+  { href: "#proof", label: "Proof" },
+  { href: "#benchmarks", label: "Benchmarks" },
+  { href: "#trust", label: "Trust" },
+];
+
 function Header() {
   return (
-    <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-8 py-6">
+    <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between border-b border-white/5 bg-black/50 px-8 py-4 backdrop-blur-xl">
       <div className="flex items-center gap-2.5">
         <Mark />
         <span className="text-[15px] font-semibold tracking-tight text-white">
           Aztrx <span className="font-medium text-zinc-500">AI</span>
         </span>
       </div>
+      <nav className="hidden items-center gap-6 font-mono text-xs text-zinc-400 lg:flex">
+        {SECTION_LINKS.map((link) => (
+          <a key={link.href} href={link.href} className="transition-colors hover:text-white">
+            {link.label}
+          </a>
+        ))}
+      </nav>
       <div className="flex items-center gap-2">
         <a
           href="/dashboard"
@@ -361,7 +377,7 @@ function BentoCard({
 
 function Magic() {
   return (
-    <section className="px-6 py-32">
+    <section id="magic" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <Eyebrow>The magic</Eyebrow>
@@ -555,7 +571,7 @@ const integrations = [
 
 function Integrations() {
   return (
-    <section className="px-6 py-32">
+    <section id="integrations" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <Eyebrow>Where it runs</Eyebrow>
@@ -619,7 +635,7 @@ const mcpTools = [
 
 function McpSection() {
   return (
-    <section className="px-6 py-32">
+    <section id="mcp" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <Eyebrow>MCP · Claude Code · Cursor · VS Code</Eyebrow>
@@ -791,7 +807,7 @@ function CodeShowcase() {
 
 function Showcase() {
   return (
-    <section className="px-6 py-32">
+    <section id="proof" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal className="text-center">
           <Eyebrow>The proof</Eyebrow>
@@ -828,7 +844,7 @@ const corpora = [
 
 function Benchmarks() {
   return (
-    <section className="px-6 py-32">
+    <section id="benchmarks" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <Eyebrow>Measured, not claimed</Eyebrow>
@@ -915,7 +931,7 @@ const trustItems = [
 
 function Trust() {
   return (
-    <section className="px-6 py-32">
+    <section id="trust" className="scroll-mt-24 px-6 py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <Eyebrow>Enterprise &amp; trust</Eyebrow>
