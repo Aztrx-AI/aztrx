@@ -190,25 +190,27 @@ export class StateGraph {
     return path;
   }
 
-  /** A readable tree of the built states, for the terminal. */
+  /** A readable tree of the built states, for the terminal: states as nodes,
+   * the actions that reached them as their own connector lines. */
   printTree(): string {
     const lines: string[] = [];
     const seen = new Set<string>();
-    const render = (node: StateNode, depth: number, prefix: string): void => {
+    const render = (node: StateNode, prefix: string): void => {
       const marker = node.snapshot.domMarkers.length > 0 ? ` [${node.snapshot.domMarkers.join(", ")}]` : "";
       const auth = Object.keys(node.snapshot.localStorage).length > 0 ? " 🔑" : "";
-      lines.push(
-        `${prefix}${node.snapshot.url}${marker}${auth} (w=${node.weight})`
-      );
-      if (seen.has(node.id)) return;
+      lines.push(`${prefix}${node.snapshot.url}${marker}${auth} (w=${node.weight})`);
+      if (seen.has(node.id)) {
+        lines.push(`${prefix}(already shown)`);
+        return;
+      }
       seen.add(node.id);
-      const kids = node.edgesOut;
-      kids.forEach((e, i) => {
-        const last = i === kids.length - 1;
-        render(e.to, depth + 1, prefix.replace(/[└├]─\s*$/, "") + (last ? "  " : "│ ") + (last ? "└─ " : "├─ ") + `${e.action.label} → `);
+      node.edgesOut.forEach((e, i) => {
+        const last = i === node.edgesOut.length - 1;
+        lines.push(`${prefix}${last ? "└─ " : "├─ "}${e.action.label}`);
+        render(e.to, prefix + (last ? "   " : "│  "));
       });
     };
-    if (this.root) render(this.root, 0, "");
+    if (this.root) render(this.root, "");
     return lines.join("\n");
   }
 }

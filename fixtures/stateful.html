@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Stateful SPA</title>
+  <script>
+    function refresh() {
+      const token = localStorage.getItem("token");
+      document.getElementById("login").style.display = token ? "none" : "inline-block";
+      document.getElementById("admin").style.display = token ? "inline-block" : "none";
+      document.getElementById("status").innerText = token ? "signed in" : "guest";
+    }
+    function login() {
+      localStorage.setItem("token", "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoidXNlciJ9.sig");
+      refresh();
+    }
+    function openAdmin() {
+      // The bug: __ADMIN__ is never defined, and the panel reads through it.
+      const panel = window.__ADMIN__;
+      document.getElementById("out").innerText = panel.actions.join(",");
+    }
+    window.addEventListener("DOMContentLoaded", refresh);
+  </script>
+</head>
+<body>
+  <h1>Stateful SPA</h1>
+  <p id="status"></p>
+  <button id="login" onclick="login()">Login</button>
+  <button id="admin" style="display:none" onclick="openAdmin()">Admin Panel</button>
+  <div id="out"></div>
+  <p><a href="/stateful.html">Home</a> · <a href="/crash.html">Other page</a></p>
+</body>
+</html>
