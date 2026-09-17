@@ -29,6 +29,7 @@ import { ssrKeyScan, tokenTamper, paywallBypass } from "./security.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
+import type { StateSnapshot } from "./graph.js";
 import type { Finding, RecordedAction, TelemetryErrorPayload } from "./types.js";
 
 export interface Mission {
@@ -57,6 +58,10 @@ export interface AgentOptions {
   /** Fold the HTTP fuzzer in as a post-pass on this mission's page. */
   httpFuzz?: boolean;
   httpFuzzMutations?: boolean;
+  /** State-Graph handoff: boot the page INTO this state (localStorage + cookies
+   * restored, then reloaded) so the attack runs as that user — e.g. the chaos
+   * monkey that hits the admin panel does so with the captured token. */
+  seedState?: StateSnapshot;
   baseline: string[];
   log: (msg: string) => void;
 }
@@ -217,6 +222,28 @@ async function openAgentPage(browser: Browser, opts: AgentOptions, forwardBus?: 
       await page.goto(opts.url, { waitUntil: "load", timeout: 30000 }).catch(() => {});
     } else {
       opts.log(`[auth] skipped: ${res.reason}`);
+    }
+  }
+
+  // State restoration (State-Graph handoff): write the captured localStorage
+  // and cookies into the fresh context, then reload so the app boots INTO
+  // that state — the mission attacks as the captured user, not as a stranger.
+  if (
+    loaded &&
+    opts.seedState &&
+    (Object.keys(opts.seedState.localStorage).length > 0 || opts.seedState.cookies.length > 0)
+  ) {
+    try {
+      await page.evaluate((ls) => {
+        for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v);
+      }, opts.seedState.localStorage);
+      if (opts.seedState.cookies.length > 0) {
+        await context.addCookies(opts.seedState.cookies.map((c) => ({ ...c, url: opts.url })));
+      }
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+    } catch {
+      // state restoration is best-effort — a mission never dies on it
     }
   }
 

@@ -54,6 +54,10 @@ export interface SwarmOptions {
    * by mapped source location, or by mentioning it in message/stack — survive
    * the merge. The whole swarm still runs; the report shrinks to the delta. */
   scopePath?: string;
+  /** State-Graph mode (aztrx audit): the Mapper explores the app first and
+   * picks the richest authed state it found — missions then attack FROM that
+   * state (restored cookies/localStorage), and the result carries the graph. */
+  graph?: boolean;
   /** Max concurrent browser contexts (default: min(missions, 8)). */
   concurrency?: number;
   allowHosts: Set<string>;
@@ -94,6 +98,11 @@ export interface SwarmResult {
   profile?: ProjectProfile;
   /** How many persona roles the synthesizer added on top of the catalog. */
   personaCount?: number;
+  /** The state graph the Mapper built (graph mode), if it ran. */
+  graph?: import("./graph.js").StateGraph;
+  /** The state missions were seeded from (graph mode) — null when the app
+   * revealed no authenticated state worth attacking from. */
+  seedState?: import("./graph.js").StateSnapshot | null;
 }
 
 /** A synthetic role for the legacy (non-catalog) modes. */
@@ -300,6 +309,43 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
   const concurrency =
     opts.concurrency ?? (opts.workers > 1 ? opts.workers : Math.min(missions.length, catalogMode ? 8 : missions.length));
 
+  // State-Graph mode: the Mapper walks the app once, then every mission
+  // attacks FROM the richest authed state it found — the chaos monkey hits
+  // the admin panel as the logged-in user.
+  let graph: import("./graph.js").StateGraph | undefined;
+  let seedState: import("./graph.js").StateSnapshot | null = null;
+  if (opts.graph) {
+    const { buildStateGraph } = await import("./mapper.js");
+    const scout = await browser.newContext();
+    try {
+      const scoutPage = await scout.newPage();
+      await scoutPage.goto(opts.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+      await scoutPage.waitForTimeout(500);
+      graph = await buildStateGraph(scoutPage, opts.url, { maxStates: 20, maxActionsPerState: 8 });
+      // The richest state wins: most localStorage keys first, then lowest
+      // weight (riskiest). No auth anywhere → no seed, the swarm runs plain.
+      let best: import("./graph.js").StateNode | null = null;
+      const visit = (n: import("./graph.js").StateNode, seen: Set<string>): void => {
+        if (seen.has(n.id)) return;
+        seen.add(n.id);
+        const nKeys = Object.keys(n.snapshot.localStorage).length;
+        const bKeys = best ? Object.keys(best.snapshot.localStorage).length : -1;
+        if (nKeys > bKeys || (nKeys === bKeys && best !== null && n.weight < best.weight)) best = n;
+        for (const e of n.edgesOut) visit(e.to, seen);
+      };
+      if (graph.root) {
+        best = graph.root;
+        visit(graph.root, new Set());
+      }
+      seedState = best && Object.keys(best.snapshot.localStorage).length > 0 ? best.snapshot : null;
+      opts.log(seedState ? pc.dim(`graph: ${graph.size} state(s) — attacking as the authed user (${Object.keys(seedState.localStorage).join(", ")})`) : pc.dim(`graph: ${graph.size} state(s) — no authed state found`));
+    } catch (e) {
+      opts.log(pc.dim(`graph failed (${(e as Error)?.message ?? String(e)}) — running the plain swarm`));
+    } finally {
+      await scout.close();
+    }
+  }
+
   const results = new Map<number, MissionResult>();
 
   try {
@@ -319,6 +365,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
         saveAuthState: i === 0,
         allowDestructive: opts.allowDestructive,
         baseline: opts.baseline,
+        seedState: seedState ?? undefined,
         log: (m) => opts.log(catalogMode ? `[${mission.role.id}] ${m}` : `[w${i}] ${m}`),
       };
 
@@ -399,5 +446,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
     sawLoginForm: settled.some((r) => r.sawLoginForm),
     profile,
     personaCount,
+    graph,
+    seedState,
   };
 }
