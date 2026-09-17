@@ -15,9 +15,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aztrx AI — Let AI break your app instead.",
+  title: "Aztrx AI — your app's worst users, on your side.",
   description:
-    "Autonomous runtime stress-tester. Aztrx AI drives your web app like a hostile user, catches the errors your error boundary swallows, and compiles a deterministic Playwright repro you can run to watch it break again.",
+    "Aztrx drives your app like a hostile user and proves every crash with a test — then a thousand-agent swarm audits the business logic you're afraid of: forged tokens, leaked secrets, broken paywalls. Patches and regression tests included.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
