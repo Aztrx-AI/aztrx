@@ -23,6 +23,10 @@ export interface ReplayResult {
    * "the bug is gone" unless the caller can tell the two apart. Verification
    * depends on this: an unreachable page must never count as a passing run. */
   loaded: boolean;
+  /** Fingerprints of OTHER faults seen during the replay (everything except the
+   * target). Verification uses this: a patch that "fixes" the target by
+   * turning it into a different crash must not pass. */
+  otherErrors: string[];
 }
 
 /**
@@ -222,7 +226,11 @@ export class ReplayEngine {
         const deadline = Date.now() + POST_REPLAY_WINDOW_MS;
         while (!seen() && Date.now() < deadline) await page.waitForTimeout(50);
 
-        return { reproduced: seen(), loaded };
+        return {
+          reproduced: seen(),
+          loaded,
+          otherErrors: [...fingerprints].filter((fp) => fp !== targetFingerprint).slice(0, 5),
+        };
       } catch (e) {
         lastError = e;
         await this.close(); // drop the (possibly crashed) browser and retry fresh

@@ -59,103 +59,164 @@ export async function walkDom(
 
     // Per-page "seen" set — the same button label on two pages is two targets.
     const seen = new Set<string>();
-    let handles: Awaited<ReturnType<Page["$$"]>>;
-    try {
-      handles = await page.$$(SELECTOR);
-    } catch {
-      continue; // mid-navigation — the next queued URL is visited anyway
-    }
 
-    for (const handle of handles) {
-      if (actions >= max) break;
-
-      const visible = await handle.isVisible().catch(() => false);
-      const enabled = await handle.isEnabled().catch(() => false);
-      if (!visible || !enabled) continue;
-
-      let tag: string;
+    // Two passes: buttons/inputs first, links second. Links navigate (and
+    // SPA hash links re-render in place), so clicking them first starved the
+    // walker: the first nav link broke the page loop and the in-place
+    // controls — the ones that actually trip bugs — were never touched.
+    //
+    // After every successful action the page is RESCANNED from the top:
+    // React re-renders the DOM on setState, so handles captured before the
+    // click point at dead elements and the walk would stall after the first
+    // button. `seen` (keyed by selector cascade) prevents repeats.
+    for (let pass = 0; pass < 2; pass++) {
+      let handles: Awaited<ReturnType<Page["$$"]>> = [];
       try {
-        tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+        handles = await page.$$(SELECTOR);
       } catch {
-        continue; // element unreadable mid-query — skip
+        continue; // mid-navigation — the next queued URL is visited anyway
       }
-      let label = "";
-      try {
-        label = await handle.evaluate((el) => {
-          const t =
-            (el as HTMLElement).innerText ||
-            el.getAttribute("aria-label") ||
-            el.getAttribute("value") ||
-            el.getAttribute("placeholder") ||
-            "";
-          return t.trim();
-        });
-      } catch {
-        label = ""; // degraded — no label to filter on
-      }
+      let hi = 0;
+      let navigated = false;
+      while (hi < handles.length && actions < max && !navigated) {
+        const handle = handles[hi];
+        hi++;
 
-      if (!opts.allowDestructive && DESTRUCTIVE.test(label)) continue;
+        const visible = await handle.isVisible().catch(() => false);
+        const enabled = await handle.isEnabled().catch(() => false);
+        if (!visible || !enabled) continue;
 
-      if (tag === "a") {
-        // Don't click links directly — queue internal ones for the crawl.
-        const href = (await handle.getAttribute("href")) ?? "";
-        if (href && !/^(javascript:|mailto:|tel:|#)/.test(href)) {
-          try {
-            const target = new URL(href, url).href.split("#")[0];
-            if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 20) {
-              queue.push(target);
+        let tag: string;
+        try {
+          tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+        } catch {
+          continue; // element unreadable mid-query — skip
+        }
+        let label = "";
+        try {
+          label = await handle.evaluate((el) => {
+            const t =
+              (el as HTMLElement).innerText ||
+              el.getAttribute("aria-label") ||
+              el.getAttribute("value") ||
+              el.getAttribute("placeholder") ||
+              "";
+            return t.trim();
+          });
+        } catch {
+          label = ""; // degraded — no label to filter on
+        }
+
+        if (!opts.allowDestructive && DESTRUCTIVE.test(label)) continue;
+
+        if (tag === "a") {
+          if (pass === 0) continue; // links wait for the second pass
+          const href = (await handle.getAttribute("href")) ?? "";
+          // SPA hash links (#/admin) change the page without a document
+          // navigation — click them in place, then queue the new URL (WITH its
+          // hash) as its own crawl page. Treating `#…` as "not a link" made
+          // every hash-routed SPA invisible to the walker.
+          if (href.startsWith("#")) {
+            const selectors = await selectorCascade(handle);
+            const signature = selectors.join("|") || `a:${label}`;
+            if (seen.has(signature)) continue;
+            seen.add(signature);
+            const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
+            bus.emit("action", action);
+            if (!opts.dryRun) await handle.click({ timeout: 1500 }).catch(() => {});
+            actions++;
+            await page.waitForTimeout(120);
+            if (page.url() !== url && !visited.has(page.url()) && queue.length < 20) {
+              queue.push(page.url());
+              navigated = true;
             }
-          } catch {
-            // unparseable href — ignore
+            // The SPA re-rendered either way — rescan (seen guards repeats),
+            // or the rest of this pass walks dead handles.
+            try {
+              handles = await page.$$(SELECTOR);
+              hi = 0;
+            } catch {
+              navigated = true;
+            }
+            continue;
+          }
+          // Don't click regular links directly — queue internal ones for the crawl.
+          if (href && !/^(javascript:|mailto:|tel:)/.test(href)) {
+            try {
+              const target = new URL(href, url).href.split("#")[0];
+              if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 20) {
+                queue.push(target);
+              }
+            } catch {
+              // unparseable href — ignore
+            }
+          }
+          continue;
+        }
+
+        if (pass === 1) continue; // second pass handles links only
+
+        if (tag === "input") {
+          const type = (await handle.getAttribute("type")) ?? "";
+          if (type === "password") sawLoginForm = true;
+          if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
+        }
+
+        const selectors = await selectorCascade(handle);
+        const signature = selectors.join("|") || `${tag}:${label}`;
+        if (seen.has(signature)) continue; // already acted on this element
+        seen.add(signature);
+
+        if (tag === "input" || tag === "textarea") {
+          const action: RecordedAction = { type: "input", selectors, value: "test", timestamp: Date.now() };
+          bus.emit("action", action);
+          if (!opts.dryRun) await handle.fill("test").catch(() => {});
+        } else {
+          const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
+          bus.emit("action", action);
+          if (!opts.dryRun) await handle.click({ timeout: 1500 }).catch(() => {});
+        }
+
+        actions++;
+        await page.waitForTimeout(120);
+
+        // Session-killer jitter: reload mid-flow with the configured probability,
+        // recorded as a navigate action so the repro replays the reload too.
+        if (opts.chaos && rnd() < opts.chaos.chance) {
+          const reload: RecordedAction = { type: "navigate", selectors: [], value: page.url(), timestamp: Date.now() };
+          bus.emit("action", reload);
+          if (!opts.dryRun) {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+            await page.waitForTimeout(500);
           }
         }
-        continue;
-      }
 
-      if (tag === "input") {
-        const type = (await handle.getAttribute("type")) ?? "";
-        if (type === "password") sawLoginForm = true;
-        if (!TEXT_INPUT_TYPES.has(type)) continue; // skip password/hidden/submit/checkbox/etc.
-      }
+        // A click may navigate (e.g. a submit, or an SPA hash-route change) —
+        // queue the new URL (hash included — it is its own crawl page) and stop
+        // this page's walk; the queue visits it next.
+        if (page.url() !== url) {
+          const next = page.url();
+          const base = next.split("#")[0];
+          if (!visited.has(next) && queue.length < 20) {
+            queue.push(next);
+          } else if (base.startsWith(startOrigin) && !visited.has(base) && queue.length < 20) {
+            queue.push(base);
+          }
+          navigated = true;
+          continue;
+        }
 
-      const selectors = await selectorCascade(handle);
-      const signature = selectors.join("|") || `${tag}:${label}`;
-      if (seen.has(signature)) continue; // already acted on this element
-      seen.add(signature);
-
-      if (tag === "input" || tag === "textarea") {
-        const action: RecordedAction = { type: "input", selectors, value: "test", timestamp: Date.now() };
-        bus.emit("action", action);
-        if (!opts.dryRun) await handle.fill("test").catch(() => {});
-      } else {
-        const action: RecordedAction = { type: "click", selectors, timestamp: Date.now() };
-        bus.emit("action", action);
-        if (!opts.dryRun) await handle.click({ timeout: 1500 }).catch(() => {});
-      }
-
-      actions++;
-      await page.waitForTimeout(120);
-
-      // Session-killer jitter: reload mid-flow with the configured probability,
-      // recorded as a navigate action so the repro replays the reload too.
-      if (opts.chaos && rnd() < opts.chaos.chance) {
-        const reload: RecordedAction = { type: "navigate", selectors: [], value: page.url(), timestamp: Date.now() };
-        bus.emit("action", reload);
-        if (!opts.dryRun) {
-          await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-          await page.waitForTimeout(500);
+        // No navigation, but the action may have re-rendered the DOM (React
+        // setState) — rescan from the top for the next element. `seen` keeps
+        // the already-acted controls out of the way.
+        try {
+          handles = await page.$$(SELECTOR);
+          hi = 0;
+        } catch {
+          navigated = true; // mid-navigation after all — bail out safely
         }
       }
-
-      // A click may navigate (e.g. a submit) — queue the new URL and stop this
-      // page's walk; the queue visits it next.
-      if (page.url() !== url) {
-        const target = page.url().split("#")[0];
-        if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 20) {
-          queue.push(target);
-        }
-        break;
-      }
+      if (navigated) break; // leave the pass loop; the queued page is next
     }
 
     // Give in-flight async work (fetches, timers) a moment to reject before we

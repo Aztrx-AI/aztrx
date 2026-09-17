@@ -110,7 +110,16 @@ async function discoverCandidates(
     const selectors = await selectorCascade(handle as ElementHandle<SVGElement | HTMLElement>);
 
     if (info.tag === "a" && info.href) {
-      if (/^(javascript:|mailto:|tel:|#)/.test(info.href)) continue;
+      if (/^(javascript:|mailto:|tel:)/.test(info.href)) continue;
+      // SPA hash links are clicked in place — the state change (new hash,
+      // new render) is captured by the next snapshot, no goto needed.
+      if (info.href.startsWith("#")) {
+        candidates.push({
+          from,
+          action: { type: "click", label: `click "${info.label}"`, selectors },
+        });
+        continue;
+      }
       try {
         const target = new URL(info.href, page.url()).href.split("#")[0];
         if (!target.startsWith(startOrigin)) continue; // same-origin only

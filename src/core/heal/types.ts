@@ -59,6 +59,9 @@ export interface VerifyResult {
    * non-reproduction is how a patch gets declared verified without being tried. */
   loaded: number;
   fixed: boolean;
+  /** Fingerprints of other faults the verification replay saw — a patch that
+   * swaps the target crash for a different one is rejected, not celebrated. */
+  otherErrors?: string[];
 }
 
 export interface TestGateResult {

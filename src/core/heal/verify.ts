@@ -69,6 +69,7 @@ export async function verifyFix(opts: VerifyOptions): Promise<VerifyResult> {
     const runs = Math.max(1, Math.trunc(opts.runs ?? 3));
     let reproductions = 0;
     let loaded = 0;
+    let otherErrors: string[] = [];
     // Every recorded URL is rewritten to the served origin — for client findings
     // too, not just network ones. The repro was recorded against the original
     // app, so a `navigate` action left as-is would send the replay straight back
@@ -90,11 +91,25 @@ export async function verifyFix(opts: VerifyOptions): Promise<VerifyResult> {
         : await engine.run(serveUrl, actions, opts.fingerprint);
       if (res.loaded) loaded += 1;
       if (res.reproduced) reproductions += 1;
+      if (res.otherErrors?.length) otherErrors = [...new Set([...otherErrors, ...res.otherErrors])];
     }
     // "Did not reproduce" only means "fixed" if the app was actually there to
-    // reproduce against. If no run loaded, this verification proved nothing about
-    // the patch — so it must not report success, or the caller writes an
-    // unverified patch into the user's working tree on the strength of it.
+    // reproduce against AND the replay saw no OTHER crash. A patch that turns
+    // the target crash into a different one (e.g. optional-chaining the read
+    // but leaving the undefined value to blow up the render) must be rejected —
+    // "the bug is gone" is not the same sentence as "the app no longer crashes".
+    if (reproductions === 0 && otherErrors.length > 0 && !opts.targetType) {
+      return {
+        runs,
+        reproductions,
+        loaded,
+        fixed: false,
+        otherErrors,
+      };
+    }
+    // If no run loaded, this verification proved nothing about the patch — so it
+    // must not report success, or the caller writes an unverified patch into the
+    // user's working tree on the strength of it.
     return { runs, reproductions, loaded, fixed: loaded > 0 && reproductions === 0 };
   } finally {
     await engine.close();

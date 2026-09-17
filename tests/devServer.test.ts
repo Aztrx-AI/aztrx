@@ -106,7 +106,9 @@ test("bootServer: honours a free preferred port and close() releases it", async 
   });
 
   try {
-    assert.equal(server.url, `http://127.0.0.1:${port}`);
+    // `localhost` not 127.0.0.1: Vite binds IPv6-only on Windows, and boot
+    // polls the name that works everywhere.
+    assert.equal(server.url, `http://localhost:${port}`);
     assert.equal((await fetch(server.url)).status, 200);
   } finally {
     await server.close();

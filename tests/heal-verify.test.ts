@@ -219,3 +219,34 @@ test("verifyFix: the served app is always closed, even when a run throws", async
   // allowed to depend on the happy path.
   assert.equal(closed, true);
 });
+
+test("verifyFix: a patch that swaps the crash for a different one is rejected", async () => {
+  // The regression: optional-chaining the read fixed the target fingerprint,
+  // but left the undefined value to blow up the render — "the bug is gone"
+  // while the app still crashes. Verification must reject that.
+  const { engine } = stub([{ reproduced: false, loaded: true, otherErrors: ["throw:users.map|..."] }]);
+  const r = await verifyFix({
+    url: "http://localhost:3000",
+    actions: [],
+    fingerprint: "fp",
+    serve: serveAt("http://127.0.0.1:5555"),
+    engine,
+  });
+  assert.equal(r.fixed, false);
+  assert.ok(r.otherErrors && r.otherErrors.length > 0);
+});
+
+test("verifyFix: other errors do not block a network-type verification", async () => {
+  // Server findings verify by signal type; unrelated client noise on the same
+  // page must not fail a patch for a 500 the server no longer returns.
+  const { engine } = stub([{ reproduced: false, loaded: true, otherErrors: ["noise"] }]);
+  const r = await verifyFix({
+    url: "http://localhost:3000",
+    actions: [],
+    fingerprint: "fp",
+    serve: serveAt("http://127.0.0.1:5555"),
+    engine,
+    targetType: "network_5xx",
+  });
+  assert.equal(r.fixed, true);
+});

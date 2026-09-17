@@ -203,7 +203,31 @@ export async function bootServer(opts: {
     opts.port !== undefined && (await isPortFree(opts.port)) ? opts.port : await freePort();
   // Support scripts that hardcode a port via `-p {port}`; `PORT` is also set in
   // the environment for the (more common) scripts that read `process.env.PORT`.
-  const command = startCommand.replace(/\{port\}/g, String(port));
+  let command = startCommand.replace(/\{port\}/g, String(port));
+  // Vite ignores the PORT env var entirely, and Next only honours `-p` on the
+  // CLI — a booted "vite" on the wrong port read as a 60s timeout instead of
+  // a server. Pass the flag when the command names the framework (directly,
+  // or hidden inside the package.json script that `npm run dev` refers to);
+  // `npm run` needs the `--` separator or npm swallows the flag as its own.
+  let framework: "vite" | "next" | null = null;
+  if (/\bvite\b/.test(command)) framework = "vite";
+  else if (/\bnext\b/.test(command)) framework = "next";
+  else {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(opts.repoRoot, "package.json"), "utf-8"));
+      const m = /(?:npm|pnpm) run\s+([\w:-]+)/.exec(command);
+      const script = m ? (pkg.scripts ?? {})[m[1]] ?? "" : "";
+      if (/\bvite\b/.test(script)) framework = "vite";
+      else if (/\bnext\b/.test(script)) framework = "next";
+    } catch {
+      // no package.json — nothing to infer
+    }
+  }
+  if (framework === "vite" && !/--port/.test(command)) {
+    command += /(?:npm|pnpm) run/.test(command) ? ` -- --port ${port}` : ` --port ${port}`;
+  } else if (framework === "next" && !/(?:-p\s|--port)/.test(command)) {
+    command += /(?:npm|pnpm) run/.test(command) ? ` -- -p ${port}` : ` -p ${port}`;
+  }
 
   // Ring buffer of the last ~40 log lines, so a boot timeout can tell the user
   // *why* the server didn't come up rather than just "timeout".
@@ -247,7 +271,9 @@ export async function bootServer(opts: {
   // Readiness: poll until the server answers with *any* HTTP response (2xx/4xx/
   // 5xx all mean "the listener is up"). A still-compiling dev server (Next) may
   // take a while on its first request — the loop keeps retrying until it's hot.
-  const url = `http://127.0.0.1:${port}`;
+  // `localhost` rather than 127.0.0.1: Vite on Windows binds IPv6-only (::1),
+  // so the IPv4 loopback read as a 60s timeout with a perfectly healthy server.
+  const url = `http://localhost:${port}`;
   const deadline = Date.now() + timeoutMs;
   let ready = false;
   while (Date.now() < deadline) {

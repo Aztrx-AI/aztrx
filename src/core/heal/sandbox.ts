@@ -70,7 +70,30 @@ function unlinkDirLinks(dir: string): void {
 /** Create a detached worktree at HEAD in a temp dir (outside the repo). */
 export async function createWorktree(repoRoot: string, label: string): Promise<Worktree> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `aztrx-heal-${label}-`));
-  await execFileP("git", ["-C", repoRoot, "worktree", "add", "--detach", dir, "HEAD"]);
+  try {
+    await execFileP("git", ["-C", repoRoot, "worktree", "add", "--detach", dir, "HEAD"]);
+  } catch {
+    // Not a git repository — the user's project may predate `git init`.
+    // Fall back to a plain copy (minus the heavy dirs) and treat it the
+    // same way: the patch lands in the copy, verification runs against it,
+    // cleanup removes it. node_modules is junctioned, not copied — a boot
+    // check needs the deps, and copying them would take minutes.
+    fs.cpSync(repoRoot, dir, {
+      recursive: true,
+      filter: (src) => {
+        const base = path.basename(src);
+        return !["node_modules", ".git", "dist", ".aztrx", ".next"].includes(base);
+      },
+    });
+    const nm = path.join(repoRoot, "node_modules");
+    if (fs.existsSync(nm)) {
+      try {
+        fs.symlinkSync(nm, path.join(dir, "node_modules"), "junction");
+      } catch {
+        // junction failed (FS without symlink support?) — the copy stays bare
+      }
+    }
+  }
   return {
     dir,
     cleanup: async () => {
