@@ -664,6 +664,32 @@ program
   );
 
 program
+  .command("watch")
+  .description("security hot-reload: watch the project, micro-swarm every save, alert + auto-patch in real time")
+  .argument("[url]", "app to watch (auto-detected if omitted), e.g. http://localhost:3000")
+  .configureHelp({ formatHelp })
+  .addOption(opt("--repo <path>", "project root to watch (default: cwd)", "advanced"))
+  .addOption(opt("--debounce <ms>", "silence window after a save before the swarm wakes", "advanced").default("500"))
+  .addOption(opt("--max-actions <n>", "per-cycle action budget of the micro-swarm", "advanced").default("30"))
+  .addOption(opt("--heal-model <model>", "LLM model for healing (default: claude-sonnet-5 / AZTRX_MODEL)", "advanced"))
+  .addOption(opt("--no-boot", "never start a dev server — only attach to one already running", "detect"))
+  .action(
+    async (
+      url: string | undefined,
+      opts: { repo?: string; debounce: string; maxActions: string; healModel?: string; boot?: boolean }
+    ) => {
+      const repoRoot = resolveRepoRoot(opts.repo ?? (program.opts().repo as string));
+      const { watchLoop } = await import("./core/watch.js");
+      await watchLoop({
+        url,
+        repoRoot,
+        debounceMs: parseInt(opts.debounce, 10),
+        maxActions: parseInt(opts.maxActions, 10),
+        healModel: opts.healModel,
+        noBoot: opts.boot === false,
+      });
+    }
+  )
   .command("patrol")
   .description("autonomously re-scan the app, fix new bugs, and open a PR per bug")
   .argument("[url]", "app to patrol (auto-detected if omitted), e.g. http://localhost:3000")

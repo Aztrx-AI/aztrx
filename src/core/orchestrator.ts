@@ -51,6 +51,9 @@ export interface RunOptions {
   /** A fear phrased in human words ("проверь безопасность оплаты") — parsed
    * into a focused role plan (see intent.ts). Roles win when both are given. */
   intent?: string;
+  /** Delta-scan scope (aztrx watch): the swarm still runs, but the report
+   * keeps only findings that point at this file. */
+  scopePath?: string;
   /** Total agent missions across the selected roles (default: 1 per role in
    * `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
@@ -255,6 +258,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     roles: effectiveRoles,
     synthesize: options.synthesize,
     agents: options.agents,
+    scopePath: options.scopePath,
     allowHosts,
     storageState: options.storageState,
     login: options.login,

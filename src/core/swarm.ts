@@ -17,6 +17,7 @@
  * then runs repro/heal on the merged set as usual.
  */
 
+import * as path from "path";
 import type { Browser } from "playwright";
 import pc from "picocolors";
 import { launchChromium } from "./browser.js";
@@ -49,6 +50,10 @@ export interface SwarmOptions {
   /** `--agents N` — total missions across the selected roles (default: 1 per
    * role in `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
+  /** Delta-scan scope (aztrx watch): only findings that point at this file —
+   * by mapped source location, or by mentioning it in message/stack — survive
+   * the merge. The whole swarm still runs; the report shrinks to the delta. */
+  scopePath?: string;
   /** Max concurrent browser contexts (default: min(missions, 8)). */
   concurrency?: number;
   allowHosts: Set<string>;
@@ -347,7 +352,24 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
 
   // Merge identical fingerprints across missions, then collapse distinct
   // capture paths of the same fault (5xx + console + timeout + throw) into one.
-  const findings = collapseSignals(mergeFindings(settled.map((r) => r.findings)));
+  let findings = collapseSignals(mergeFindings(settled.map((r) => r.findings)));
+
+  // Delta-scan scope (aztrx watch): keep only what points at the saved file.
+  // The mapped source path must match (extension-swapped .js/.ts/.tsx/.html
+  // count as the same file), or the message/stack must name it.
+  if (opts.scopePath) {
+    const scopeBase = path.basename(opts.scopePath).replace(/\.(js|ts|tsx|html)$/i, "");
+    const scopeRel = path.resolve(opts.scopePath);
+    findings = findings.filter((f) => {
+      if (f.mappedLocation) {
+        const fp = path.resolve(opts.repoRoot, f.mappedLocation.filePath);
+        const base = path.basename(f.mappedLocation.filePath).replace(/\.(js|ts|tsx|html)$/i, "");
+        if (fp === scopeRel || base === scopeBase) return true;
+      }
+      const needle = path.basename(opts.scopePath!).split(path.sep).join("\\\\");
+      return f.rawMessage.includes(path.basename(opts.scopePath!)) || f.rawStack.includes(needle) || f.rawStack.includes(path.basename(opts.scopePath!));
+    });
+  }
   const totalActions = settled.reduce((sum, r) => sum + r.actions, 0);
   const totalCoverage = settled.reduce((sum, r) => sum + r.newCoverage, 0);
 
