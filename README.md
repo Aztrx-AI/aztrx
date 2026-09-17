@@ -34,6 +34,8 @@ and it goes exactly there instead.
 - **Safe by default.** A deny-by-default network guard blocks off-origin calls, a destructive-action deny-list refuses to click "delete", "pay", or "logout", and nothing leaves your machine unless you opt in.
 - **Knows your audience.** `--swarm` scouts the app first — package.json, README, and the running UI — and synthesizes the people who actually use it. A shop gets rushed buyers and coupon hunters; a dashboard gets night-shift operators and filter wizards. Then it swarms the app with **1000 agents by default**, weighted to that audience.
 - **Audits what you fear.** `--intent "проверь безопасность оплаты"` — say what scares you in your own words, and the swarm picks the agents that answer it: key hunters scan every route's HTML for spilled secrets, identity forgers tamper with JWTs and check the app believes them, free riders walk straight onto premium routes. **Proof or silence**: a finding is reported only when the exploit worked end to end — and it's explained in business language ("a paid file can be downloaded for free"), not pentest jargon.
+- **Watches while you code.** `aztrx watch` is security hot-reload: save a file, and a micro-swarm wakes — the saved code's own content becomes the intent, the delta-scan scopes to that file, and a new vulnerability gets healed and alerted in the terminal, ```diff attached, before you switch to the browser.
+- **Models the app as states.** `aztrx audit` builds the state graph — Login → token → hidden Admin Panel — and the swarm attacks *from the captured state*, so authed-zone bugs reproduce (3/3) and patch. The kill chain prints per finding, and every verified patch ships a regression test that keeps the bug dead.
 
 ---
 
@@ -73,11 +75,21 @@ aztrx-cli run http://localhost:3000 --fix   # works out of the box for null/unde
 # Anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# or any OpenAI-compatible provider: OpenAI, Grok, DeepSeek, Gemini, Kimi, OpenRouter, Ollama
+# DeepSeek — its own key, its own API
+export DEEPSEEK_API_KEY="sk-..."
+
+# OpenAI (or whatever OPENAI_BASE_URL names)
+export OPENAI_API_KEY="sk-..."
+
+# …or any OpenAI-compatible provider: Grok, Gemini, Kimi, OpenRouter, Ollama
 export AZTRX_API_BASE="https://openrouter.ai/api/v1"
 export AZTRX_API_KEY="your-key"
 export AZTRX_MODEL="anthropic/claude-sonnet-5"
 ```
+
+Provider order: `AZTRX_API_BASE` → `DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → Anthropic.
+Models default per provider (`deepseek-chat`, `gpt-4o-mini`, `claude-sonnet-5`); `AZTRX_MODEL`
+overrides. `AZTRX_DEBUG_LLM=1` logs the raw model replies.
 
 Every fix is redacted, sandboxed in a detached git worktree, compiler-checked, and gated on
 your test suite before you see it. `--fix` writes a patch and stops — nothing is committed to
@@ -97,6 +109,8 @@ into your test dir so the bug can't come back.
 | `--intent <text>` | what you fear, in your words ("проверь безопасность оплаты") — the swarm picks the agents |
 | `--roles <ids>` | a subset of the standing catalog, e.g. `novice,hostile,race-hunter` |
 | `--agents N` | total agent missions (tasks, not browsers) |
+| `watch [url]` | security hot-reload — micro-swarm on every save, alert + auto-patch in the terminal |
+| `audit [url]` | state-graph audit — kill chain per finding; with `--fix`, patches + regression tests |
 | `--login` | auto-login to test authenticated pages |
 | `--badge` / `--pr-comment` / `--fail-on` | CI artifacts |
 | `patrol <url>` | autonomous loop — re-scan, fix, open a PR per bug |
@@ -448,6 +462,8 @@ The commands that are not `run`:
 | `mcp uninstall` | Remove only that key |
 | `init` | Scaffold `aztrx.config.ts` |
 | `hook install \| uninstall \| run` | The [pre-push hook](#scan-before-you-push-git-hook) |
+| `watch [url]` | Security hot-reload: watch the project, micro-swarm every save, alert + auto-patch in real time |
+| `audit [url]` | State-graph audit: the Mapper builds the app's state graph, the swarm attacks from the richest authed state, kill chain per finding — with `--fix` it patches and generates a regression test |
 | `patrol [url]` | Autonomous scan → fix → PR loop |
 | `modernize <file>` | Rewrite a legacy file with an LLM |
 | `studio [--port n]` | Live dashboard (`7331`) |
@@ -529,6 +545,19 @@ Every run writes self-contained artifacts inside `.aztrx/` (gitignored):
 ├── pr-comment.md                # GitHub PR markdown (with --pr-comment)
 └── badge.svg                    # status badge (with --badge)
 ```
+
+And one artifact that is **not** gitignored — it belongs in your repo:
+
+```
+__aztrx_tests__/                 # Prove-It-Fixed: CI-ready Playwright regression
+    prevent-actions-crash.spec.ts    tests — one per verified patch, with a name
+    prevent-paywall-bypass.spec.ts   that says what it guards
+```
+
+Every healed patch generates one: the repro spec rewritten with inverted assertions
+(the attack must now be **blocked**), seeded with the auth state it needs, ready for
+`npx playwright test`. It passes on the patched code and fails on the unpatched code —
+that's the point.
 
 `aztrx patrol` also writes a `aztrx-media/<fingerprint>.gif` recorded repro next to the
 project root — the animated proof inlined in each patrol PR body.

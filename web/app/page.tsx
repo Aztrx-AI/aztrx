@@ -74,6 +74,27 @@ const Minimize = ({ className }: IconProps) => (
     <path d="M10 20H6a2 2 0 0 1-2-2v-4" />
   </Icon>
 );
+const Radar = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1" />
+    <path d="M12 12 19 5" />
+  </Icon>
+);
+const ShieldCheck = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
+    <path d="m9 12 2 2 4-4" />
+  </Icon>
+);
+const Guard = ({ className }: IconProps) => (
+  <Icon className={className}>
+    <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
+    <path d="M12 8v4" />
+    <path d="M12 16h.01" />
+  </Icon>
+);
 const FileCode = ({ className }: IconProps) => (
   <Icon className={className}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
@@ -182,6 +203,12 @@ function Header() {
       </div>
       <div className="flex items-center gap-2">
         <a
+          href="/dashboard"
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
+        >
+          Dashboard
+        </a>
+        <a
           href={SUPPORT}
           target="_blank"
           rel="noreferrer"
@@ -256,7 +283,7 @@ function Hero() {
         transition={spring}
         className="text-center font-mono text-xs uppercase tracking-[0.3em] text-zinc-500"
       >
-        Autonomous runtime stress-testing
+        Autonomous runtime stress-testing · a swarm of agents
       </motion.p>
 
       <motion.h1
@@ -274,7 +301,8 @@ function Hero() {
         transition={{ ...spring, delay: 0.16 }}
         className="mt-8 text-center text-xl text-zinc-400 sm:text-2xl"
       >
-        Aztrx drives your app like a hostile user, then proves every crash with a test — not a log line.
+        Aztrx drives your app like a hostile user, proves every crash with a test — and a
+        thousand-agent swarm audits the business logic you&apos;re afraid of, patch included.
       </motion.p>
 
       <motion.div
@@ -449,6 +477,52 @@ function Magic() {
               common crashes, or via your own model. <span className="font-mono text-sm">git diff</span> shows
               the result. No commit.
             </p>
+          </BentoCard>
+
+          <BentoCard delay={0.05}>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+              <Radar />
+            </div>
+            <h3 className="mt-6 text-xl font-semibold text-white">The Swarm</h3>
+            <p className="mt-3 text-zinc-400">
+              <span className="font-mono text-sm">--swarm</span> scouts your app, synthesizes the
+              audience it actually has — rushed buyers, night-shift operators, coupon hunters —
+              and swarms it with a thousand weighted agents.
+            </p>
+          </BentoCard>
+
+          <BentoCard delay={0.1}>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+              <Shield />
+            </div>
+            <h3 className="mt-6 text-xl font-semibold text-white">Audit what you fear</h3>
+            <p className="mt-3 text-zinc-400">
+              <span className="font-mono text-sm">--intent &quot;проверь безопасность оплаты&quot;</span>{" "}
+              picks the agents that answer the fear. Proof or silence: only exploits that worked
+              end to end are reported, in business language, with a patch.
+            </p>
+          </BentoCard>
+
+          <BentoCard className="md:col-span-2" delay={0.05}>
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+                  <Guard />
+                </div>
+                <h3 className="mt-6 text-xl font-semibold text-white">Prove-It-Fixed</h3>
+                <p className="mt-3 max-w-md text-zinc-400">
+                  Every verified patch ships a regression test: the repro rewritten with inverted
+                  assertions — the attack must now be blocked. It lands in{" "}
+                  <span className="font-mono text-sm">__aztrx_tests__/</span>, passes on the
+                  patched code, fails on the unpatched. The bug stays dead.
+                </p>
+              </div>
+              <div className="hidden shrink-0 flex-col gap-1 font-mono text-xs text-zinc-500 sm:flex">
+                <span className="text-zinc-200">✓ deterministic 3/3</span>
+                <span>✓ healed</span>
+                <span>✓ regression test green</span>
+              </div>
+            </div>
           </BentoCard>
         </div>
       </div>
