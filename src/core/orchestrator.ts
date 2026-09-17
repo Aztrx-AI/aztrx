@@ -342,6 +342,9 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     const engine = new ReplayEngine({
       attachGuard: async (p) => attachNetworkGuard(p, { allowHosts }),
       storageState: replayStorageState,
+      // The swarm's own seed (graph mode) — findings may carry a more
+      // specific one; the engine's is the session default.
+      seedState: seedState ?? undefined,
     });
     try {
       const targets = findings.filter(
@@ -492,6 +495,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
             actions: f.repro!.actions,
             fingerprint: f.fingerprint,
             allowHosts: [...allowHosts],
+            seedState: f.seedState ?? (seedState ?? undefined),
             model: options.healModel,
             fastModel: options.healFastModel,
             testCommand: options.testCommand,

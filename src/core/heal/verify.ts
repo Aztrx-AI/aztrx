@@ -39,6 +39,8 @@ export interface VerifyOptions {
   targetType?: FindingType;
   /** Replay engine override — tests only. Defaults to a real browser-backed one. */
   engine?: Verifier;
+  /** State-Graph handoff: the replay engine boots into this state first. */
+  seedState?: import("../graph.js").StateSnapshot;
 }
 
 /** Rewrite an absolute URL's origin to `serveUrl`'s origin, keeping path + query.
@@ -59,7 +61,7 @@ function rewriteOrigin(raw: string, serveUrl: string): string {
 
 export async function verifyFix(opts: VerifyOptions): Promise<VerifyResult> {
   const { url: serveUrl, close } = await opts.serve();
-  const engine: Verifier = opts.engine ?? new ReplayEngine();
+  const engine: Verifier = opts.engine ?? new ReplayEngine({ seedState: opts.seedState });
   try {
     // Never zero. `fixed` is derived from the reproduction count, so a caller that
     // asks for 0 runs would otherwise get "fixed: true" out of *no attempts at

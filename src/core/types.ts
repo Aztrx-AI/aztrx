@@ -105,6 +105,9 @@ export interface Finding {
   actionHistory: RecordedAction[];
   /** Role ids of the swarm agents that found this fault (empty in solo runs). */
   roles?: string[];
+  /** The state the finding was captured from (State-Graph handoff) — replays
+   * and verification restore it so authed-zone bugs reproduce as the user. */
+  seedState?: import("./graph.js").StateSnapshot;
   /** One-sentence business risk ("a paid file can be downloaded for free"),
    * attached by the audit layer. */
   businessRisk?: string;

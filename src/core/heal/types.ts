@@ -85,6 +85,9 @@ export interface HealOptions {
   patchFn?: (ctx: HealContext) => Promise<Patch>;
   /** Shared session budget for paid generations (see `SpendBudget`). */
   budget?: SpendBudget;
+  /** State-Graph handoff: the verification replay boots into this state, so
+   * an authed-zone fix verifies as the user who found the bug. */
+  seedState?: import("../graph.js").StateSnapshot;
   /** Inject an app server for the patched code. Default: static file server. */
   serve?: (worktreeDir: string, filePath: string) => Promise<{ url: string; close: () => Promise<void> }>;
   /** How to boot the patched app for server (network_5xx) findings. Auto-detected

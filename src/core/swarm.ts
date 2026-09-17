@@ -229,6 +229,7 @@ export function mergeFindings(arrays: Finding[][]): Finding[] {
       existing.occurrences += f.occurrences;
       if (!existing.mappedLocation && f.mappedLocation) existing.mappedLocation = f.mappedLocation;
       if (existing.actionHistory.length < f.actionHistory.length) existing.actionHistory = f.actionHistory;
+      if (!existing.seedState && f.seedState) existing.seedState = f.seedState;
       const roles = new Set(existing.roles ?? []);
       for (const r of f.roles ?? []) roles.add(r);
       existing.roles = [...roles];

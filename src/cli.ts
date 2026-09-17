@@ -699,11 +699,13 @@ program
   .addOption(opt("--repo <path>", "project root to inspect (default: cwd)", "advanced"))
   .addOption(opt("--intent <text>", "what you fear, in your words — the swarm picks the agents", "detect"))
   .addOption(opt("--max-actions <n>", "max actions per pass (default: aztrx.config.ts, else 100)", "advanced"))
+  .addOption(opt("--fix", "auto-patch reliable findings (heal) and print the verified diffs", "fix"))
+  .addOption(opt("--no-test", "skip the test gate during healing (the repro replay still verifies)", "advanced"))
   .addOption(opt("--plain", "disable the live terminal UI, print plain logs", "advanced"))
   .action(
     async (
       url: string | undefined,
-      opts: { repo?: string; intent?: string; maxActions?: string; plain?: boolean }
+      opts: { repo?: string; intent?: string; maxActions?: string; plain?: boolean; fix?: boolean; test?: boolean }
     ) => {
       const repoRoot = resolveRepoRoot(opts.repo ?? (program.opts().repo as string));
       const run = await loadOrchestrator();
@@ -721,6 +723,8 @@ program
           graph: true,
           intent: opts.intent,
           repro: true,
+          heal: opts.fix === true,
+          skipTest: opts.test === false,
           maxActions: opts.maxActions ? parseInt(opts.maxActions, 10) : undefined,
           ui: opts.plain !== true,
         });

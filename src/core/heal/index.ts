@@ -360,6 +360,7 @@ export async function heal(finding: Finding, opts: HealOptions): Promise<HealRes
               runs: opts.verifyRuns ?? 3,
               serve: () => serve(wt.dir, filePath),
               targetType: isNetwork ? finding.type : undefined,
+              seedState: opts.seedState,
             });
 
       savedPatch = patch;

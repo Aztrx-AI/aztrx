@@ -4,11 +4,16 @@ import { launchChromium } from "./browser.js";
 import { attachInterceptor } from "./interceptor.js";
 import { fingerprintOf } from "./classifier.js";
 import type { FindingType, RecordedAction } from "./types.js";
+import type { StateSnapshot } from "./graph.js";
 
 export interface ReplayEngineOptions {
   attachGuard?: (page: Page) => Promise<void>;
   /** Playwright storage-state JSON (path or object) for authenticated replays. */
   storageState?: string;
+  /** State-Graph handoff: boot the replay INTO this state (cookies +
+   * localStorage restored before the steps run), so bugs found in the
+   * authed zone replay as the user who found them. */
+  seedState?: StateSnapshot;
 }
 
 export interface ReplayResult {
@@ -145,6 +150,30 @@ export class ReplayEngine {
           this.opts.storageState ? { storageState: this.opts.storageState } : {}
         );
         page = await context.newPage();
+
+        // State-Graph handoff: restore the captured session BEFORE the steps
+        // run — goto the origin first (so the cookie domain matches), then
+        // cookies, then localStorage. A failure leaves the replay guest-mode;
+        // it never aborts it.
+        if (this.opts.seedState) {
+          try {
+            const origin = new URL(url).origin;
+            await page
+              .goto(origin + "/", { waitUntil: "domcontentloaded", timeout: 15000 })
+              .catch(() => {});
+            if (this.opts.seedState.cookies.length > 0) {
+              await context.addCookies(
+                this.opts.seedState.cookies.map((c) => ({ ...c, url: origin }))
+              );
+            }
+            await page.evaluate((ls) => {
+              for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v);
+            }, this.opts.seedState.localStorage);
+          } catch {
+            // best-effort — see above
+          }
+        }
+
         const bus = new EventBus();
         const fingerprints = new Set<string>();
         const types = new Set<FindingType>();

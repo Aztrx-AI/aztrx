@@ -229,6 +229,7 @@ export function collapseSignals(findings: Finding[]): Finding[] {
           : f.rawStack,
       mappedLocation: existing.mappedLocation ?? f.mappedLocation,
       serverError: existing.serverError ?? f.serverError,
+      seedState: existing.seedState ?? f.seedState,
     };
     groups.set(key, merged);
   }

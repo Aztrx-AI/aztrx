@@ -141,6 +141,7 @@ export async function watchLoop(opts: WatchOptions): Promise<void> {
           allowHosts: [new URL(targetUrl).hostname],
           model: opts.healModel,
           budget: opts.budget,
+          seedState: f.seedState,
           skipTest: true, // the watcher's proof is the repro replay; the test gate belongs to the reviewed flow
         });
 

@@ -112,6 +112,9 @@ async function openAgentPage(browser: Browser, opts: AgentOptions, forwardBus?: 
     const finding = classifier.classify(payload);
     if (!finding) return;
     finding.actionHistory = recorder.snapshot();
+    // The finding remembers the state it was captured from — replays and
+    // verification restore it (State-Graph handoff).
+    if (opts.seedState) finding.seedState = opts.seedState;
     if (finding.severity === "noise") {
       workerBus.emit("noise", { ts: Date.now() });
       return;
