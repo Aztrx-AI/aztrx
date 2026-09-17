@@ -596,6 +596,81 @@ function Integrations() {
   );
 }
 
+/* ────────────────────────── 3b · MCP — the swarm inside your agent ────────────────────────── */
+
+const mcpTools = [
+  {
+    name: "aztrx_audit",
+    desc: "Tell it what you fear — \"проверь безопасность оплаты\" — and it picks the agents, exploits the app, and answers in business language with proof and a patch.",
+  },
+  {
+    name: "aztrx_scan",
+    desc: "Drives the app in a real browser and reports the crashes it produced, source locations attached. Boots the dev server itself if none is running.",
+  },
+  {
+    name: "aztrx_repro",
+    desc: "The minimized steps and the compiled Playwright spec for one finding — deterministic, flaky, or unreliable, said honestly.",
+  },
+  {
+    name: "aztrx_fix",
+    desc: "Patch → verify in a git worktree by replaying the repro → optionally write it into your tree. Only a verified patch is ever applied.",
+  },
+];
+
+function McpSection() {
+  return (
+    <section className="px-6 py-32">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <Eyebrow>MCP · Claude Code · Cursor · VS Code</Eyebrow>
+          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            Put the swarm inside your agent.
+          </h2>
+          <p className="mt-6 max-w-2xl text-zinc-400">
+            An agent can write code but cannot run it — so it calls a change working when all it
+            knows is that the change parsed. Aztrx over MCP supplies the missing step: your editor
+            gains the whole swarm — audit, scan, repro, fix — as four tools it can call.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-10">
+          <div className="inline-flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-5 py-4">
+            <code className="font-mono text-sm text-zinc-200">aztrx mcp install</code>
+            <span className="text-zinc-500">→</span>
+            <span className="text-sm text-zinc-400">
+              writes the server into your editor&apos;s config; restart the editor, ask the agent
+              to <code className="font-mono text-xs text-zinc-300">run_security_audit</code>, and
+              it answers.
+            </span>
+          </div>
+        </Reveal>
+
+        <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {mcpTools.map((tool, i) => (
+            <motion.div
+              key={tool.name}
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ ...spring, delay: i * 0.06 }}
+              className="glass rounded-2xl p-8 transition-colors hover:border-white/20"
+            >
+              <code className="font-mono text-sm text-zinc-200">{tool.name}</code>
+              <p className="mt-3 text-zinc-400">{tool.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        <Reveal delay={0.15} className="mt-10">
+          <p className="font-mono text-xs text-zinc-600">
+            Free, local, no account. Findings leave your machine only if you say so.
+          </p>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 /* ────────────────────────── 4 · showcase (before/after) ────────────────────────── */
 
 const lineContainer = {
@@ -933,6 +1008,7 @@ export default function Home() {
       <Hero />
       <Magic />
       <Integrations />
+      <McpSection />
       <Showcase />
       <Benchmarks />
       <Trust />
