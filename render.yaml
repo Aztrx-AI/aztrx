@@ -18,3 +18,13 @@ services:
       name: store
       mountPath: /data
       sizeGB: 1
+  # The remote MCP endpoint (streamable HTTP) — connect Claude with
+  # https://<domain>/mcp in the "Add custom connector" flow.
+  - type: web
+    name: aztrx-mcp
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"

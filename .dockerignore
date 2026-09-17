@@ -1,0 +1,11 @@
+node_modules
+mcp-server/node_modules
+.git
+dist
+web
+fixtures
+media
+test-results
+.aztrx
+.vscode
+*.log
