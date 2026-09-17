@@ -531,6 +531,24 @@ export async function run(options: RunOptions): Promise<Finding[]> {
           if (result.status === "healed" && result.hunks.length > 0) {
             say(pc.dim(`        ${result.filePath}`));
             say(formatDiff(result.hunks));
+
+            // Prove-It-Fixed: a verified patch earns a regression test that
+            // pins the fix in place for CI. Needs a model — without one the
+            // loop reports the reason and moves on.
+            try {
+              const { proveItFixed } = await import("./prove.js");
+              const prove = await proveItFixed({
+                repoRoot,
+                finding: f,
+                url,
+                hunks: result.hunks,
+                log: (m) => say(pc.green(`        ${m}`)),
+              });
+              if (prove.ok && prove.testPath) f.regressionTestPath = prove.testPath;
+              else if (prove.error) say(pc.dim(`        regression test skipped: ${prove.error}`));
+            } catch (e) {
+              say(pc.dim(`        regression test failed: ${(e as Error).message}`));
+            }
           }
           if (result.patchPath) say(pc.dim(`        patch: ${path.relative(repoRoot, result.patchPath)}`));
           if (result.error) say(pc.dim(`        ${result.error}`));

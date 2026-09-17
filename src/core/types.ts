@@ -114,4 +114,6 @@ export interface Finding {
   repro?: ReproReport;
   /** F10 closed-loop healing result, attached when `--heal` ran for this finding. */
   heal?: import("./heal/types.js").HealResult;
+  /** Prove-It-Fixed: repo-relative path of the generated regression test. */
+  regressionTestPath?: string;
 }

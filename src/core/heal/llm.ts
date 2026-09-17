@@ -197,6 +197,23 @@ export const RULE_TIER = "__rule__";
 // Matches "Cannot read properties of undefined|null (reading 'X')".
 const NULL_DEREF = /Cannot read properties of (undefined|null)(?: \(reading '([^']+)'\))?/;
 
+/** Index of the first real assignment `=` — skipping `==`, `=>`, `<=`, `>=`,
+ * `!=`, and the compound forms `+=`/`-=`/etc. Returns -1 when there is none. */
+function firstAssignment(line: string): number {
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c !== "=") continue;
+    const prev = line[i - 1];
+    const next = line[i + 1];
+    if (prev === "=" || next === "=") continue; // ==
+    if (prev === "!" || prev === "<" || prev === ">") continue; // != <= >=
+    if (next === ">") continue; // =>
+    if (/[+\-*/%&|^!<>]/.test(prev ?? "") ) continue; // += -= *= … — compound
+    return i;
+  }
+  return -1;
+}
+
 /**
  * Rule-based fix for the most common crash — a null/undefined property access.
  * Adds `?.` (optional chaining) at the failing access. Returns null when the
@@ -231,7 +248,15 @@ export function generateRulePatch(ctx: HealContext): Patch | null {
   // *inside a string literal or regex* on the failing line is rewritten too.
   // That cannot make the file unparseable (the gate above still runs), but it
   // can change behaviour, and no gate here would catch it.
-  const replace = src.replace(/(?<![.?])\.(?=[a-zA-Z_$])/g, "?.");
+  // Optional-chain only the RIGHT-hand side of an assignment: `x.y = z.w`
+  // must become `x.y = z?.w`, never `x?.y = z?.w` — assignment through an
+  // optional chain is a syntax error, and a script that dies on parse makes
+  // the crash "disappear" along with the whole app (a lie verification
+  // cannot see). No `=` in sight → the whole line is fair game.
+  const eqIdx = firstAssignment(src);
+  const lhs = eqIdx >= 0 ? src.slice(0, eqIdx) : "";
+  const rhs = eqIdx >= 0 ? src.slice(eqIdx) : src;
+  const replace = lhs + rhs.replace(/(?<![.?])\.(?=[a-zA-Z_$])/g, "?.");
   if (replace === src) return null;
 
   return {

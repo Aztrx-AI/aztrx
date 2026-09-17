@@ -8,6 +8,7 @@
  */
 
 import ts from "typescript";
+import * as vm from "vm";
 import type { GateResult, GateViolation } from "./types.js";
 
 const JS_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
@@ -121,6 +122,22 @@ function auditScript(original: string, patched: string, label: string, kind: ts.
   const parseDiags = (patchSrc as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
   for (const d of parseDiags) {
     violations.push({ rule: "syntax-error", detail: ts.flattenDiagnosticMessageText(d.messageText, " ") });
+  }
+
+  // Gate 0b: the ENGINE's parser, for plain JS. TypeScript accepts some
+  // constructs its own checker rejects later — and some, like assigning
+  // through an optional chain (`a?.b = c`), it accepts silently while every
+  // browser throws "Invalid left-hand side in assignment". A script that dies
+  // on parse makes the crash "disappear" along with the whole app, so
+  // verification would call a broken patch "fixed". vm.Script speaks real
+  // JavaScript; module blocks (import/export) are skipped — they are not
+  // classic scripts and TS's diagnostics cover them.
+  if (kind === ts.ScriptKind.JS && !/\b(?:import|export)\s/.test(patched)) {
+    try {
+      new vm.Script(patched, { filename: fileName });
+    } catch (e) {
+      violations.push({ rule: "syntax-error", detail: (e as Error).message.split("\n")[0] });
+    }
   }
 
   // Gate 1: no new imports / dependencies.

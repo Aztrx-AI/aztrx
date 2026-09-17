@@ -22,9 +22,9 @@ export interface AuditStats {
 
 type Lang = "en" | "ru";
 
-const LABELS: Record<Lang, { swarm: string; finding: string; proof: string; patch: string }> = {
-  en: { swarm: "Swarm status", finding: "Finding", proof: "Proof", patch: "Patch" },
-  ru: { swarm: "Статус роя", finding: "Находка", proof: "Доказательство", patch: "Патч" },
+const LABELS: Record<Lang, { swarm: string; finding: string; proof: string; patch: string; regression: string }> = {
+  en: { swarm: "Swarm status", finding: "Finding", proof: "Proof", patch: "Patch", regression: "Regression test" },
+  ru: { swarm: "Статус роя", finding: "Находка", proof: "Доказательство", patch: "Патч", regression: "Регрессионный тест" },
 };
 
 /** The exact curl a human can run to re-break the server (HTTP findings only). */
@@ -109,6 +109,11 @@ export function formatAuditReport(findings: Finding[], stats: AuditStats, lang: 
     const proof = curlFor(f) ?? stepsFor(f);
     if (proof) lines.push(`**[${l.proof}]**\n\`\`\`\n${proof}\n\`\`\``);
     lines.push(`**[${l.patch}]** ${patchFor(f, lang === "en" ? "en" : "ru")}`);
+    if (f.regressionTestPath) {
+      lines.push(
+        `**[${l.regression}]** 🛡️ ${lang === "ru" ? "Сгенерирован Playwright-тест для CI/CD" : "Generated a Playwright regression test for CI/CD"}: ${f.regressionTestPath}`
+      );
+    }
   }
 
   if (findings.length === 0) {

@@ -82,3 +82,24 @@ test("a message that is not a null/undefined deref is not ours", () => {
     null
   );
 });
+
+test("assignment targets are never optional-chained — only the RHS is", () => {
+  // The regression: document?.getElementById("out")?.innerText = … is an
+  // "Invalid left-hand side in assignment" — a parse-dead script whose
+  // "crash disappears" only because the whole app died.
+  const src = `      document.getElementById("out").innerText = panel.actions.join(",");`;
+  const patch = generateRulePatch(ctxAt(1, src, "Cannot read properties of undefined (reading 'actions')"));
+  assert.ok(patch);
+  assert.equal(
+    patch.hunks[0].replace,
+    `      document.getElementById("out").innerText = panel?.actions?.join(",");`
+  );
+});
+
+test("a line without an assignment is optional-chained throughout", () => {
+  const patch = generateRulePatch(
+    ctxAt(1, `  console.log(cfg.depth.levels);`, "Cannot read properties of undefined (reading 'levels')")
+  );
+  assert.ok(patch);
+  assert.equal(patch.hunks[0].replace, `  console?.log(cfg?.depth?.levels);`);
+});
