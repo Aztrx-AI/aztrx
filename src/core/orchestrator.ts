@@ -54,6 +54,10 @@ export interface RunOptions {
   /** Delta-scan scope (aztrx watch): the swarm still runs, but the report
    * keeps only findings that point at this file. */
   scopePath?: string;
+  /** State-Graph mode (aztrx audit): the Mapper explores the app first, the
+   * swarm attacks from the richest authed state, and the run prints the
+   * state tree and the kill chain. */
+  graph?: boolean;
   /** Total agent missions across the selected roles (default: 1 per role in
    * `--roles` mode, 1000 in synthesized `--swarm` mode). */
   agents?: number;
@@ -244,6 +248,8 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     roleStats,
     sawLoginForm,
     profile,
+    graph,
+    seedState,
   } = await swarmDetect({
     url,
     repoRoot,
@@ -259,6 +265,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     synthesize: options.synthesize,
     agents: options.agents,
     scopePath: options.scopePath,
+    graph: options.graph,
     allowHosts,
     storageState: options.storageState,
     login: options.login,
@@ -306,6 +313,27 @@ export async function run(options: RunOptions): Promise<Finding[]> {
 
   if (sawLoginForm && !options.login) {
     notice("Hint: this app has a login form — re-run with --login to test the authenticated app.", "hint");
+  }
+
+  // State-Graph mode: print the map the Mapper built and, for every finding,
+  // the kill chain — the state path the attack rode, ending in the crash.
+  if (graph && options.graph) {
+    say(pc.cyan("\nState graph:"));
+    say(graph.printTree().split("\n").map((l) => pc.dim(`   ${l}`)).join("\n"));
+    if (seedState) {
+      const seedNode = graph.getNode(seedState);
+      const chain = seedNode
+        ? graph.pathTo(seedNode).map((e) => e.action.label)
+        : [];
+      if (chain.length > 0) {
+        say("");
+        for (const f of findings) {
+          if (f.severity === "crash" || f.severity === "error") {
+            say(pc.red(`Kill chain: ${chain.join(" → ")} → 💥 ${f.rawMessage.split("\n")[0].slice(0, 80)}`));
+          }
+        }
+      }
+    }
   }
 
   // F7 → F8 → F9: minimize each finding, compile an executable spec, validate

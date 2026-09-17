@@ -689,7 +689,48 @@ program
         noBoot: opts.boot === false,
       });
     }
-  )
+  );
+
+program
+  .command("audit")
+  .description("state-graph audit: the Mapper builds the app's state graph, the swarm attacks from the richest authed state, and the kill chain prints per finding")
+  .argument("[url]", "app to audit (auto-detected if omitted), e.g. http://localhost:3000")
+  .configureHelp({ formatHelp })
+  .addOption(opt("--repo <path>", "project root to inspect (default: cwd)", "advanced"))
+  .addOption(opt("--intent <text>", "what you fear, in your words — the swarm picks the agents", "detect"))
+  .addOption(opt("--max-actions <n>", "max actions per pass (default: aztrx.config.ts, else 100)", "advanced"))
+  .addOption(opt("--plain", "disable the live terminal UI, print plain logs", "advanced"))
+  .action(
+    async (
+      url: string | undefined,
+      opts: { repo?: string; intent?: string; maxActions?: string; plain?: boolean }
+    ) => {
+      const repoRoot = resolveRepoRoot(opts.repo ?? (program.opts().repo as string));
+      const run = await loadOrchestrator();
+      let targetUrl = url;
+      let booted: (() => Promise<void>) | undefined;
+      if (!targetUrl) {
+        const target = await resolveTargetOrExit(repoRoot, false);
+        targetUrl = target.url;
+        booted = target.close;
+      }
+      try {
+        await run({
+          url: targetUrl,
+          repoRoot,
+          graph: true,
+          intent: opts.intent,
+          repro: true,
+          maxActions: opts.maxActions ? parseInt(opts.maxActions, 10) : undefined,
+          ui: opts.plain !== true,
+        });
+      } finally {
+        await booted?.().catch(() => {});
+      }
+    }
+  );
+
+program
   .command("patrol")
   .description("autonomously re-scan the app, fix new bugs, and open a PR per bug")
   .argument("[url]", "app to patrol (auto-detected if omitted), e.g. http://localhost:3000")

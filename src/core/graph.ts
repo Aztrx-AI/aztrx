@@ -167,6 +167,11 @@ export class StateGraph {
     return this.rootId ? (this.nodes.get(this.rootId) ?? null) : null;
   }
 
+  /** The node that matches a snapshot (by signature), or null. */
+  getNode(snapshot: StateSnapshot): StateNode | null {
+    return this.nodes.get(signatureOf(snapshot)) ?? null;
+  }
+
   getEdgeCount(): number {
     return this.edges.length;
   }
