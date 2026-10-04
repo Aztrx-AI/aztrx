@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Invoice</title></head>
+<body>
+<h1>Invoice</h1>
+<div id="out">Loading…</div>
+<script>
+  // Seeded bug: the invoice is looked up by the "id" query param alone — the
+  // session (always Alice, account #1, on this fixture) never gets checked
+  // against the invoice's owner. Changing ?id=1 to ?id=2 in the address bar
+  // is the whole exploit.
+  var DB = {
+    "1": { owner: "alice", amount: 120, note: "Alice's consulting invoice" },
+    "2": { owner: "bob", amount: 980, note: "Bob's annual license invoice — confidential" }
+  };
+  var id = new URL(location.href).searchParams.get("id") || "1";
+  var inv = DB[id];
+  document.getElementById("out").textContent = inv
+    ? "Invoice #" + id + " for " + inv.owner + ": $" + inv.amount + " — " + inv.note
+    : "Not found";
+</script>
+</body>
+</html>

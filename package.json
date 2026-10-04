@@ -62,6 +62,7 @@
     "build": "tsc",
     "dev": "node dist/cli.js",
     "bench": "npm run build && tsx bench/run.ts",
+    "bench:security": "npm run build && tsx bench/security/run.ts",
     "pretest": "npm run build",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",

@@ -1,0 +1,15 @@
+{
+  "id": "01-auth-bypass",
+  "name": "Filevault — premium route has no auth gate",
+  "category": "auth_bypass",
+  "expected_invariant": "GET /premium.html must refuse premium content (redirect to login or show a paywall gate) when no session/payment state is present",
+  "known_exploit_path": "visit /premium.html directly with a clean browser profile — no login, no payment, no cookies",
+  "expected_role": "paywall-bypass",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "auth_bypass",
+      "message": "Paywall bypassed"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Premium</title></head>
+<body>
+<!--
+  Seeded bug: this route renders premium content unconditionally — it never
+  checks whether the visitor paid or logged in. Direct navigation here with a
+  clean slate (no cookies, no localStorage) should hit a paywall; it doesn't.
+-->
+<h1>Premium</h1>
+<p>Premium content unlocked — your download is ready.</p>
+<a href="index.html">Back</a>
+</body>
+</html>

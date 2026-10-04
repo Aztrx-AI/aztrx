@@ -1,0 +1,15 @@
+{
+  "id": "02-role-escalation",
+  "name": "Dashboard — client-trusted JWT role claim",
+  "category": "role_escalation",
+  "expected_invariant": "the server, not a client-editable JWT claim, must be the source of truth for role/permission; a locally-forged role claim must not unlock admin UI",
+  "known_exploit_path": "decode the authToken JWT in localStorage, set its role claim to \"admin\", write it back, reload",
+  "expected_role": "token-tamper",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "role_escalation",
+      "message": "Token tampering accepted"
+    }
+  ]
+}

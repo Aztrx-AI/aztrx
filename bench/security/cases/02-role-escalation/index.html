@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Dashboard</title></head>
+<body>
+<h1 id="welcome">Welcome</h1>
+<div id="panel"></div>
+<script>
+  // Seeded bug: the app trusts the "role" claim inside a client-stored JWT
+  // with no server-side verification. Flipping the claim locally and
+  // reloading is enough to see admin-only UI.
+  var TOKEN =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+    "eyJyb2xlIjoidXNlciIsInN1YiI6ImFsaWNlIn0." +
+    "sig_not_verified_by_this_demo";
+  if (!localStorage.getItem("authToken")) localStorage.setItem("authToken", TOKEN);
+
+  function b64urlDecode(part) {
+    var b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(b64));
+  }
+
+  var parts = localStorage.getItem("authToken").split(".");
+  var payload = b64urlDecode(parts[1]);
+  document.getElementById("welcome").textContent = "Welcome, " + payload.sub;
+  document.getElementById("panel").textContent =
+    payload.role === "admin" ? "Admin Panel — manage users" : "Standard account — no admin tools";
+</script>
+</body>
+</html>
