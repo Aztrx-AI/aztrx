@@ -277,6 +277,10 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     guardOn,
     log: say,
     forwardBus: bus,
+    telemetry: options.telemetry,
+    shareData: options.shareData,
+    telemetryUrl: options.telemetryUrl,
+    apiKey: options.apiKey,
   });
 
   // Replays reuse the swarm-captured auth state, or the explicit --storage-state.

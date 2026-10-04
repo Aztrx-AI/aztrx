@@ -27,3 +27,47 @@ export interface TelemetryEnvelope {
   sentAt: string;
   tuples: TelemetryTuple[];
 }
+
+/** What happened to a mission's hypothesis — distinct from `ReproVerdict`
+ * (`types.ts`), which asks how reliably an already-confirmed finding
+ * replays. `verified_bug`/`disproven` only fire when the mission actually
+ * ran its probe to completion; a crashed browser or an exhausted budget is
+ * `environment_failure`/`invalid_test`, never a silent `disproven` — a
+ * negative-example dataset is only as good as that distinction. */
+export type EpisodeVerdict =
+  | "verified_bug"
+  | "disproven"
+  | "flaky"
+  | "duplicate"
+  | "invalid_test"
+  | "environment_failure"
+  | "unknown";
+
+/** One mission's attempt to test one hypothesis, logged regardless of
+ * outcome — the negative examples (`disproven`) are the point as much as the
+ * positive ones. Sanitized the same way as `TelemetryTuple` before it ever
+ * touches disk. */
+export interface EpisodeRecord {
+  schema_version: 1;
+  record_type: "episode";
+  mission_id: string;
+  role_id: string;
+  /** The role's mission text (its goal/hypothesis), sanitized. */
+  hypothesis: string;
+  /** Coarse, human-read-able signals about the mission (role/mode/behavior) —
+   * not a chain-of-thought dump. */
+  signals: string[];
+  actions_attempted: number;
+  verdict: EpisodeVerdict;
+  /** Fingerprints of any findings this mission produced. */
+  finding_ids: string[];
+  duration_ms: number;
+  /** Sanitized exception message, when the mission didn't complete cleanly. */
+  error: string | null;
+}
+
+export interface EpisodeEnvelope {
+  schema: "aztrx.episode/1";
+  sentAt: string;
+  episodes: EpisodeRecord[];
+}

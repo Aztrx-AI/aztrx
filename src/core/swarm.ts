@@ -31,6 +31,8 @@ import { analyzeTarget } from "./profile.js";
 import type { ProjectProfile } from "./profile.js";
 import { profileSummary, synthesizeRoles } from "./synthesize.js";
 import type { Finding } from "./types.js";
+import { submitEpisode } from "./telemetry/index.js";
+import type { EpisodeVerdict } from "./telemetry/types.js";
 
 export interface SwarmOptions {
   url: string;
@@ -74,6 +76,21 @@ export interface SwarmOptions {
   log: (msg: string) => void;
   /** Forwarded to the orchestrator's bus so a live panel can aggregate action/route counts. */
   forwardBus?: EventBus;
+  /** F11: log one episode per mission (hypothesis/action/verdict), local-only
+   * under `--telemetry`, additionally uploaded under `--share-data`. */
+  telemetry?: boolean;
+  shareData?: boolean;
+  telemetryUrl?: string;
+  apiKey?: string;
+}
+
+/** A mission's hypothesis either held (no finding), failed to prove out
+ * (`verified_bug`/`disproven`), or never got a fair test — a mission that
+ * never issued an action didn't disprove anything, it just didn't run. */
+function episodeVerdict(actions: number, findingCount: number, threw: boolean): EpisodeVerdict {
+  if (threw) return "environment_failure";
+  if (actions === 0) return "invalid_test";
+  return findingCount > 0 ? "verified_bug" : "disproven";
 }
 
 export interface RoleStat {
@@ -348,9 +365,11 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
   }
 
   const results = new Map<number, MissionResult>();
+  const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
     await runPool(missions, concurrency, async (mission, i) => {
+      const startedAt = Date.now();
       const agentOpts: AgentOptions = {
         url: opts.url,
         repoRoot: opts.repoRoot,
@@ -370,8 +389,10 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
         log: (m) => opts.log(catalogMode ? `[${mission.role.id}] ${m}` : `[w${i}] ${m}`),
       };
 
+      let result: MissionResult | null = null;
+      let missionError: Error | null = null;
       try {
-        const result =
+        result =
           mission.role.mode === "race"
             ? await runRaceMission(browser, agentOpts, mission, opts.forwardBus)
             : await runAgentMission(browser, agentOpts, mission, opts.forwardBus);
@@ -386,7 +407,37 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
           );
         }
       } catch (e) {
-        opts.log(`mission ${i} (${mission.role.id}) failed: ${(e as Error)?.message ?? String(e)}`);
+        missionError = e as Error;
+        opts.log(`mission ${i} (${mission.role.id}) failed: ${missionError?.message ?? String(e)}`);
+      } finally {
+        // Logged from `finally` on purpose: a crashed browser or an exhausted
+        // budget is exactly the negative-signal data a hypothesis dataset
+        // needs most, and it's also the data a plain try/catch loses.
+        if (opts.telemetry || opts.shareData) {
+          submitEpisode(
+            {
+              missionId: `${runId}:${i}`,
+              roleId: mission.role.id,
+              hypothesis: mission.role.mission,
+              signals: [
+                `mode:${mission.role.mode}`,
+                `behavior:${mission.role.behaviors[0]?.kind ?? "walk"}`,
+              ],
+              actionsAttempted: result?.actions ?? 0,
+              verdict: episodeVerdict(result?.actions ?? 0, result?.findings.length ?? 0, Boolean(missionError)),
+              findingIds: result?.findings.map((f) => f.fingerprint) ?? [],
+              durationMs: Date.now() - startedAt,
+              error: missionError?.message ?? null,
+            },
+            {
+              repoRoot: opts.repoRoot,
+              telemetry: Boolean(opts.telemetry),
+              shareData: Boolean(opts.shareData),
+              endpoint: opts.telemetryUrl,
+              apiKey: opts.apiKey,
+            }
+          );
+        }
       }
     });
   } finally {

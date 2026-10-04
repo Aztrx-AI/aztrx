@@ -16,7 +16,14 @@ import pc from "picocolors";
 import type { Finding } from "../types.js";
 import { detectFrameworkMeta } from "../init.js";
 import { createSanitizer } from "./sanitize.js";
-import type { FrameworkMetadata, TelemetryEnvelope, TelemetryTuple } from "./types.js";
+import type {
+  EpisodeEnvelope,
+  EpisodeRecord,
+  EpisodeVerdict,
+  FrameworkMetadata,
+  TelemetryEnvelope,
+  TelemetryTuple,
+} from "./types.js";
 
 const DEFAULT_ENDPOINT =
   process.env.AZTRX_TELEMETRY_URL || "https://api.aztrx.app/api/telemetry";
@@ -86,13 +93,10 @@ function persistDataset(repoRoot: string, tuples: TelemetryTuple[]): string | nu
   return file;
 }
 
-/** Fire-and-forget upload. Never rejects; bounded by a short abort. Failures are
- * reported on stderr rather than discarded — silence here reads as success. */
-export function dispatchTelemetry(
-  envelope: TelemetryEnvelope,
-  endpoint: string,
-  apiKey?: string
-): Promise<void> {
+/** Fire-and-forget upload, shared by the telemetry-tuple and episode envelopes.
+ * Never rejects; bounded by a short abort. Failures are reported on stderr
+ * rather than discarded — silence here reads as success. */
+function postEnvelope(label: string, envelope: unknown, endpoint: string, apiKey?: string): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -106,7 +110,7 @@ export function dispatchTelemetry(
     .then((res) => {
       // `fetch` resolves on 4xx/5xx too — without this check a rejected upload
       // is indistinguishable from a delivered one.
-      if (!res.ok) warn(`telemetry upload rejected — HTTP ${res.status} from ${endpoint}`);
+      if (!res.ok) warn(`${label} upload rejected — HTTP ${res.status} from ${endpoint}`);
     })
     .catch((e: unknown) => {
       const why =
@@ -115,9 +119,18 @@ export function dispatchTelemetry(
           : e instanceof Error
             ? e.message
             : String(e);
-      warn(`telemetry upload failed — ${why}`);
+      warn(`${label} upload failed — ${why}`);
     })
     .finally(() => clearTimeout(timer));
+}
+
+/** Fire-and-forget upload. Never rejects; bounded by a short abort. */
+export function dispatchTelemetry(
+  envelope: TelemetryEnvelope,
+  endpoint: string,
+  apiKey?: string
+): Promise<void> {
+  return postEnvelope("telemetry", envelope, endpoint, apiKey);
 }
 
 /** Collect + sanitize + persist, and (under `--share-data`) dispatch. Sync on
@@ -148,5 +161,72 @@ export async function flushTelemetry(): Promise<void> {
   while (pendingUploads.length) {
     const batch = pendingUploads.splice(0);
     await Promise.allSettled(batch);
+  }
+}
+
+export interface EpisodeSubmitOptions {
+  repoRoot: string;
+  telemetry: boolean;
+  shareData: boolean;
+  endpoint?: string;
+  apiKey?: string;
+}
+
+/** Raw, unsanitized inputs for one mission's episode — `submitEpisode` sanitizes
+ * `hypothesis`/`error` the same way `buildTuples` sanitizes repro specs. */
+export interface RawEpisode {
+  missionId: string;
+  roleId: string;
+  hypothesis: string;
+  signals: string[];
+  actionsAttempted: number;
+  verdict: EpisodeVerdict;
+  findingIds: string[];
+  durationMs: number;
+  error?: string | null;
+}
+
+function persistEpisodes(repoRoot: string, records: EpisodeRecord[]): void {
+  if (records.length === 0) return;
+  const dir = path.join(repoRoot, ".aztrx", "telemetry");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, "episodes.jsonl");
+  const lines = records.map((r) => JSON.stringify(r)).join("\n") + "\n";
+  fs.appendFileSync(file, lines, "utf-8");
+}
+
+/** Finalize + persist one mission's episode, and (under `--share-data`)
+ * dispatch it. Called from the mission pool's `finally` so a crashed browser
+ * or an exhausted budget still leaves a record — only `submitTelemetry`'s
+ * caller waits for findings to exist first; this one doesn't get to wait. */
+export function submitEpisode(raw: RawEpisode, opts: EpisodeSubmitOptions): void {
+  if (!opts.telemetry && !opts.shareData) return;
+
+  const sanitize = createSanitizer(opts.repoRoot);
+  const record: EpisodeRecord = {
+    schema_version: 1,
+    record_type: "episode",
+    mission_id: raw.missionId,
+    role_id: raw.roleId,
+    hypothesis: sanitize.text(raw.hypothesis),
+    signals: raw.signals,
+    actions_attempted: raw.actionsAttempted,
+    verdict: raw.verdict,
+    finding_ids: raw.findingIds,
+    duration_ms: raw.durationMs,
+    error: raw.error ? sanitize.text(raw.error) : null,
+  };
+
+  persistEpisodes(opts.repoRoot, [record]);
+
+  if (opts.shareData) {
+    const envelope: EpisodeEnvelope = {
+      schema: "aztrx.episode/1",
+      sentAt: new Date().toISOString(),
+      episodes: [record],
+    };
+    const apiKey = opts.apiKey ?? process.env.AZTRX_CLOUD_API_KEY;
+    const endpoint = opts.endpoint ?? DEFAULT_ENDPOINT;
+    pendingUploads.push(postEnvelope("episode", envelope, endpoint, apiKey));
   }
 }
