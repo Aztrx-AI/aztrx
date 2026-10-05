@@ -21,7 +21,8 @@ export type BehaviorKind =
   | "slowWalk" // walk under emulated slow network (3G-ish)
   | "ssrScan" // fetch every route's raw HTML and scan for exposed secrets
   | "tokenTamper" // forge JWTs (alg:none, role escalation) — evidence-first
-  | "paywallBypass"; // hit gated routes directly — proof or silence
+  | "paywallBypass" // hit gated routes directly — proof or silence
+  | "objectRefAudit"; // swap a numeric id for its sibling, check for another identity's data
 
 /** How a role's missions are scheduled. */
 export type AgentMode =
@@ -158,6 +159,14 @@ export const ROLE_CATALOG: Role[] = [
     mission: "walks straight onto premium routes with a clean slate and checks what renders",
     mode: "solo",
     behaviors: [{ kind: "paywallBypass", budget: 15 }],
+  },
+  {
+    id: "object-ref-auditor",
+    name: "Object-ref auditor",
+    emoji: "🪪",
+    mission: "swaps a numeric id a session already touched for its sibling and checks whether another identity's data comes back",
+    mode: "solo",
+    behaviors: [{ kind: "objectRefAudit", budget: 20 }],
   },
 ];
 

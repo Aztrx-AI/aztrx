@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractSignals } from "../src/core/profile.js";
 import { synthesizeRoles, profileSummary } from "../src/core/synthesize.js";
+import { ROLE_CATALOG } from "../src/core/roles.js";
 import type { ProjectProfile } from "../src/core/profile.js";
 
 const SHOP_TEXT =
@@ -34,7 +35,7 @@ function profile(domains: string[], signals: string[]): ProjectProfile {
 
 test("synthesizeRoles: a shop gets its audience on top of the base catalog", () => {
   const roles = synthesizeRoles(profile(["e-commerce"], ["cart", "pricing"]));
-  assert.equal(roles.length, 16, "13 base + 3 shop personas");
+  assert.equal(roles.length, ROLE_CATALOG.length + 3, "base + 3 shop personas");
   const ids = roles.map((r) => r.id);
   assert.ok(ids.includes("rushed-buyer"));
   assert.ok(ids.includes("coupon-hunter"));
@@ -59,7 +60,7 @@ test("synthesizeRoles: coupon hunters carry domain-flavored payloads", () => {
 
 test("synthesizeRoles: an unknown domain adds nothing", () => {
   const roles = synthesizeRoles(profile([], []));
-  assert.equal(roles.length, 13, "base catalog only");
+  assert.equal(roles.length, ROLE_CATALOG.length, "base catalog only");
 });
 
 test("synthesizeRoles: no duplicate ids when a domain repeats", () => {

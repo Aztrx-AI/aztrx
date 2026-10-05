@@ -1,0 +1,16 @@
+{
+  "id": "05-idor-path",
+  "name": "Orders — object access has no ownership check (path id, generalization check)",
+  "category": "idor",
+  "expected_invariant": "GET /orders/<N>.html must refuse the response unless the logged-in session owns order <N>",
+  "known_exploit_path": "change /orders/184.html to /orders/185.html in the URL — bob's order is served",
+  "expected_role": "object-ref-auditor",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "idor",
+      "message": "Object reference tampering accepted"
+    }
+  ],
+  "note": "Same bug class as 03, different id shape (path segment, not query) — tests that the primitive generalizes across both."
+}

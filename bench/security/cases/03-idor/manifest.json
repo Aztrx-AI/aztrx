@@ -1,16 +1,15 @@
 {
   "id": "03-idor",
-  "name": "Invoices — object access has no ownership check",
+  "name": "Invoices — object access has no ownership check (query id)",
   "category": "idor",
-  "expected_invariant": "GET /invoice.html?id=<N> must 403/redirect unless the logged-in session owns invoice <N>",
-  "known_exploit_path": "logged in as account #1 (alice), change ?id=1 to ?id=2 in the URL — bob's invoice renders",
-  "expected_role": null,
-  "note": "No current aztrx behavior swaps a path/query id to another valid record and checks the response content for an ownership mismatch — the walker only clicks rendered links, and the HTTP fuzzer's id mutations (-1/0/overflow) target error-status responses, not a 200-with-wrong-owner. This case is expected to score a miss; it measures a real, currently-uncovered detection class, not a fixture mistake.",
+  "expected_invariant": "GET /invoice.html?id=<N> must refuse the response unless the logged-in session owns invoice <N>",
+  "known_exploit_path": "logged in as alice (session cookie), change ?id=1 to ?id=2 — bob's invoice is served",
+  "expected_role": "object-ref-auditor",
   "seeded": [
     {
       "id": "bug-1",
       "category": "idor",
-      "message": "bob's annual license invoice"
+      "message": "Object reference tampering accepted"
     }
   ]
 }

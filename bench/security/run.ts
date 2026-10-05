@@ -10,7 +10,7 @@
  */
 import { createServer } from "http";
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from "fs";
-import { join, normalize } from "path";
+import { join, normalize, dirname, basename, extname } from "path";
 import { fileURLToPath } from "url";
 import pc from "picocolors";
 import { run } from "../../dist/core/orchestrator.js";
@@ -49,16 +49,67 @@ const arg = (name: string, fallback: number): number => {
 };
 const OPT = { seed: arg("--seed", 42), maxActions: arg("--max-actions", 80) };
 
+interface OwnershipGuard {
+  param: string;
+  cookie: string;
+  owners: Record<string, string>;
+}
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (header ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+/**
+ * A minimal, declarative "server" for cases that need a real per-id
+ * difference or a real ownership check — the detector must see an actual
+ * difference across requests, not a client-rendered illusion of one.
+ *
+ * `?id=N` against `name.ext` first tries `name.id-N.ext` next to it — the id
+ * resolves server-side, the way a real backend would. A `guard.json` next to
+ * the file ({param, cookie, owners}) additionally enforces that the request's
+ * `cookie` matches `owners[id]` before serving the variant — a 403 otherwise.
+ * This lives only in the bench harness; `security.ts` knows nothing about it.
+ */
 function serve(root: string, port: number): Promise<() => void> {
   const types: Record<string, string> = { ".html": "text/html; charset=utf-8" };
   const server = createServer((req, res) => {
-    const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname);
+    const reqUrl = new URL(req.url ?? "/", "http://x");
+    const pathname = decodeURIComponent(reqUrl.pathname);
     let p = normalize(join(root, pathname));
     if (!p.startsWith(root)) {
       res.statusCode = 403;
       return res.end("forbidden");
     }
     if (existsSync(p) && statSync(p).isDirectory()) p = join(p, "index.html");
+
+    const id = reqUrl.searchParams.get("id");
+    if (id && /^[\w-]+$/.test(id) && existsSync(p)) {
+      const dir = dirname(p);
+      const ext = extname(p);
+      const base = basename(p, ext);
+
+      const guardPath = join(dir, "guard.json");
+      if (existsSync(guardPath)) {
+        const guard: OwnershipGuard = JSON.parse(readFileSync(guardPath, "utf-8"));
+        if (id in guard.owners) {
+          const cookies = parseCookies(req.headers.cookie);
+          if (cookies[guard.cookie] !== guard.owners[id]) {
+            res.statusCode = 403;
+            return res.end("Forbidden");
+          }
+        }
+      }
+
+      const variant = join(dir, `${base}.id-${id}${ext}`);
+      if (existsSync(variant)) p = variant;
+    }
+
     try {
       const body = readFileSync(p);
       const ext = p.slice(p.lastIndexOf("."));

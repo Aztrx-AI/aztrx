@@ -3,8 +3,9 @@
 `bench/` and `bench/frameworks/` score runtime-crash recall. This corpus
 scores the swarm's other job: proving a business-logic/security hypothesis
 end to end, with an executable repro as the receipt. It's intentionally
-small — three cases, each with exactly one seeded bug and an unambiguous
-oracle, rather than a large, half-finished corpus.
+small — five cases, each with exactly one seeded bug (or, for the negative
+control, deliberately zero) and an unambiguous oracle, rather than a large,
+half-finished corpus.
 
 ## What it measures
 
@@ -46,26 +47,33 @@ npx tsx bench/security/run.ts -- --seed 7      # different seed
 
 See [RESULTS.md](RESULTS.md).
 
-## Why only three cases, and why these three
+## Why these five cases
 
-A hard limit, on purpose: three finished cases beat ten half-built ones, and
-a benchmark only tells you something if its oracle is unambiguous. These
-three were picked to be maximally informative about where the swarm's
-security/business-logic coverage actually stands today, not to flatter it:
+A hard limit, on purpose: a handful of finished cases beats a large
+half-built corpus, and a benchmark only tells you something if its oracle
+is unambiguous.
 
-- **Auth bypass** (`paywall-bypass` role) and **role escalation**
-  (`token-tamper` role) exercise real, working detection primitives
-  (`src/core/security.ts`) — these are the sanity check.
-- **IDOR** has no working detection primitive at all right now: nothing in
-  the engine swaps an object id (path or query) to another valid record and
-  checks the response for an ownership mismatch — `httpFuzzer.ts`'s query
-  mutations target 5xx responses, not a 200 with someone else's data. This
-  case is *expected* to miss, and that miss is the single most useful
-  number in this corpus — it names a real, currently-unaddressed detection
-  class rather than a fixture bug.
+- **Auth bypass** (`paywall-bypass`) and **role escalation**
+  (`token-tamper`) exercise detection primitives that already existed —
+  the sanity check that the harness itself is sound.
+- **IDOR** (`03-idor`) is the case that mattered: the first v0 run of this
+  bench found that nothing in the engine swapped an object id and checked
+  the response for an ownership mismatch. That gap got a general primitive
+  — `objectRefAudit` (role `object-ref-auditor`) in `src/core/security.ts` —
+  not a fixture-specific patch. See [RESULTS.md](RESULTS.md) for what it
+  does and doesn't cover (numeric ids only, ±1 siblings, v1).
+- **`04-idor-safe`** is a negative control, same shape as `03` but with a
+  real ownership check enforced. Without this, it's impossible to tell a
+  genuine IDOR detector from "flags any endpoint with a number in its URL."
+  It must stay silent, and does.
+- **`05-idor-path`** is the same bug class with the id in a path segment
+  instead of a query param, to check the primitive generalizes across
+  shapes rather than being written against one. Building it also exposed a
+  real, unrelated memory-exhaustion bug in two existing crawl primitives —
+  see RESULTS.md.
 
-Reusable-coupon abuse and race/double-redemption cases were left out of v0
-for the same reason IDOR currently misses: no business-invariant checker
-(price deltas, redemption counts) exists yet to serve as their oracle
-either, so they'd add confirmatory misses rather than new information. Worth
-adding once the engine grows that primitive — not before.
+Reusable-coupon abuse and race/double-redemption cases are still left out
+of v0: no business-invariant checker (price deltas, redemption counts)
+exists yet to serve as their oracle, so they'd be confirmatory misses, not
+new information. Worth adding once the engine grows that primitive — not
+before.

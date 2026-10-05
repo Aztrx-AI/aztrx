@@ -1,0 +1,5 @@
+{
+  "param": "id",
+  "cookie": "session",
+  "owners": { "1": "alice", "2": "bob" }
+}

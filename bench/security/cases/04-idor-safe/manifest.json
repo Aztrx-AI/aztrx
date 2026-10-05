@@ -1,0 +1,10 @@
+{
+  "id": "04-idor-safe",
+  "name": "Invoices — same shape as 03, but ownership is actually checked (negative control)",
+  "category": "idor_negative_control",
+  "expected_invariant": "GET /invoice.html?id=<N> must refuse the response unless the logged-in session owns invoice <N> — and here it does",
+  "known_exploit_path": "none — this fixture exists to prove the detector stays silent on a correctly-guarded app, not to be exploited",
+  "expected_role": "object-ref-auditor",
+  "seeded": [],
+  "note": "Any finding here is a false positive by definition — this is the control that keeps the object-ref-audit primitive from degrading into 'flag any endpoint with a numeric id'."
+}

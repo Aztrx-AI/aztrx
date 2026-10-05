@@ -7,9 +7,10 @@
  * accepted, the secret is in the page source. Anything short of that is noise,
  * and noise is exactly what a developer must never see.
  *
- * All three are self-limiting: no JWT in storage → tokenTamper does nothing,
+ * All four are self-limiting: no JWT in storage → tokenTamper does nothing,
  * no premium markers → paywallBypass sits still, no secret patterns → the SSR
- * scan reports nothing. They cost almost nothing when they have no target.
+ * scan reports nothing, no numeric id in a URL the page touched → objectRefAudit
+ * does nothing. They cost almost nothing when they have no target.
  */
 
 import type { Page } from "playwright";
@@ -46,8 +47,16 @@ export async function ssrKeyScan(
   opts: SsrScanOptions = {}
 ): Promise<{ routes: number; leaks: number }> {
   const maxRoutes = opts.maxRoutes ?? 20;
-  const startOrigin = originOf(page.url());
-  const queue: string[] = [page.url()];
+  // Every href below is read off THIS page's DOM — the loop only ever
+  // `fetch()`es each queued url, it never navigates there. Resolving a
+  // relative href against the loop's current (queued) url instead of the
+  // page's real, unchanging url compounds: a link into a subdirectory
+  // (`orders/184.html`) resolved against itself again produces
+  // `orders/orders/184.html`, then `orders/orders/orders/184.html` — an
+  // unbounded queue that OOMs the process. `baseUrl` never changes here.
+  const baseUrl = page.url();
+  const startOrigin = originOf(baseUrl);
+  const queue: string[] = [baseUrl];
   const visited = new Set<string>();
   let routes = 0;
   let leaks = 0;
@@ -107,7 +116,7 @@ export async function ssrKeyScan(
     for (const href of hrefs) {
       if (!href || /^(javascript:|mailto:|tel:|#)/.test(href)) continue;
       try {
-        const target = new URL(href, url).href.split("#")[0];
+        const target = new URL(href, baseUrl).href.split("#")[0];
         if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 30) {
           queue.push(target);
         }
@@ -268,8 +277,13 @@ export async function paywallBypass(
   opts: PaywallOptions = {}
 ): Promise<{ routes: number; bypasses: number }> {
   const maxRoutes = opts.maxRoutes ?? 15;
-  const startOrigin = originOf(page.url());
-  const queue: string[] = [page.url()];
+  // See the identical comment in `ssrKeyScan` — this loop never navigates,
+  // it only reads this page's DOM and `fetch()`es whatever's queued, so
+  // every href must resolve against the page's real, unchanging url, not
+  // against the loop's current queue item.
+  const baseUrl = page.url();
+  const startOrigin = originOf(baseUrl);
+  const queue: string[] = [baseUrl];
   const visited = new Set<string>();
   const gated: string[] = [];
   let bypasses = 0;
@@ -298,7 +312,7 @@ export async function paywallBypass(
 
     for (const h of hits.found) {
       try {
-        const target = new URL(h.href, url).href.split("#")[0];
+        const target = new URL(h.href, baseUrl).href.split("#")[0];
         if (target.startsWith(startOrigin) && !gated.includes(target)) gated.push(target);
       } catch {
         // unparseable href — ignore
@@ -312,7 +326,7 @@ export async function paywallBypass(
     for (const href of hrefs) {
       if (!href || /^(javascript:|mailto:|tel:|#)/.test(href)) continue;
       try {
-        const target = new URL(href, url).href.split("#")[0];
+        const target = new URL(href, baseUrl).href.split("#")[0];
         if (target.startsWith(startOrigin) && !visited.has(target) && queue.length < 30) queue.push(target);
       } catch {
         // unparseable href — ignore
@@ -350,4 +364,188 @@ export async function paywallBypass(
   }
 
   return { routes: gated.length, bypasses };
+}
+
+/**
+ * Object-reference authorization. The general question: for a URL the page
+ * already touched that carries a numeric id in its path or query, does
+ * swapping that id for a sibling under the SAME session return another
+ * record's protected data? Deliberately narrow in what counts as evidence —
+ * **proof or silence**, same discipline as the rest of this file:
+ *
+ *   same session + a different valid id (200) + a response that actually
+ *   differs + an identity-shaped field (owner/user/account/tenant, or an
+ *   email) that differs from the original — all four, or it's silent.
+ *
+ * A bare "200 on a modified id" is not evidence by itself: most apps have
+ * plenty of ids that are supposed to be publicly interchangeable (a product
+ * catalog, a blog post). Only a resource that both varies by id AND carries
+ * an identity fingerprint earns a finding.
+ *
+ * v1 scope, by design: numeric ids only (path segment or query value), one
+ * candidate id per URL, ±1 siblings. UUIDs/slugs are a real gap this leaves
+ * open, not an oversight — see `bench/security/README.md`.
+ */
+export const IDENTITY_KEY_RE = /owner|user|account|tenant|customer/i;
+const NUMERIC_ID_RE = /^\d+$/;
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+export interface ObjectRefOptions {
+  maxCandidates?: number;
+  dryRun?: boolean;
+}
+
+/** Same-origin URLs the page actually issued or linked to — discovery rides
+ * on real traffic, not a blind id-space crawl. A relative href (`orders/184`)
+ * must resolve against the page's actual url, not its bare origin — against
+ * the origin alone it silently loses the page's own directory and resolves
+ * to the wrong path entirely. */
+async function collectObjectUrls(page: Page, origin: string): Promise<string[]> {
+  const baseUrl = page.url();
+  const seen = new Set<string>();
+  const push = (raw: string) => {
+    try {
+      const u = new URL(raw, baseUrl);
+      if (u.origin === origin) seen.add(u.href);
+    } catch {
+      // unparseable — ignore
+    }
+  };
+
+  const resources = await page
+    .evaluate(() => performance.getEntriesByType("resource").map((e) => e.name))
+    .catch(() => [] as string[]);
+  for (const r of resources) push(r);
+
+  const domUrls = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll("a[href], form[action]")).map(
+        (el) => el.getAttribute("href") ?? el.getAttribute("action") ?? ""
+      )
+    )
+    .catch(() => [] as string[]);
+  for (const u of domUrls) push(u);
+
+  push(page.url());
+  return [...seen];
+}
+
+/** One sibling pair for one numeric id in `u` — query first, then the last
+ * numeric path segment. Only ever one id per URL in v1. */
+function siblingCandidate(u: URL): { original: string; sibling: string } | null {
+  for (const key of u.searchParams.keys()) {
+    const val = u.searchParams.get(key) ?? "";
+    if (!NUMERIC_ID_RE.test(val)) continue;
+    const n = Number(val);
+    const next = n + 1 > 0 ? n + 1 : n - 1;
+    if (next <= 0) continue;
+    const sib = new URL(u.toString());
+    sib.searchParams.set(key, String(next));
+    return { original: u.toString(), sibling: sib.toString() };
+  }
+
+  // A path segment is a numeric id even with a file extension attached
+  // (`184.html`, `184.json`) — static-mirrored or document-style APIs carry
+  // the id that way as often as a bare `/orders/184`.
+  const segments = u.pathname.split("/");
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const m = segments[i].match(/^(\d+)(\.[A-Za-z0-9]+)?$/);
+    if (!m) continue;
+    const n = Number(m[1]);
+    const next = n + 1 > 0 ? n + 1 : n - 1;
+    if (next <= 0) continue;
+    const segs = [...segments];
+    segs[i] = `${next}${m[2] ?? ""}`;
+    const sib = new URL(u.toString());
+    sib.pathname = segs.join("/");
+    return { original: u.toString(), sibling: sib.toString() };
+  }
+
+  return null;
+}
+
+/** Identity-shaped values in a response: JSON `owner`/`user`/`account`/
+ * `tenant`/`customer`-ish keys (one level deep), falling back to email
+ * addresses in plain text/HTML. Generic on purpose — not tuned to any one
+ * fixture's wording. */
+function extractIdentitySignals(body: string): string[] {
+  try {
+    const json = JSON.parse(body);
+    const out: string[] = [];
+    const scan = (obj: unknown, depth: number): void => {
+      if (depth > 1 || typeof obj !== "object" || obj === null) return;
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        if (IDENTITY_KEY_RE.test(k) && (typeof v === "string" || typeof v === "number")) {
+          out.push(String(v));
+        } else if (typeof v === "object") {
+          scan(v, depth + 1);
+        }
+      }
+    };
+    scan(json, 0);
+    if (out.length > 0) return out;
+  } catch {
+    // not JSON — fall through to the text oracle
+  }
+  return [...body.matchAll(EMAIL_RE)].map((m) => m[0]);
+}
+
+async function fetchIdCandidate(page: Page, url: string): Promise<{ status: number; body: string }> {
+  return page.evaluate(async (u) => {
+    try {
+      const res = await fetch(u, { credentials: "include" });
+      return { status: res.status, body: await res.text() };
+    } catch {
+      return { status: 0, body: "" };
+    }
+  }, url);
+}
+
+export async function objectRefAudit(
+  page: Page,
+  bus: EventBus,
+  opts: ObjectRefOptions = {}
+): Promise<{ candidates: number; findings: number }> {
+  const maxCandidates = opts.maxCandidates ?? 20;
+  const origin = originOf(page.url());
+  const urls = await collectObjectUrls(page, origin);
+
+  let candidates = 0;
+  let findings = 0;
+
+  for (const raw of urls) {
+    if (candidates >= maxCandidates) break;
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      continue;
+    }
+    const pair = siblingCandidate(u);
+    if (!pair) continue;
+    candidates++;
+    if (opts.dryRun) continue;
+
+    const [orig, sib] = await Promise.all([
+      fetchIdCandidate(page, pair.original),
+      fetchIdCandidate(page, pair.sibling),
+    ]);
+    if (orig.status !== 200 || sib.status !== 200) continue;
+    if (orig.body === sib.body) continue; // identical response — no evidence either way
+
+    const origIds = extractIdentitySignals(orig.body);
+    const sibIds = extractIdentitySignals(sib.body);
+    const leaked = sibIds.find((id) => !origIds.includes(id));
+    if (!leaked) continue; // a content diff with no identity signal is not proof
+
+    findings++;
+    const sibPath = new URL(pair.sibling).pathname + (new URL(pair.sibling).search || "");
+    bus.emit("telemetry", {
+      type: "secret_leak",
+      rawMessage: `Object reference tampering accepted: swapping the id to ${sibPath} returned another identity's data (${leaked})`,
+      rawStack: "",
+    });
+  }
+
+  return { candidates, findings };
 }
