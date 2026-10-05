@@ -549,3 +549,85 @@ export async function objectRefAudit(
 
   return { candidates, findings };
 }
+
+/**
+ * Repeat-use audit. The business-logic counterpart to the access-control
+ * primitives above: for a control that LOOKS single-use by convention
+ * (apply/redeem/activate/claim a coupon, promo, voucher, gift card), click
+ * it twice and watch a dollar figure on the page. **Proof or silence**:
+ *
+ *   the first click visibly changes a `$` amount, AND the second click
+ *   (same control, same session) changes it AGAIN, differently — not just
+ *   "clicked twice," a guarded action would show zero further change on
+ *   the second click.
+ *
+ * Discovery is marker-scoped on purpose, same reasoning as `paywallBypass`:
+ * plenty of actions are *correctly* repeatable (add-to-cart, like a post),
+ * and testing "does repeating this change a number" against all of them
+ * would make every repeatable control a false positive. The marker only
+ * decides what to try, never the verdict — the dollar-amount diff does.
+ */
+const SINGLE_USE_MARKERS = /apply|redeem|activate|claim|use code|promo|coupon|voucher|discount code|gift card/i;
+const MONEY_RE = /\$\s?\d{1,6}(?:\.\d{2})?/g;
+
+export interface RepeatUseOptions {
+  maxCandidates?: number;
+  dryRun?: boolean;
+}
+
+function extractMoney(text: string): string[] {
+  return [...text.matchAll(MONEY_RE)].map((m) => m[0].replace(/\s+/g, ""));
+}
+
+async function bodyText(page: Page): Promise<string> {
+  return page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+}
+
+export async function repeatUseAudit(
+  page: Page,
+  bus: EventBus,
+  opts: RepeatUseOptions = {}
+): Promise<{ candidates: number; findings: number }> {
+  const maxCandidates = opts.maxCandidates ?? 10;
+  const handles = await page.$$("button, input[type=submit], a").catch(() => []);
+
+  let candidates = 0;
+  let findings = 0;
+
+  for (const handle of handles) {
+    if (candidates >= maxCandidates) break;
+
+    const label = await handle
+      .evaluate((el) => `${(el as HTMLElement).innerText ?? ""} ${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("value") ?? ""}`)
+      .catch(() => "");
+    if (!SINGLE_USE_MARKERS.test(label)) continue;
+
+    const visible = await handle.isVisible().catch(() => false);
+    const enabled = await handle.isEnabled().catch(() => false);
+    if (!visible || !enabled) continue;
+
+    candidates++;
+    if (opts.dryRun) continue;
+
+    const before = extractMoney(await bodyText(page));
+    await handle.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+    const afterFirst = extractMoney(await bodyText(page));
+    await handle.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+    const afterSecond = extractMoney(await bodyText(page));
+
+    const firstClickHadEffect = before.join(",") !== afterFirst.join(",");
+    const secondClickHadEffectToo = afterFirst.join(",") !== afterSecond.join(",");
+    if (!firstClickHadEffect || !secondClickHadEffectToo) continue; // no effect, or guarded after one use
+
+    findings++;
+    bus.emit("telemetry", {
+      type: "business_logic_violation",
+      rawMessage: `Repeatable single-use action: "${label.trim().slice(0, 40)}" has no single-use guard — clicking it twice changed the page twice (${before.join("/")} -> ${afterFirst.join("/")} -> ${afterSecond.join("/")})`,
+      rawStack: "",
+    });
+  }
+
+  return { candidates, findings };
+}

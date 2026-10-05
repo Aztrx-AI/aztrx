@@ -1,0 +1,16 @@
+{
+  "id": "02-payment-bypass",
+  "name": "Checkout — order confirmation has no payment check",
+  "category": "business_logic_invariant",
+  "expected_invariant": "GET /confirmation.html must only ever show a confirmed order after a real payment completed",
+  "known_exploit_path": "skip pay.html entirely and navigate straight to confirmation.html — \"Pro plan activated\" renders anyway",
+  "expected_role": null,
+  "note": "confirmation.html is deliberately unlinked from anywhere in the DOM — reaching it requires guessing a sibling filename from pay.html's own URL, something no current role attempts (nothing tries an unlinked-but-guessable next step in a flow). Expected to miss for a different reason than 01: this is a pure discovery/hypothesis gap, not even a candidate action exists to evaluate.",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "business_logic_invariant",
+      "message": "Pro plan activated"
+    }
+  ]
+}

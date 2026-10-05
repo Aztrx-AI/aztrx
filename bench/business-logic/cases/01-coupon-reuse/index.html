@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Checkout</title></head>
+<body>
+<h1>Checkout</h1>
+<p>Cart total: <span id="total">$100.00</span></p>
+<input id="coupon" value="SAVE20">
+<button id="apply">Apply coupon</button>
+<p id="msg"></p>
+<script>
+  // Seeded bug: no single-use guard. Every click re-applies the discount —
+  // the business rule ("a coupon applies once") exists only in intent, not
+  // in code. $100 -> $80 -> $60 -> $40 ... with no floor but zero.
+  var uses = 0;
+  document.getElementById("apply").addEventListener("click", function () {
+    var code = document.getElementById("coupon").value.trim().toUpperCase();
+    if (code !== "SAVE20") {
+      document.getElementById("msg").textContent = "Invalid code";
+      return;
+    }
+    uses++;
+    var total = Math.max(0, 100 - uses * 20);
+    document.getElementById("total").textContent = "$" + total.toFixed(2);
+    document.getElementById("msg").textContent = "Coupon applied (" + uses + "x)";
+  });
+</script>
+</body>
+</html>

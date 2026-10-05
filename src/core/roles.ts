@@ -22,7 +22,8 @@ export type BehaviorKind =
   | "ssrScan" // fetch every route's raw HTML and scan for exposed secrets
   | "tokenTamper" // forge JWTs (alg:none, role escalation) — evidence-first
   | "paywallBypass" // hit gated routes directly — proof or silence
-  | "objectRefAudit"; // swap a numeric id for its sibling, check for another identity's data
+  | "objectRefAudit" // swap a numeric id for its sibling, check for another identity's data
+  | "repeatUseAudit"; // click an apply/redeem/claim control twice, check for a repeated $ effect
 
 /** How a role's missions are scheduled. */
 export type AgentMode =
@@ -167,6 +168,14 @@ export const ROLE_CATALOG: Role[] = [
     mission: "swaps a numeric id a session already touched for its sibling and checks whether another identity's data comes back",
     mode: "solo",
     behaviors: [{ kind: "objectRefAudit", budget: 20 }],
+  },
+  {
+    id: "repeat-use-auditor",
+    name: "Repeat-use auditor",
+    emoji: "🔁",
+    mission: "clicks an apply/redeem/claim control twice and checks whether a single-use discount or credit lands twice",
+    mode: "solo",
+    behaviors: [{ kind: "repeatUseAudit", budget: 10 }],
   },
 ];
 

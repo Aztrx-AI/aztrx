@@ -7,7 +7,11 @@ export type FindingType =
   | "network_5xx"
   | "network_timeout"
   /** A secret (API key, private key, token) found in page source / SSR HTML. */
-  | "secret_leak";
+  | "secret_leak"
+  /** A proven exploit of an access-control or business-invariant rule —
+   * role escalation, paywall/object-reference bypass, a single-use action
+   * that repeats. Proof-or-silence, same discipline as `secret_leak`. */
+  | "business_logic_violation";
 
 /** A server-side source location, e.g. a stack frame from a 500 response body. */
 export interface ServerFrame {

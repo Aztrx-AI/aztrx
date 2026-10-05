@@ -1,0 +1,15 @@
+{
+  "id": "01-coupon-reuse",
+  "name": "Checkout — coupon has no single-use guard",
+  "category": "business_logic_invariant",
+  "expected_invariant": "SAVE20 may discount the cart total exactly once per session",
+  "known_exploit_path": "click \"Apply coupon\" more than once with the same code — the discount reapplies every time",
+  "expected_role": "repeat-use-auditor",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "business_logic_invariant",
+      "message": "no single-use guard"
+    }
+  ]
+}

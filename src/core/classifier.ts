@@ -133,6 +133,7 @@ function classifySeverity(payload: TelemetryErrorPayload, isOwnCode: boolean): S
     case "network_5xx":
     case "network_timeout":
     case "secret_leak":
+    case "business_logic_violation":
       return "error";
     case "console_error":
       if (NOISE_FRAGMENTS.some((n) => payload.rawMessage.includes(n))) return "noise";

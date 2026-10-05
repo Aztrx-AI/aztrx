@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Order confirmed</title></head>
+<body>
+<!--
+  Seeded bug: this page is never linked from anywhere in the app — it's
+  reached only via the (unimplemented) payment success redirect. But it
+  performs no server-side check that payment actually happened; visiting
+  it directly, having skipped pay.html entirely, renders the same
+  "confirmed" state as a real successful payment would.
+-->
+<h1>Order confirmed</h1>
+<p>Payment successful. Order #482 is confirmed — Pro plan activated.</p>
+</body>
+</html>

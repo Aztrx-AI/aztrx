@@ -25,7 +25,7 @@ import { fuzz } from "./fuzzer.js";
 import { httpFuzz } from "./httpFuzzer.js";
 import { keyboardWalk } from "./keyboardWalk.js";
 import { observe } from "./observe.js";
-import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit } from "./security.js";
+import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit } from "./security.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
@@ -352,6 +352,11 @@ async function runBehavior(
       const or = await objectRefAudit(page, workerBus, { maxCandidates: budget, dryRun: opts.dryRun });
       if (or.candidates === 0) opts.log("[object-ref] no numeric ids found to swap");
       return { actions: or.candidates, newCoverage: 0, sawLoginForm: false };
+    }
+    case "repeatUseAudit": {
+      const ru = await repeatUseAudit(page, workerBus, { maxCandidates: budget, dryRun: opts.dryRun });
+      if (ru.candidates === 0) opts.log("[repeat-use] no apply/redeem/claim controls found");
+      return { actions: ru.candidates, newCoverage: 0, sawLoginForm: false };
     }
     case "walk":
     default: {
