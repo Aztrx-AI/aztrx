@@ -110,6 +110,11 @@ function serve(root: string, port: number): Promise<() => void> {
 
 const match = (msg: string, needle: string) => msg.toLowerCase().includes(needle.toLowerCase());
 
+/** Known infrastructure noise, not a detector misfire — see the identical
+ * constant in bench/security/run.ts. Kept separate from genuine
+ * unexplained findings so this number doesn't quietly drift. */
+const AMBIENT_NOISE_RE = /Failed to load resource:.*\b(404|403)\b/i;
+
 async function main() {
   const ids = readdirSync(CASES_DIR, { withFileTypes: true })
     .filter((d) => d.isDirectory())
@@ -137,7 +142,9 @@ async function main() {
     });
 
     const found = manifest.seeded.filter((bug) => findings.some((f) => match(f.rawMessage, bug.message)));
-    const falsePos = findings.filter((f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)));
+    const unexplained = findings.filter((f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)));
+    const ambientNoise = unexplained.filter((f) => AMBIENT_NOISE_RE.test(f.rawMessage));
+    const falsePos = unexplained.filter((f) => !AMBIENT_NOISE_RE.test(f.rawMessage));
 
     rows.push({
       id,
@@ -146,11 +153,17 @@ async function main() {
       seeded: manifest.seeded.length,
       falsePositives: falsePos.length,
       falsePosMessages: falsePos.map((f) => f.rawMessage.split("\n")[0].slice(0, 90)),
+      ambientNoise: ambientNoise.length,
+      ambientNoiseMessages: ambientNoise.map((f) => f.rawMessage.split("\n")[0].slice(0, 90)),
       allFindings: findings.map((f) => `${f.severity}/${f.type}: ${f.rawMessage.split("\n")[0].slice(0, 90)}`),
     });
 
     const ok = found.length === manifest.seeded.length;
-    console.log(`   ${ok ? pc.green("✓") : pc.red("✗")} found ${found.length}/${manifest.seeded.length}`);
+    console.log(
+      `   ${ok ? pc.green("✓") : pc.red("✗")} found ${found.length}/${manifest.seeded.length}` +
+        (falsePos.length ? pc.red(`  · ${falsePos.length} UNEXPLAINED`) : "") +
+        (ambientNoise.length ? pc.dim(`  · ${ambientNoise.length} ambient noise`) : "")
+    );
     if (!ok) {
       console.log(pc.dim(`   all findings this case produced (${findings.length}):`));
       for (const f of findings) console.log(pc.dim(`     - ${f.severity}/${f.type}: ${f.rawMessage.split("\n")[0].slice(0, 90)}`));
@@ -158,9 +171,24 @@ async function main() {
   }
 
   close();
-  writeFileSync(join(OUT_DIR, "results.json"), JSON.stringify(rows, null, 2));
+
+  const seeded = rows.reduce((s, r) => s + (r.seeded as number), 0);
+  const found = rows.reduce((s, r) => s + (r.found as number), 0);
+  const fp = rows.reduce((s, r) => s + (r.falsePositives as number), 0);
+  const noise = rows.reduce((s, r) => s + (r.ambientNoise as number), 0);
+
+  writeFileSync(
+    join(OUT_DIR, "results.json"),
+    JSON.stringify(
+      { totals: { seeded, found, engineFindings: found, benchmarkFalsePositives: fp, ambientNoise: noise }, cases: rows },
+      null,
+      2
+    )
+  );
 
   console.log("\n" + "═".repeat(58));
+  console.log(pc.bold(`Found      ${found}/${seeded}`) + pc.dim(`   ·   ${fp} unexplained   ·   ${noise} ambient noise`));
+  console.log("═".repeat(58));
   for (const r of rows) {
     console.log(`  ${(r.found as number) === (r.seeded as number) ? pc.green("✓") : pc.red("✗")} ${r.id} ${r.found}/${r.seeded}`);
   }

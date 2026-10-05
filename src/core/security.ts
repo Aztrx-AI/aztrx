@@ -16,6 +16,8 @@
 import type { Page } from "playwright";
 import { EventBus } from "./eventBus.js";
 import { originOf } from "./domWalker.js";
+import { evaluateInvariant } from "./invariant.js";
+import type { ObservedState, InvariantSpec } from "./invariant.js";
 
 /** Secret patterns that must never appear in HTML delivered to a browser.
  * Exported so heal's verification can re-scan a patched page with the same
@@ -501,6 +503,18 @@ async function fetchIdCandidate(page: Page, url: string): Promise<{ status: numb
   }, url);
 }
 
+/** `object-ownership`: a resource reached via one session must not return
+ * another identity's data just because the id in the url changed. */
+const OBJECT_OWNERSHIP_INVARIANT: InvariantSpec = {
+  id: "object-ownership",
+  subject: "a resource reached via one identity's session must not return another identity's data",
+  expectation: (before, after) =>
+    !(
+      after.http?.status === 200 &&
+      (after.contentSignals ?? []).some((id) => !(before.contentSignals ?? []).includes(id))
+    ),
+};
+
 export async function objectRefAudit(
   page: Page,
   bus: EventBus,
@@ -533,9 +547,17 @@ export async function objectRefAudit(
     if (orig.status !== 200 || sib.status !== 200) continue;
     if (orig.body === sib.body) continue; // identical response — no evidence either way
 
-    const origIds = extractIdentitySignals(orig.body);
-    const sibIds = extractIdentitySignals(sib.body);
-    const leaked = sibIds.find((id) => !origIds.includes(id));
+    const before: ObservedState = { url: pair.original, http: { status: orig.status }, contentSignals: extractIdentitySignals(orig.body) };
+    const after: ObservedState = { url: pair.sibling, http: { status: sib.status }, contentSignals: extractIdentitySignals(sib.body) };
+    const episode = evaluateInvariant(
+      OBJECT_OWNERSHIP_INVARIANT,
+      before,
+      [{ kind: "mutateIdentifier", target: pair.sibling, detail: "swapped the id" }],
+      after,
+      [{ label: "sibling", value: pair.sibling }]
+    );
+    if (episode.verdict !== "violated") continue;
+    const leaked = (after.contentSignals ?? []).find((id) => !(before.contentSignals ?? []).includes(id));
     if (!leaked) continue; // a content diff with no identity signal is not proof
 
     findings++;
@@ -583,6 +605,16 @@ async function bodyText(page: Page): Promise<string> {
   return page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
 }
 
+/** `single-use`: once a single-use action has had its one effect, repeating
+ * it must not have another. `precondition` applies the invariant only once
+ * we have EVIDENCE the action already fired (`flags.used`), not before. */
+const SINGLE_USE_INVARIANT: InvariantSpec = {
+  id: "single-use",
+  subject: "a used single-use action must not produce another effect when repeated",
+  precondition: (before) => before.flags?.used === true,
+  expectation: (before, after) => (before.money?.figures ?? []).join(",") === (after.money?.figures ?? []).join(","),
+};
+
 export async function repeatUseAudit(
   page: Page,
   bus: EventBus,
@@ -609,22 +641,31 @@ export async function repeatUseAudit(
     candidates++;
     if (opts.dryRun) continue;
 
-    const before = extractMoney(await bodyText(page));
+    const baseline = extractMoney(await bodyText(page));
     await handle.click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(150);
     const afterFirst = extractMoney(await bodyText(page));
+    if (baseline.join(",") === afterFirst.join(",")) continue; // the control had no effect at all — nothing to evaluate
+
     await handle.click({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(150);
     const afterSecond = extractMoney(await bodyText(page));
 
-    const firstClickHadEffect = before.join(",") !== afterFirst.join(",");
-    const secondClickHadEffectToo = afterFirst.join(",") !== afterSecond.join(",");
-    if (!firstClickHadEffect || !secondClickHadEffectToo) continue; // no effect, or guarded after one use
+    const usedOnce: ObservedState = { money: { figures: afterFirst }, flags: { used: true } };
+    const usedAgain: ObservedState = { money: { figures: afterSecond } };
+    const episode = evaluateInvariant(
+      SINGLE_USE_INVARIANT,
+      usedOnce,
+      [{ kind: "repeat", target: label.trim().slice(0, 40), detail: "clicked again" }],
+      usedAgain,
+      [{ label: "control", value: label.trim().slice(0, 40) }]
+    );
+    if (episode.verdict !== "violated") continue; // preserved — guarded after one use
 
     findings++;
     bus.emit("telemetry", {
       type: "business_logic_violation",
-      rawMessage: `Repeatable single-use action: "${label.trim().slice(0, 40)}" has no single-use guard — clicking it twice changed the page twice (${before.join("/")} -> ${afterFirst.join("/")} -> ${afterSecond.join("/")})`,
+      rawMessage: `Repeatable single-use action: "${label.trim().slice(0, 40)}" has no single-use guard — clicking it twice changed the page twice (${baseline.join("/")} -> ${afterFirst.join("/")} -> ${afterSecond.join("/")})`,
       rawStack: "",
     });
   }
@@ -792,6 +833,16 @@ function samePageUrl(a: string, b: string): boolean {
   }
 }
 
+/** `flow-prerequisite`: a resource found two-plus hops into a flow must not
+ * render its protected content for a session that never completed the
+ * step that was supposed to come first. */
+const FLOW_PREREQUISITE_INVARIANT: InvariantSpec = {
+  id: "flow-prerequisite",
+  subject: "a gated step's resource must not render for a session that skipped the prerequisite step",
+  expectation: (before, after) =>
+    !(after.http?.status === 200 && after.flags?.gateHeld !== true && after.flags?.hasTerminalContent === true),
+};
+
 export async function flowSkipAudit(
   page: Page,
   bus: EventBus,
@@ -826,9 +877,21 @@ export async function flowSkipAudit(
         }
       }, url)
       .catch(() => ({ status: 0, body: "" }));
-    if (res.status !== 200) continue;
-    if (FLOW_GATE_RE.test(res.body)) continue; // the wall held
-    if (!TERMINAL_MARKERS.test(res.body)) continue; // 200, but nothing that looks like the protected content either
+
+    const before: ObservedState = { flags: { prerequisiteCompleted: false }, session: { authenticated: false } };
+    const after: ObservedState = {
+      url,
+      http: { status: res.status },
+      flags: { gateHeld: FLOW_GATE_RE.test(res.body), hasTerminalContent: TERMINAL_MARKERS.test(res.body) },
+    };
+    const episode = evaluateInvariant(
+      FLOW_PREREQUISITE_INVARIANT,
+      before,
+      [{ kind: "request", target: url, detail: `evidenced via ${source}` }],
+      after,
+      [{ label: "source", value: source }]
+    );
+    if (episode.verdict !== "violated") continue;
 
     findings++;
     bus.emit("telemetry", {

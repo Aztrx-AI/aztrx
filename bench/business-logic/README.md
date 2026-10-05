@@ -69,6 +69,51 @@ shape:
   multi-page checkout chain (`store.html` → evidenced `report-482.html`
   directly), to check the primitive isn't tuned to one flow shape. Found.
 
+## Round 3: one shared invariant evaluator for all three bug classes
+
+Five bug classes now exist across the two benches (auth bypass, role
+escalation, IDOR, repeat-use, flow-prerequisite), and the surface area
+looked different enough to risk becoming "fifty hand-written heuristics"
+instead of one coherent capability. Checked whether they're actually the
+same question in disguise: `src/core/invariant.ts` adds `ObservedState`
+(only ever what a primitive directly observed — a cookie, a response
+body, a rendered `$` figure, never guessed), `ExecutedAction`, and
+`evaluateInvariant(spec, before, actions, after)` — one function that
+turns a before/after pair into `preserved | violated | unknown`.
+
+`objectRefAudit`, `repeatUseAudit`, and `flowSkipAudit` were retrofitted
+to build an `ObservedState` before and after their own (unchanged)
+exploit logic and call the shared evaluator instead of three separate
+ad-hoc if-chains:
+
+```
+IDOR:        before={contentSignals: ownIds}         after={contentSignals: siblingIds}        → object-ownership
+coupon reuse: before={money, flags:{used:true}}       after={money}                             → single-use
+flow-skip:    before={flags:{prerequisiteCompleted:false}} after={http, flags:{gateHeld,...}}   → flow-prerequisite
+```
+
+**Milestone, stated plainly, and checked honestly rather than assumed:**
+represent these three through one evaluator with no benchmark regression.
+Confirmed — `bench/security` still 4/4, `bench/business-logic` still 3/4,
+identical false-positive/ambient-noise profile on both, after the retrofit.
+
+**What's actually shared vs. still specific, honestly:** discovery
+(finding a sibling id, a single-use-labeled button, a flow's evidenced
+urls) and the exploit action itself (swap the id, click twice, fetch
+cold) remain — and should remain — entirely primitive-specific; that's
+real, different work per bug class, not something to force into one
+function. What's now shared is the **decision**: three different
+scattered comparisons collapsed into one declarative `InvariantSpec` per
+bug class plus one evaluator, instead of three separate verdict
+computations. That's a real, if narrow, abstraction — not yet "Aztrx
+infers invariants on its own," which stays future work (see
+`src/core/invariant.ts`'s header for where this is meant to go next:
+action-kind unification, then invariant *discovery* from code patterns/UI
+language/API schema, is explicitly NOT done here).
+
 ## Latest result
 
-See [RESULTS.md](RESULTS.md).
+See [RESULTS.md](RESULTS.md). Metrics now split `engineFindings` /
+`benchmarkFalsePositives` / `ambientNoise` instead of one flat
+"false positives" count — ambient infrastructure noise (a self-limiting
+probe's own 403/404) no longer dilutes the signal that actually matters.

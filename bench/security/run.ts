@@ -125,6 +125,13 @@ function serve(root: string, port: number): Promise<() => void> {
 
 const match = (msg: string, needle: string) => msg.toLowerCase().includes(needle.toLowerCase());
 
+/** Known infrastructure noise, not a detector misfire: a role's probe
+ * (sitemap, a tampered header, a mutated query) legitimately gets a
+ * 403/404, and the browser's own ambient network-error listener logs it as
+ * a generic finding. Separated from genuine unexplained findings so this
+ * number doesn't quietly drift as the catalog grows — see RESULTS.md. */
+const AMBIENT_NOISE_RE = /Failed to load resource:.*\b(404|403)\b/i;
+
 /** The mission-level episode verdict for the role that was actually meant to
  * catch this case — a cheap cross-check against the finding-based score,
  * reusing F11 episode logging instead of adding new instrumentation. */
@@ -180,7 +187,9 @@ async function main() {
       if (f) found.push({ bug, finding: f });
       else missed.push(bug);
     }
-    const falsePos = findings.filter((f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)));
+    const unexplained = findings.filter((f) => !manifest.seeded.some((b) => match(f.rawMessage, b.message)));
+    const ambientNoise = unexplained.filter((f) => AMBIENT_NOISE_RE.test(f.rawMessage));
+    const falsePos = unexplained.filter((f) => !AMBIENT_NOISE_RE.test(f.rawMessage));
     const episodeVerdict = episodeVerdictFor(repoRoot, manifest.expected_role);
 
     rows.push({
@@ -192,6 +201,8 @@ async function main() {
       missed: missed.map((b) => b.id),
       falsePositives: falsePos.length,
       falsePosMessages: falsePos.map((f) => f.rawMessage.split("\n")[0].slice(0, 90)),
+      ambientNoise: ambientNoise.length,
+      ambientNoiseMessages: ambientNoise.map((f) => f.rawMessage.split("\n")[0].slice(0, 90)),
       durationMs,
       expectedRole: manifest.expected_role,
       episodeVerdict,
@@ -200,7 +211,8 @@ async function main() {
     const ok = missed.length === 0;
     console.log(
       `   ${ok ? pc.green("✓") : pc.red("✗")} found ${found.length}/${manifest.seeded.length}` +
-        (falsePos.length ? pc.yellow(`  · ${falsePos.length} extra`) : "") +
+        (falsePos.length ? pc.red(`  · ${falsePos.length} UNEXPLAINED`) : "") +
+        (ambientNoise.length ? pc.dim(`  · ${ambientNoise.length} ambient noise`) : "") +
         (episodeVerdict ? pc.dim(`  · episode: ${episodeVerdict}`) : "")
     );
   }
@@ -210,6 +222,7 @@ async function main() {
   const seeded = rows.reduce((s, r) => s + (r.seeded as number), 0);
   const found = rows.reduce((s, r) => s + (r.found as number), 0);
   const fp = rows.reduce((s, r) => s + (r.falsePositives as number), 0);
+  const noise = rows.reduce((s, r) => s + (r.ambientNoise as number), 0);
   const rate = seeded ? (found / seeded) * 100 : 0;
   const medianMs = [...rows].map((r) => r.durationMs as number).sort((a, b) => a - b)[Math.floor(rows.length / 2)] ?? 0;
 
@@ -217,7 +230,15 @@ async function main() {
     join(OUT_DIR, "results.json"),
     JSON.stringify(
       {
-        totals: { seeded, found, rate: +rate.toFixed(1), falsePositives: fp, medianDurationMs: medianMs },
+        totals: {
+          seeded,
+          found,
+          rate: +rate.toFixed(1),
+          engineFindings: found,
+          benchmarkFalsePositives: fp,
+          ambientNoise: noise,
+          medianDurationMs: medianMs,
+        },
         cases: rows,
       },
       null,
@@ -227,7 +248,8 @@ async function main() {
 
   console.log("\n" + "═".repeat(58));
   console.log(
-    pc.bold(`Found      ${found}/${seeded}  (${rate.toFixed(1)}%)`) + pc.dim(`   ·   ${fp} false positive(s)`)
+    pc.bold(`Found      ${found}/${seeded}  (${rate.toFixed(1)}%)`) +
+      pc.dim(`   ·   ${fp} unexplained   ·   ${noise} ambient noise`)
   );
   console.log(pc.dim(`Median mission time: ${(medianMs / 1000).toFixed(1)}s`));
   console.log("═".repeat(58));

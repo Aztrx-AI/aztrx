@@ -7,18 +7,23 @@ Stable across seeds (`--seed 42` and `--seed 7` both score 4/4).
 | metric | value |
 | --- | --- |
 | seeded bugs | 4 |
-| found | 4 |
+| engine findings (found) | 4 |
 | recall | **100%** |
-| false positives | 6 — all unrelated network noise, see below (was 1, before the catalog grew to 16 roles) |
+| benchmark false positives (unexplained) | **0** |
+| ambient noise (known infra noise, not a misfire) | 6 |
 | median mission time | ~27-29s |
 | roles run | full catalog (16 roles), seed 42/7, `maxActions` 80 |
 
-**Update:** the false-positive count rose from 1 to 6 as `repeat-use-auditor`
-and `flow-skip-auditor` joined the catalog (`bench/business-logic/`). All
-six are the same kind of noise as the original one — `flow-skip-auditor`'s
-self-limiting `/sitemap.xml` probe 404ing on fixtures that don't have one,
-logged as ambient `console_error` noise by the classifier. Neither new
-primitive's own oracle has ever misfired on any case in this corpus.
+**On the three-way split:** `results.json`'s `totals` now reports
+`engineFindings` / `benchmarkFalsePositives` / `ambientNoise` separately
+instead of one flat "false positives" count, because that single number
+was about to start lying. Ambient noise is `flow-skip-auditor`'s
+self-limiting `/sitemap.xml` probe 404ing on fixtures that don't have
+one, logged as generic `console_error` noise by the classifier — not a
+detector misfiring. It rose from 1 to 6 purely because `repeat-use-auditor`
+and `flow-skip-auditor` joined the shared catalog (`bench/business-logic/`);
+neither primitive's own oracle has ever produced an unexplained finding on
+any case in this corpus.
 
 ## Per case
 
