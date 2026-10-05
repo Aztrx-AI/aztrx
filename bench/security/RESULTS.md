@@ -9,9 +9,16 @@ Stable across seeds (`--seed 42` and `--seed 7` both score 4/4).
 | seeded bugs | 4 |
 | found | 4 |
 | recall | **100%** |
-| false positives | 1 (unrelated network noise — see below) |
-| median mission time | ~26-28s |
-| roles run | full catalog (14 roles), seed 42/7, `maxActions` 80 |
+| false positives | 6 — all unrelated network noise, see below (was 1, before the catalog grew to 16 roles) |
+| median mission time | ~27-29s |
+| roles run | full catalog (16 roles), seed 42/7, `maxActions` 80 |
+
+**Update:** the false-positive count rose from 1 to 6 as `repeat-use-auditor`
+and `flow-skip-auditor` joined the catalog (`bench/business-logic/`). All
+six are the same kind of noise as the original one — `flow-skip-auditor`'s
+self-limiting `/sitemap.xml` probe 404ing on fixtures that don't have one,
+logged as ambient `console_error` noise by the classifier. Neither new
+primitive's own oracle has ever misfired on any case in this corpus.
 
 ## Per case
 

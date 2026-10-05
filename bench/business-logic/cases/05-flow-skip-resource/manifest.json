@@ -1,0 +1,16 @@
+{
+  "id": "05-flow-skip-resource",
+  "name": "Store — report download has no checkout check (resource shape, generalization check)",
+  "category": "flow_prerequisite_violation",
+  "expected_invariant": "GET /report-482.html must only serve the report after checkout completed",
+  "known_exploit_path": "found the url \"/05-flow-skip-resource/report-482.html\" as a string literal on the store page, requested it directly without ever clicking Checkout",
+  "expected_role": "flow-skip-auditor",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "flow_prerequisite_violation",
+      "message": "Flow step skipped"
+    }
+  ],
+  "note": "Same bug class as 03, but a single-hop resource (page -> protected file) rather than a checkout -> payment -> confirmation chain, to check the primitive generalizes across both flow shapes."
+}

@@ -1,61 +1,65 @@
 # Business-logic benchmark results — AztrxBench business-logic v0
 
-**1 / 2 found, 0 false positives — one capability shipped, one gap documented**
+**3 / 4 addressable cases found, 1 deliberate permanent miss, 0 false
+positives from either detector**
 
-Stable across seeds (`--seed 42` and `--seed 7` both score 1/2, 0 fp).
+Stable across seeds (`--seed 42` and `--seed 7` both score the same way).
 
-| # | case | before (no new code) | after (`repeat-use-auditor` added) |
+| # | case | result | role |
 | --- | --- | --- | --- |
-| 01 | `coupon-reuse` | miss (0 findings, oracle gap) | **found** — `Repeatable single-use action: "Apply coupon" has no single-use guard` |
-| 02 | `payment-bypass` | miss (0 findings, hypothesis gap) | miss — deferred, see below |
+| 01 | `coupon-reuse` | **found** | `repeat-use-auditor` |
+| 02 | `payment-bypass` (no evidence anywhere) | miss — permanent, by design | — |
+| 03 | `flow-skip-page` (same bug as 02, WITH evidence) | **found** | `flow-skip-auditor` |
+| 04 | `flow-skip-page-safe` (negative control) | **silent**, correctly | `flow-skip-auditor` |
+| 05 | `flow-skip-resource` (resource shape) | **found** | `flow-skip-auditor` |
 
-## What shipped: `repeatUseAudit`
+Every case produces exactly one `"Failed to load resource: ... 404"`
+warning — `flow-skip-auditor`'s self-limiting `/sitemap.xml` probe 404ing
+on fixtures that don't have one. Harmless ambient noise (the same
+classifier behavior already documented in `bench/security/RESULTS.md`),
+not a misfire of either detector — neither one's own oracle ever fires
+incorrectly.
 
-A general primitive (role `repeat-use-auditor`, `src/core/security.ts`),
-same shape as the access-control primitives:
+## Two gaps, two different fixes, on purpose
 
-1. **Discovery**: a clickable control whose own label matches
-   apply/redeem/activate/claim/promo/coupon/voucher/discount-code/gift-card
-   — narrows *what* to test, same reasoning `paywallBypass` uses for
-   premium-marker links. A correctly-repeatable control (add-to-cart, like)
-   is never a candidate in the first place.
-2. **Action**: click it, snapshot every `$` figure on the page, click it
-   again (same session), snapshot again.
-3. **Oracle**: the first click must visibly change a dollar figure, AND
-   the second click must change it again, differently. A properly-guarded
-   action shows a change once, then nothing — that's silence, not a
-   finding. Both-or-neither isn't enough; it has to be "changed, then
-   changed again."
+Both `01` and the `02`/`03` pair started as 0% baselines with zero new
+code. Tracing actual engine behavior — not guessing — showed they were
+different kinds of gap:
 
-New `FindingType`: `business_logic_violation` — `secret_leak` was being
-reused by three unrelated primitives already (paywall bypass, role
-escalation, IDOR) as the de facto "proven exploit, not a crash" bucket;
-gave this class its own name instead of adding a fourth squatter.
+- **`01` (oracle gap)**: the repeated click already happens, for free, as
+  a side effect of normal fuzz/chaos operation. Fixed generally:
+  `repeatUseAudit` — marker-scoped discovery (apply/redeem/claim-labeled
+  controls only, so ordinary repeatable actions are never candidates) +
+  a click-twice, diff-the-dollar-figure oracle.
+- **`02`/`03` (hypothesis gap)**: nothing ever requested the gated
+  resource. The lazy fix (guess common filenames) was explicitly rejected
+  — see `README.md` — in favor of **evidence-bounded discovery**:
+  `flowSkipAudit` only tries a URL that's actually evidenced (a link found
+  while crawling past the entry page, a quoted path string in a script,
+  a sitemap entry), never a guess.
 
-## Why `01` was fixable in one general step and `02` wasn't (yet)
+`02` keeps existing, unchanged, specifically as the boundary case: its
+resource has zero evidence anywhere, and it must keep missing forever,
+or `flowSkipAudit` has quietly become a filename guesser.
 
-Tracing actual engine behavior — not guessing — before writing any code
-showed the two misses have different root causes:
+## The generalization check (`05`)
 
-- **`01`**: the repeated click already happens constantly as a side effect
-  of normal swarm operation (a chaos/fuzz-style role clicked "Apply
-  coupon" dozens of times in a single mission, confirmed via the action
-  log). The gap was purely that nothing watched for the effect — an
-  **oracle gap**, cheap to close generally.
-- **`02`**: across the full 14-role catalog, `confirmation.html` (reachable
-  only by guessing a sibling filename of `pay.html`, deliberately unlinked
-  from the DOM) was **never once requested** — confirmed via the actual
-  url-visit log, not inferred. This is a **hypothesis gap**: no behavior
-  in the catalog attempts an unlinked-but-guessable next step in a flow.
+`03` and `05` are the same invariant — "a resource needs a prerequisite
+step that it doesn't actually check for" — in two different shapes: a
+multi-page checkout chain vs. a single evidenced resource link. One
+primitive catches both, which is the signal this round was explicitly
+checking for before treating `flowSkipAudit` as more than a one-off.
 
-Closing `02` properly means a wordlist/sibling-guessing behavior for
-"flow steps," which is a fundamentally riskier kind of primitive than
-anything built so far — every other primitive in this project only acts on
-evidence the app already handed it (a link, a stored token, an id it used).
-Guessing filenames (`confirm`, `success`, `done`, `thank-you`, ...) without
-that discipline is exactly the "flag anything plausible" pattern this
-project is built to avoid. Left as a documented, deliberately deferred gap
-rather than rushed.
+## What's still a known gap (by design)
+
+- Evidence sources are runtime-only: links, script strings, sitemap. No
+  source-code/router-config reading (`security.ts` primitives are
+  black-box by design, same as everything else in this file).
+- `02`'s shape (truly zero evidence, anywhere) is permanently out of
+  scope for this primitive — intentionally.
+- The crawl in `flowSkipAudit` actually navigates, unlike every other
+  primitive in `security.ts` — bounded (`maxPages`), but worth watching
+  if it's ever pointed at a much larger real app.
 
 ## Rerun
 

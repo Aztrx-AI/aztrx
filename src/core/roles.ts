@@ -23,7 +23,8 @@ export type BehaviorKind =
   | "tokenTamper" // forge JWTs (alg:none, role escalation) — evidence-first
   | "paywallBypass" // hit gated routes directly — proof or silence
   | "objectRefAudit" // swap a numeric id for its sibling, check for another identity's data
-  | "repeatUseAudit"; // click an apply/redeem/claim control twice, check for a repeated $ effect
+  | "repeatUseAudit" // click an apply/redeem/claim control twice, check for a repeated $ effect
+  | "flowSkipAudit"; // crawl for evidence of a gated resource, try it without the prior step
 
 /** How a role's missions are scheduled. */
 export type AgentMode =
@@ -176,6 +177,14 @@ export const ROLE_CATALOG: Role[] = [
     mission: "clicks an apply/redeem/claim control twice and checks whether a single-use discount or credit lands twice",
     mode: "solo",
     behaviors: [{ kind: "repeatUseAudit", budget: 10 }],
+  },
+  {
+    id: "flow-skip-auditor",
+    name: "Flow-skip auditor",
+    emoji: "⏭️",
+    mission: "crawls for evidence of a gated resource — a link, a script string, a sitemap entry — and tries it without the step that's supposed to come first",
+    mode: "solo",
+    behaviors: [{ kind: "flowSkipAudit", budget: 8 }],
   },
 ];
 

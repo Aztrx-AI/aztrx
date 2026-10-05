@@ -1,0 +1,10 @@
+{
+  "id": "04-flow-skip-page-safe",
+  "name": "Checkout — same shape as 03, but the confirmation page actually checks payment (negative control)",
+  "category": "flow_prerequisite_negative_control",
+  "expected_invariant": "GET /confirmation.html must only confirm an order after a real payment completed — and here it does",
+  "known_exploit_path": "none — this fixture exists to prove the detector stays silent when the prerequisite is actually enforced",
+  "expected_role": "flow-skip-auditor",
+  "seeded": [],
+  "note": "Any finding here is a false positive by definition. Same evidence (the confirmUrl string in pay.html) as 03 — the only difference is server-side enforcement, via the bench harness's own cookie lock, not a change to detection."
+}

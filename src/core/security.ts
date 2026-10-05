@@ -631,3 +631,212 @@ export async function repeatUseAudit(
 
   return { candidates, findings };
 }
+
+/**
+ * Flow-skip audit. The question: does a resource that should require
+ * finishing a prior step (payment, an order) actually require it? Unlike
+ * `paywallBypass` (which only tests links already on the one page it
+ * loaded), this one builds a small reachability graph by actually
+ * navigating — because the gated resource is often evidenced two or three
+ * hops away, not on the entry page.
+ *
+ * Evidence sources, in order of how far they reach: links/forms on pages
+ * visited while crawling, quoted path-like string literals in inline and
+ * same-origin external `<script>` text (`const downloadUrl = "/files/x"`,
+ * `navigate("/confirmation")`), and `/sitemap.xml` if the app has one.
+ * **Never a guess** — a candidate that isn't evidenced by one of these
+ * is never tried, which is the whole difference between this and a
+ * filename wordlist.
+ *
+ * A candidate only counts if its evidence came from somewhere other than
+ * a link on the entry page itself — content prominently linked from page
+ * one was never gated by anything, so flagging it proves nothing. And a
+ * bare 200 still isn't proof: the candidate's own fetched body must show
+ * the terminal-looking content with no gate/denial text, under a session
+ * that never submitted anything — proof or silence, same as every other
+ * primitive in this file.
+ */
+const TERMINAL_MARKERS = /confirm|receipt|download|invoice|activated|unlocked|report|order/i;
+const FLOW_GATE_RE =
+  /(payment required|please (complete|pay)|access denied|not authorized|forbidden|sign in to continue|order not found|please complete checkout|404)/i;
+const PATH_STRING_RE = /["'](\/[a-zA-Z0-9_\-./]{1,80})["']/g;
+
+export interface FlowSkipOptions {
+  maxPages?: number;
+  maxCandidates?: number;
+  dryRun?: boolean;
+}
+
+type EvidenceSource = "link-entry" | "link-deep" | "script" | "sitemap";
+
+async function scriptEvidence(page: Page, origin: string): Promise<string[]> {
+  const inline = await page
+    .evaluate(() => Array.from(document.querySelectorAll("script:not([src])")).map((s) => s.textContent ?? ""))
+    .catch(() => [] as string[]);
+  const srcs = await page
+    .evaluate(() => Array.from(document.querySelectorAll("script[src]")).map((s) => s.getAttribute("src") ?? ""))
+    .catch(() => [] as string[]);
+
+  const externals: string[] = [];
+  for (const src of srcs.slice(0, 5)) {
+    try {
+      const u = new URL(src, page.url());
+      if (u.origin !== origin) continue;
+      const text = await page
+        .evaluate(async (url) => {
+          try {
+            return await (await fetch(url, { credentials: "include" })).text();
+          } catch {
+            return "";
+          }
+        }, u.href)
+        .catch(() => "");
+      if (text) externals.push(text);
+    } catch {
+      // unparseable src — ignore
+    }
+  }
+
+  const paths = new Set<string>();
+  for (const text of [...inline, ...externals]) {
+    for (const m of text.matchAll(PATH_STRING_RE)) paths.add(m[1]);
+  }
+  return [...paths];
+}
+
+/** Breadth-first crawl, bounded, that actually navigates (unlike the
+ * single-page scans above) — the only way to see links/scripts that live
+ * two hops from the entry page. Returns every same-origin url touched,
+ * tagged with how it was found. */
+async function collectFlowEvidence(
+  page: Page,
+  origin: string,
+  entryUrl: string,
+  maxPages: number
+): Promise<Map<string, EvidenceSource>> {
+  const evidence = new Map<string, EvidenceSource>();
+  const visited = new Set<string>();
+  const queue: Array<{ url: string; depth: number }> = [{ url: entryUrl, depth: 0 }];
+  let pages = 0;
+
+  while (queue.length > 0 && pages < maxPages) {
+    const { url, depth } = queue.shift()!;
+    if (visited.has(url)) continue;
+    visited.add(url);
+    pages++;
+
+    if (!samePageUrl(page.url(), url)) {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(200);
+    }
+
+    const links = await page
+      .evaluate(() =>
+        Array.from(document.querySelectorAll("a[href], form[action]")).map(
+          (el) => el.getAttribute("href") ?? el.getAttribute("action") ?? ""
+        )
+      )
+      .catch(() => [] as string[]);
+    for (const href of links) {
+      if (!href || /^(javascript:|mailto:|tel:|#)/.test(href)) continue;
+      try {
+        const target = new URL(href, url).href.split("#")[0];
+        if (!target.startsWith(origin)) continue;
+        const source: EvidenceSource = depth === 0 ? "link-entry" : "link-deep";
+        if (!evidence.has(target)) evidence.set(target, source);
+        if (!visited.has(target) && queue.length + pages < maxPages * 2) queue.push({ url: target, depth: depth + 1 });
+      } catch {
+        // unparseable href — ignore
+      }
+    }
+
+    for (const path of await scriptEvidence(page, origin)) {
+      try {
+        const target = new URL(path, origin).href;
+        if (target.startsWith(origin) && !evidence.has(target)) evidence.set(target, "script");
+      } catch {
+        // unparseable path literal — ignore
+      }
+    }
+
+    if (depth === 0) {
+      const sitemap = await page
+        .evaluate(async (base) => {
+          try {
+            const res = await fetch(new URL("/sitemap.xml", base).href);
+            return res.ok ? await res.text() : "";
+          } catch {
+            return "";
+          }
+        }, origin)
+        .catch(() => "");
+      for (const m of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+        try {
+          const target = new URL(m[1].trim()).href;
+          if (target.startsWith(origin) && !evidence.has(target)) evidence.set(target, "sitemap");
+        } catch {
+          // malformed <loc> — ignore
+        }
+      }
+    }
+  }
+
+  return evidence;
+}
+
+function samePageUrl(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return a === b;
+  }
+}
+
+export async function flowSkipAudit(
+  page: Page,
+  bus: EventBus,
+  opts: FlowSkipOptions = {}
+): Promise<{ candidates: number; findings: number }> {
+  const maxPages = opts.maxPages ?? 8;
+  const maxCandidates = opts.maxCandidates ?? 10;
+  const origin = originOf(page.url());
+  const entryUrl = page.url();
+
+  const evidence = await collectFlowEvidence(page, origin, entryUrl, maxPages);
+
+  let candidates = 0;
+  let findings = 0;
+
+  for (const [url, source] of evidence) {
+    if (candidates >= maxCandidates) break;
+    if (source === "link-entry") continue; // prominently linked from page one — never gated by anything
+    if (!TERMINAL_MARKERS.test(url)) continue;
+
+    candidates++;
+    if (opts.dryRun) continue;
+
+    await page.evaluate(() => localStorage.clear()).catch(() => {});
+    const res = await page
+      .evaluate(async (u) => {
+        try {
+          const r = await fetch(u, { credentials: "include" });
+          return { status: r.status, body: await r.text() };
+        } catch {
+          return { status: 0, body: "" };
+        }
+      }, url)
+      .catch(() => ({ status: 0, body: "" }));
+    if (res.status !== 200) continue;
+    if (FLOW_GATE_RE.test(res.body)) continue; // the wall held
+    if (!TERMINAL_MARKERS.test(res.body)) continue; // 200, but nothing that looks like the protected content either
+
+    findings++;
+    bus.emit("telemetry", {
+      type: "business_logic_violation",
+      rawMessage: `Flow step skipped: ${new URL(url).pathname} (found via ${source}) rendered its protected content with no prior step completed and no gate`,
+      rawStack: "",
+    });
+  }
+
+  return { candidates, findings };
+}

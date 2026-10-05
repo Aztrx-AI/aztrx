@@ -25,7 +25,7 @@ import { fuzz } from "./fuzzer.js";
 import { httpFuzz } from "./httpFuzzer.js";
 import { keyboardWalk } from "./keyboardWalk.js";
 import { observe } from "./observe.js";
-import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit } from "./security.js";
+import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit, flowSkipAudit } from "./security.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
@@ -357,6 +357,11 @@ async function runBehavior(
       const ru = await repeatUseAudit(page, workerBus, { maxCandidates: budget, dryRun: opts.dryRun });
       if (ru.candidates === 0) opts.log("[repeat-use] no apply/redeem/claim controls found");
       return { actions: ru.candidates, newCoverage: 0, sawLoginForm: false };
+    }
+    case "flowSkipAudit": {
+      const fs = await flowSkipAudit(page, workerBus, { maxPages: budget, maxCandidates: budget, dryRun: opts.dryRun });
+      if (fs.candidates === 0) opts.log("[flow-skip] no evidenced gated resource found");
+      return { actions: fs.candidates, newCoverage: 0, sawLoginForm: false };
     }
     case "walk":
     default: {

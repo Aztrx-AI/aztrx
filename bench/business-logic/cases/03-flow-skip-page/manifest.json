@@ -1,0 +1,15 @@
+{
+  "id": "03-flow-skip-page",
+  "name": "Checkout — confirmation page has no payment check (evidenced via a script string)",
+  "category": "flow_prerequisite_violation",
+  "expected_invariant": "GET /confirmation.html must only confirm an order after a real payment completed",
+  "known_exploit_path": "found the url \"/03-flow-skip-page/confirmation.html\" as a string literal in pay.html's own script, then requested it directly without ever submitting the payment form",
+  "expected_role": "flow-skip-auditor",
+  "seeded": [
+    {
+      "id": "bug-1",
+      "category": "flow_prerequisite_violation",
+      "message": "Flow step skipped"
+    }
+  ]
+}

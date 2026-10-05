@@ -11,7 +11,7 @@
  */
 import { createServer } from "http";
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from "fs";
-import { join, normalize } from "path";
+import { join, normalize, dirname, basename } from "path";
 import { fileURLToPath } from "url";
 import pc from "picocolors";
 import { run } from "../../dist/core/orchestrator.js";
@@ -49,6 +49,31 @@ const arg = (name: string, fallback: number): number => {
 };
 const OPT = { seed: arg("--seed", 42), maxActions: arg("--max-actions", 80) };
 
+interface LockConfig {
+  cookie: string;
+  value: string;
+  locked: string;
+}
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (header ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+/**
+ * A minimal, declarative lock for cases that need a real prerequisite
+ * check — the detector must see an actual gate, not a client-rendered
+ * illusion of one (a raw `fetch()` never runs a page's own `<script>`).
+ * A `lock.json` next to a file maps that file's own name to
+ * `{cookie, value, locked}`: serve `locked` instead unless the request's
+ * cookie matches. Lives only in the bench harness; `security.ts` knows
+ * nothing about it.
+ */
 function serve(root: string, port: number): Promise<() => void> {
   const types: Record<string, string> = { ".html": "text/html; charset=utf-8" };
   const server = createServer((req, res) => {
@@ -59,6 +84,17 @@ function serve(root: string, port: number): Promise<() => void> {
       return res.end("forbidden");
     }
     if (existsSync(p) && statSync(p).isDirectory()) p = join(p, "index.html");
+
+    const lockPath = join(dirname(p), "lock.json");
+    if (existsSync(p) && existsSync(lockPath)) {
+      const locks: Record<string, LockConfig> = JSON.parse(readFileSync(lockPath, "utf-8"));
+      const lock = locks[basename(p)];
+      if (lock) {
+        const cookies = parseCookies(req.headers.cookie);
+        if (cookies[lock.cookie] !== lock.value) p = join(dirname(p), lock.locked);
+      }
+    }
+
     try {
       const body = readFileSync(p);
       const ext = p.slice(p.lastIndexOf("."));
