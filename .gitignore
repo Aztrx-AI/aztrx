@@ -17,3 +17,4 @@ bench/frameworks/**/CLAUDE.md
 server/.data/
 server/keys.json
 server/dist/
+bench/invariant-discovery/.out/
