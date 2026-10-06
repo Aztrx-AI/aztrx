@@ -64,6 +64,7 @@
     "bench": "npm run build && tsx bench/run.ts",
     "bench:security": "npm run build && tsx bench/security/run.ts",
     "bench:business-logic": "npm run build && tsx bench/business-logic/run.ts",
+    "bench:invariant": "npm run build && tsx bench/invariant-discovery/run.ts",
     "pretest": "npm run build",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",

@@ -193,6 +193,16 @@ async function escalatedEvidence(page: Page): Promise<string | null> {
   return markers;
 }
 
+/** `forged-claim`: a client-side identity claim the attacker rewrote
+ * (alg:none, role flipped to admin) must not unlock privileged UI. Applies
+ * only once we actually forged and installed a token (`flags.claimForged`). */
+const FORGED_CLAIM_INVARIANT: InvariantSpec = {
+  id: "forged-claim",
+  subject: "a forged identity claim must not unlock admin or premium UI",
+  precondition: (before) => before.flags?.claimForged === true,
+  expectation: (_before, after) => after.flags?.privilegedUiVisible !== true,
+};
+
 /**
  * JWT/role tampering. For every token in storage: try alg:none and role-claim
  * escalation, reload, and look for evidence the tampered identity was
@@ -238,7 +248,20 @@ export async function tokenTamper(
         await page.waitForTimeout(800);
 
         const evidence = await escalatedEvidence(page);
-        if (evidence) {
+        const forgedBefore: ObservedState = { session: { authenticated: false }, flags: { claimForged: true } };
+        const forgedAfter: ObservedState = {
+          url: page.url(),
+          flags: { privilegedUiVisible: evidence !== null },
+          contentSignals: evidence ? [evidence] : [],
+        };
+        const episode = evaluateInvariant(
+          FORGED_CLAIM_INVARIANT,
+          forgedBefore,
+          [{ kind: "mutateIdentifier", target: t.key, detail: attempt }],
+          forgedAfter,
+          [{ label: "attempt", value: attempt }]
+        );
+        if (episode.verdict === "violated") {
           escalations++;
           bus.emit("telemetry", {
             type: "secret_leak",
@@ -262,6 +285,14 @@ export async function tokenTamper(
 }
 
 const PREMIUM_MARKERS = /(upgrade|premium|pro\b|unlock|subscribe|paywall|обновит|премиум|подпис|купить|оплатит|разблокиров)/i;
+
+/** `premium-gate`: premium content must not render for a clean session —
+ * no storage, no login, no payment — unless a gate stands in front of it. */
+const PREMIUM_GATE_INVARIANT: InvariantSpec = {
+  id: "premium-gate",
+  subject: "premium content must not render for a session with no payment or login",
+  expectation: (_before, after) => !(after.flags?.gateHeld !== true && after.flags?.hasPremiumContent === true),
+};
 
 export interface PaywallOptions {
   maxRoutes?: number;
@@ -343,23 +374,38 @@ export async function paywallBypass(
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(600);
 
-    // Evidence: premium-labeled content rendered without a payment/auth gate.
-    const evidence = await page
+    // Observation: what rendered for a clean session. The page only reports
+    // facts (gate text present? premium-looking content present?); the
+    // verdict is the evaluator's.
+    const seen = await page
       .evaluate(() => {
         const text = document.body?.innerText ?? "";
         const paywallGate = /(upgrade to access|sign in to continue|требуется подписка|войдите, чтобы продолжить|оплатите, чтобы)/i;
         const premiumContent = /(download( the)? file|скачать файл|your download is ready|premium content|полный доступ)/i;
-        if (paywallGate.test(text)) return null; // the wall held
         const hit = premiumContent.exec(text);
-        return hit ? hit[0] : null;
+        return { gateHeld: paywallGate.test(text), hit: hit ? hit[0] : null };
       })
-      .catch(() => null);
+      .catch(() => ({ gateHeld: false, hit: null as string | null }));
 
-    if (evidence) {
+    const cleanBefore: ObservedState = { session: { authenticated: false }, flags: { paid: false } };
+    const cleanAfter: ObservedState = {
+      url,
+      flags: { gateHeld: seen.gateHeld, hasPremiumContent: seen.hit !== null },
+      contentSignals: seen.hit ? [seen.hit] : [],
+    };
+    const episode = evaluateInvariant(
+      PREMIUM_GATE_INVARIANT,
+      cleanBefore,
+      [{ kind: "navigate", target: url, detail: "direct access, cleared storage" }],
+      cleanAfter,
+      [{ label: "route", value: url }]
+    );
+
+    if (episode.verdict === "violated") {
       bypasses++;
       bus.emit("telemetry", {
         type: "secret_leak",
-        rawMessage: `Paywall bypassed: ${new URL(url).pathname || "/"} renders "${evidence}" without payment or login`,
+        rawMessage: `Paywall bypassed: ${new URL(url).pathname || "/"} renders "${seen.hit}" without payment or login`,
         rawStack: "",
       });
     }

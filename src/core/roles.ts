@@ -24,7 +24,8 @@ export type BehaviorKind =
   | "paywallBypass" // hit gated routes directly — proof or silence
   | "objectRefAudit" // swap a numeric id for its sibling, check for another identity's data
   | "repeatUseAudit" // click an apply/redeem/claim control twice, check for a repeated $ effect
-  | "flowSkipAudit"; // crawl for evidence of a gated resource, try it without the prior step
+  | "flowSkipAudit" // crawl for evidence of a gated resource, try it without the prior step
+  | "invariantDiscovery"; // read the rules the app's own code states, plan boundary experiments, prove or clear each
 
 /** How a role's missions are scheduled. */
 export type AgentMode =
@@ -185,6 +186,14 @@ export const ROLE_CATALOG: Role[] = [
     mission: "crawls for evidence of a gated resource — a link, a script string, a sitemap entry — and tries it without the step that's supposed to come first",
     mode: "solo",
     behaviors: [{ kind: "flowSkipAudit", budget: 8 }],
+  },
+  {
+    id: "invariant-discoverer",
+    name: "Invariant discoverer",
+    emoji: "🧭",
+    mission: "reads the conditional rules the app's own served code states, derives boundary experiments from them, and checks the live page obeys each one",
+    mode: "solo",
+    behaviors: [{ kind: "invariantDiscovery", budget: 6 }],
   },
 ];
 

@@ -56,7 +56,8 @@ export type ActionKind =
   | "request"
   | "mutateIdentifier"
   | "repeat"
-  | "switchUser";
+  | "switchUser"
+  | "setInput";
 
 export interface ExecutedAction {
   kind: ActionKind;

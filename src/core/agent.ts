@@ -26,6 +26,8 @@ import { httpFuzz } from "./httpFuzzer.js";
 import { keyboardWalk } from "./keyboardWalk.js";
 import { observe } from "./observe.js";
 import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit, flowSkipAudit } from "./security.js";
+import { invariantDiscovery } from "./discovery/runtime.js";
+import type { DiscoveryTrace } from "./discovery/types.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
@@ -73,6 +75,9 @@ export interface MissionResult {
   newCoverage: number;
   /** Whether the mission encountered a login form (a password input). */
   sawLoginForm: boolean;
+  /** Invariant-discovery traces (evidence -> candidate -> plan -> verdict), when
+   * the mission ran that behavior. Feeds episode telemetry. */
+  discovery?: DiscoveryTrace[];
   roleId: string;
   /** Auth-state path saved by the first mission (used to authenticate replays). */
   replayStorageState?: string;
@@ -280,7 +285,7 @@ async function runBehavior(
   mission: Mission,
   opts: AgentOptions,
   budget: number
-): Promise<{ actions: number; newCoverage: number; sawLoginForm: boolean }> {
+): Promise<{ actions: number; newCoverage: number; sawLoginForm: boolean; discovery?: DiscoveryTrace[] }> {
   const { page, workerBus } = wired;
   const kind = mission.role.behaviors[0]?.kind ?? "walk";
   const payloads = mission.role.behaviors[0]?.payloads;
@@ -363,6 +368,11 @@ async function runBehavior(
       if (fs.candidates === 0) opts.log("[flow-skip] no evidenced gated resource found");
       return { actions: fs.candidates, newCoverage: 0, sawLoginForm: false };
     }
+    case "invariantDiscovery": {
+      const dr = await invariantDiscovery(page, workerBus, { maxCandidates: budget, dryRun: opts.dryRun });
+      if (dr.candidates === 0) opts.log("[invariant] no stated rule found in the page's served code");
+      return { actions: dr.statesRun, newCoverage: 0, sawLoginForm: false, discovery: dr.traces };
+    }
     case "walk":
     default: {
       const wr = await walkDom(page, workerBus, {
@@ -417,6 +427,7 @@ export async function runAgentMission(
       actions: result.actions + extraActions,
       newCoverage: result.newCoverage,
       sawLoginForm: result.sawLoginForm,
+      discovery: result.discovery,
       roleId: mission.role.id,
       replayStorageState: wired.replayStorageState,
     };

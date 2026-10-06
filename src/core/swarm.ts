@@ -426,6 +426,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
               actionsAttempted: result?.actions ?? 0,
               verdict: episodeVerdict(result?.actions ?? 0, result?.findings.length ?? 0, Boolean(missionError)),
               findingIds: result?.findings.map((f) => f.fingerprint) ?? [],
+              discovery: result?.discovery,
               durationMs: Date.now() - startedAt,
               error: missionError?.message ?? null,
             },

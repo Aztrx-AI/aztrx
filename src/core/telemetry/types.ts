@@ -1,3 +1,5 @@
+import type { DiscoveryTrace } from "../discovery/types.js";
+
 /** Telemetry payload schema — the data-flywheel columnar tuple. Flat on purpose
  * so a record can be appended to a JSONL dataset as-is and loaded into any
  * columnar store later. Everything in here has already passed the sanitizer. */
@@ -64,6 +66,10 @@ export interface EpisodeRecord {
   duration_ms: number;
   /** Sanitized exception message, when the mission didn't complete cleanly. */
   error: string | null;
+  /** Invariant-discovery stages, when the mission ran that behavior: evidence
+   * observed, inferred invariant + confidence, experiment plan, actions,
+   * before/after state and verdict per state. Additive; absent otherwise. */
+  discovery?: DiscoveryTrace[];
 }
 
 export interface EpisodeEnvelope {

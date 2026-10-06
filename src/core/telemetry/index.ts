@@ -14,6 +14,7 @@ import * as fs from "fs";
 import * as path from "path";
 import pc from "picocolors";
 import type { Finding } from "../types.js";
+import type { DiscoveryTrace } from "../discovery/types.js";
 import { detectFrameworkMeta } from "../init.js";
 import { createSanitizer } from "./sanitize.js";
 import type {
@@ -182,8 +183,24 @@ export interface RawEpisode {
   actionsAttempted: number;
   verdict: EpisodeVerdict;
   findingIds: string[];
+  /** Raw discovery traces; every string in them is sanitized before it is persisted or shared. */
+  discovery?: DiscoveryTrace[];
   durationMs: number;
   error?: string | null;
+}
+
+/** Deep-copy a JSON-shaped value with every string passed through the sanitizer.
+ * Discovery traces carry code fragments and urls, which must clear the same
+ * boundary as every other episode field. */
+function sanitizeDeep<T>(value: T, text: (s: string) => string): T {
+  if (typeof value === "string") return text(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v, text)) as unknown as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = sanitizeDeep(v, text);
+    return out as T;
+  }
+  return value;
 }
 
 function persistEpisodes(repoRoot: string, records: EpisodeRecord[]): void {
@@ -215,6 +232,9 @@ export function submitEpisode(raw: RawEpisode, opts: EpisodeSubmitOptions): void
     finding_ids: raw.findingIds,
     duration_ms: raw.durationMs,
     error: raw.error ? sanitize.text(raw.error) : null,
+    ...(raw.discovery && raw.discovery.length > 0
+      ? { discovery: sanitizeDeep(raw.discovery, (s) => sanitize.text(s)) }
+      : {}),
   };
 
   persistEpisodes(opts.repoRoot, [record]);
