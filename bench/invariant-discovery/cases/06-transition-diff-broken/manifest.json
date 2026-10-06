@@ -1,0 +1,35 @@
+{
+  "id": "06-transition-diff-broken",
+  "name": "Orders — the latest change makes `cancelled` terminal; the running server still lets a cancelled order be fulfilled",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == cancelled => action fulfill must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    },
+    "action": "fulfill",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/orderMachine.js:5",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_verdict": "violated",
+  "violating_state": "forbidden",
+  "seeded": [
+    {
+      "id": "cancelled-fulfilled",
+      "category": "state_transition",
+      "message": "Discovered invariant violated"
+    }
+  ]
+}

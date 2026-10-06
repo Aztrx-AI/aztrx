@@ -2,8 +2,21 @@
   "id": "02-free-shipping-safe",
   "name": "Checkout — same code, server honours the boundary (negative control)",
   "category": "negative control",
+  "family": "numeric-threshold",
+  "expected_evidence": "served_js",
   "expected_invariant": "cart.total >= 50 => shipping == 0",
-  "expected_candidate": { "pre": { "field": "total", "op": ">=", "value": 50 }, "expect": { "field": "shipping", "op": "==", "value": 0 } },
+  "expected_candidate": {
+    "pre": {
+      "field": "total",
+      "op": ">=",
+      "value": 50
+    },
+    "expect": {
+      "field": "shipping",
+      "op": "==",
+      "value": 0
+    }
+  },
   "expected_verdict": "preserved",
   "expected_role": "invariant-discoverer",
   "seeded": []

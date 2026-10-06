@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { addedLines, inferCandidates } from "../src/core/discovery/infer.js";
+import { inferCandidates } from "../src/core/discovery/infer.js";
 import { boundaryValues, planExperiment } from "../src/core/discovery/plan.js";
+import type { EvidenceChunk } from "../src/core/discovery/evidence.js";
 import { compileCandidate, evalPredicate } from "../src/core/discovery/compile.js";
 import { evaluateInvariant } from "../src/core/invariant.js";
 import { submitEpisode } from "../src/core/telemetry/index.js";
-import type { DiscoveryTrace } from "../src/core/discovery/types.js";
+import type { DiscoveryTrace, NumericBoundaryPlan } from "../src/core/discovery/types.js";
 
-const ev = (text: string) => ({ source: "code" as const, location: "checkout.ts", text });
+const ev = (content: string): EvidenceChunk => ({ source: "served_js", location: "checkout.ts", content });
 
 test("infer: a literal if-rule becomes a structured candidate with its own evidence", () => {
   const [c] = inferCandidates(ev("if (cart.total >= 50) {\n  shipping = 0;\n}"));
@@ -19,7 +20,7 @@ test("infer: a literal if-rule becomes a structured candidate with its own evide
   assert.equal(c.preconditions[0].value, 50);
   assert.equal(c.expectation[0].field, "shipping");
   assert.equal(c.expectation[0].value, 0);
-  assert.equal(c.evidence.source, "code");
+  assert.equal(c.evidence.source, "served_js");
   assert.match(c.evidence.location ?? "", /^checkout\.ts:1$/);
   assert.match(c.evidence.signals[0], /cart\.total >= 50/);
   assert.match(c.description, /checkout\.ts says cart\.total >= 50 sets shipping to 0/);
@@ -46,20 +47,6 @@ test("infer: no evidence, no candidate — unresolved identifiers and prose are 
   assert.deepEqual(inferCandidates(ev("if (cart.total >= 50) { notify(); }")), []);
 });
 
-test("infer: from a diff only added lines count as evidence", () => {
-  const diff = [
-    "--- a/checkout.ts",
-    "+++ b/checkout.ts",
-    "@@ -1,3 +1,3 @@",
-    "-if (cart.total >= 100) { shipping = 0; }",
-    "+if (cart.total >= 50) { shipping = 0; }",
-  ].join("\n");
-  const found = inferCandidates({ source: "diff", location: "checkout.ts", text: addedLines(diff) });
-  assert.equal(found.length, 1);
-  assert.equal(found[0].preconditions[0].value, 50);
-  assert.equal(found[0].evidence.source, "diff");
-});
-
 test("boundary: states are built from the threshold alone, scaled to its precision", () => {
   assert.deepEqual(
     boundaryValues(50, ">=").map((s) => [s.label, s.value]),
@@ -73,7 +60,8 @@ test("boundary: states are built from the threshold alone, scaled to its precisi
 
 test("plan: only states where the precondition holds are judged; the rest are controls", () => {
   const [c] = inferCandidates(ev("if (cart.total > 50) { shipping = 0; }"));
-  const plan = planExperiment(c)!;
+  const plan = planExperiment(c) as NumericBoundaryPlan;
+  assert.equal(plan.family, "numeric-boundary");
   assert.equal(plan.threshold, 50);
   const byLabel = Object.fromEntries(plan.states.map((s) => [s.label, s.applicable]));
   assert.deepEqual(byLabel, { below: false, boundary: false, "just-above": true, "clearly-above": true });
@@ -108,7 +96,7 @@ test("episode telemetry: discovery traces are persisted, and their strings cross
       candidate: {
         id: "x",
         description: "checkout.ts says cart.total >= 50 sets shipping to 0",
-        evidence: { source: "code", location: "checkout.ts:1", signals: ["const key = 'sk_live_abcdefghijklmnop1234'; if (cart.total >= 50) { shipping = 0; }"] },
+        evidence: { source: "served_js", location: "checkout.ts:1", signals: ["const key = 'sk_live_abcdefghijklmnop1234'; if (cart.total >= 50) { shipping = 0; }"] },
         preconditions: [{ field: "total", path: "cart.total", op: ">=", value: 50 }],
         expectation: [{ field: "shipping", path: "shipping", op: "==", value: 0 }],
         confidence: 0.8,

@@ -28,6 +28,7 @@ import { observe } from "./observe.js";
 import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit, flowSkipAudit } from "./security.js";
 import { invariantDiscovery } from "./discovery/runtime.js";
 import type { DiscoveryTrace } from "./discovery/types.js";
+import type { EvidenceChunk } from "./discovery/evidence.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
 import type { Role } from "./roles.js";
@@ -48,6 +49,8 @@ export interface AgentOptions {
   repoRoot: string;
   allowHosts: Set<string>;
   dryRun?: boolean;
+  /** Repo-source / git-diff evidence for invariant discovery. */
+  localEvidence?: EvidenceChunk[];
   guardOn: boolean;
   storageState?: string;
   login?: boolean;
@@ -369,8 +372,12 @@ async function runBehavior(
       return { actions: fs.candidates, newCoverage: 0, sawLoginForm: false };
     }
     case "invariantDiscovery": {
-      const dr = await invariantDiscovery(page, workerBus, { maxCandidates: budget, dryRun: opts.dryRun });
-      if (dr.candidates === 0) opts.log("[invariant] no stated rule found in the page's served code");
+      const dr = await invariantDiscovery(page, workerBus, {
+        maxCandidates: budget,
+        dryRun: opts.dryRun,
+        extraEvidence: opts.localEvidence,
+      });
+      if (dr.candidates === 0) opts.log("[invariant] no stated rule found in the evidence");
       return { actions: dr.statesRun, newCoverage: 0, sawLoginForm: false, discovery: dr.traces };
     }
     case "walk":

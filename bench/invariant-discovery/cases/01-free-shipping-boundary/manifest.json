@@ -2,10 +2,29 @@
   "id": "01-free-shipping-boundary",
   "name": "Checkout — server breaks the free-shipping boundary its own client code states",
   "category": "product_logic_boundary",
+  "family": "numeric-threshold",
+  "expected_evidence": "served_js",
   "expected_invariant": "cart.total >= 50 => shipping == 0",
-  "expected_candidate": { "pre": { "field": "total", "op": ">=", "value": 50 }, "expect": { "field": "shipping", "op": "==", "value": 0 } },
+  "expected_candidate": {
+    "pre": {
+      "field": "total",
+      "op": ">=",
+      "value": 50
+    },
+    "expect": {
+      "field": "shipping",
+      "op": "==",
+      "value": 0
+    }
+  },
   "expected_verdict": "violated",
   "violating_state": "boundary",
   "expected_role": "invariant-discoverer",
-  "seeded": [{ "id": "boundary-charged", "category": "product_logic_boundary", "message": "Discovered invariant violated" }]
+  "seeded": [
+    {
+      "id": "boundary-charged",
+      "category": "product_logic_boundary",
+      "message": "Discovered invariant violated"
+    }
+  ]
 }

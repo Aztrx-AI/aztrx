@@ -118,6 +118,9 @@ interface CliOptions {
   swarm?: boolean;
   roles?: string;
   intent?: string;
+  /** `--diff` (true) or `--diff <base>`. */
+  diff?: string | boolean;
+  repoRules?: boolean;
   agents?: string;
   repro?: boolean;
   reproRuns: string;
@@ -344,6 +347,8 @@ program
   .addOption(opt("--swarm", "analyze the app, synthesize its audience, swarm it with 1000 agents", "detect"))
   .addOption(opt("--roles <ids>", "comma-separated catalog roles to run (e.g. novice,hostile,race-hunter) — skips the analysis", "detect"))
   .addOption(opt("--intent <text>", "what you fear, in your words (\"проверь безопасность оплаты\") — the swarm picks the agents", "detect"))
+  .addOption(opt("--diff [base]", "infer the rules your latest change states, from the live git diff (default base: HEAD), and test them", "detect"))
+  .addOption(opt("--repo-rules", "also infer stated rules from the code files under --repo", "detect"))
   .addOption(opt("--agents <n>", "total agent missions (default: 1000 with --swarm, 1 per role with --roles) — missions are tasks, not browsers", "detect"))
   .addOption(opt("--repro", "minimize + compile + validate each finding (F7-F9)", "prove"))
   .addOption(opt("--repro-runs <n>", "replay iterations for the flake-rate gate", "advanced").default("3"))
@@ -443,6 +448,12 @@ program
           process.exit(1);
         }
       }
+      // Rules read from local code only matter to the invariant discoverer, so
+      // asking for them puts that role in the roster (alone, when nothing else
+      // was chosen — `--diff` means "verify what I just changed").
+      if ((opts.diff || opts.repoRules) && !synthesize && !(opts.intent && !roleIds)) {
+        roleIds = [...new Set([...(roleIds ?? []), "invariant-discoverer"])];
+      }
       const agents = opts.agents ? parseInt(opts.agents, 10) : undefined;
 
       const mode = opts.intent && !roleIds
@@ -492,6 +503,7 @@ program
         roles: roleIds,
         synthesize,
         intent: opts.intent,
+        evidence: opts.diff || opts.repoRules ? { diff: opts.diff, repo: opts.repoRules } : undefined,
         agents,
         allowHosts: [...(opts.allowHost ?? []), ...configAllowHosts(repoRoot)],
         reproRuns: parseInt(opts.reproRuns, 10),

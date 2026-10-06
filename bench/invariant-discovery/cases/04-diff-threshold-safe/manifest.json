@@ -1,0 +1,27 @@
+{
+  "id": "04-diff-threshold-safe",
+  "name": "Checkout — same change, the running server honours the new threshold (negative control)",
+  "category": "product_logic_boundary",
+  "family": "numeric-threshold",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/shipping.js:7",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_invariant": "cart.total >= 50 => shipping == 0",
+  "expected_candidate": {
+    "pre": {
+      "field": "total",
+      "op": ">=",
+      "value": 50
+    },
+    "expect": {
+      "field": "shipping",
+      "op": "==",
+      "value": 0
+    }
+  },
+  "expected_verdict": "preserved",
+  "expected_role": "invariant-discoverer",
+  "seeded": []
+}

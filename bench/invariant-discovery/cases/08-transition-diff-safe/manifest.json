@@ -1,0 +1,28 @@
+{
+  "id": "08-transition-diff-safe",
+  "name": "Orders — same change as 06, the server enforces it (negative control, git diff)",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == cancelled => action fulfill must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    },
+    "action": "fulfill",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/orderMachine.js:5",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_verdict": "preserved",
+  "seeded": []
+}

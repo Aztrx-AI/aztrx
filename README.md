@@ -108,6 +108,8 @@ into your test dir so the bug can't come back.
 | `--swarm` | analyze the app, synthesize its audience, swarm it with 1000 agents |
 | `--intent <text>` | what you fear, in your words ("проверь безопасность оплаты") — the swarm picks the agents |
 | `--roles <ids>` | a subset of the standing catalog, e.g. `novice,hostile,race-hunter` |
+| `--diff [base]` | infer the rules your latest change states from the live `git diff` (default base `HEAD`) and test them against the running app |
+| `--repo-rules` | also infer stated rules from the code files under `--repo` |
 | `--agents N` | total agent missions (tasks, not browsers) |
 | `watch [url]` | security hot-reload — micro-swarm on every save, alert + auto-patch in the terminal |
 | `audit [url]` | state-graph audit — kill chain per finding; with `--fix`, patches + regression tests |

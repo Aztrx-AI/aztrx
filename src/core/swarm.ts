@@ -32,6 +32,7 @@ import type { ProjectProfile } from "./profile.js";
 import { profileSummary, synthesizeRoles } from "./synthesize.js";
 import type { Finding } from "./types.js";
 import { submitEpisode } from "./telemetry/index.js";
+import type { EvidenceChunk } from "./discovery/evidence.js";
 import type { EpisodeVerdict } from "./telemetry/types.js";
 
 export interface SwarmOptions {
@@ -39,6 +40,8 @@ export interface SwarmOptions {
   repoRoot: string;
   maxActions: number;
   dryRun?: boolean;
+  /** Repo-source / git-diff evidence collected once for the run (invariant discovery). */
+  localEvidence?: EvidenceChunk[];
   fuzz?: boolean;
   httpFuzz?: boolean;
   httpFuzzMutations?: boolean;
@@ -375,6 +378,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
         repoRoot: opts.repoRoot,
         allowHosts: opts.allowHosts,
         dryRun: opts.dryRun,
+        localEvidence: opts.localEvidence,
         guardOn: opts.guardOn,
         storageState: opts.storageState,
         login: opts.login,
@@ -426,7 +430,13 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
               actionsAttempted: result?.actions ?? 0,
               verdict: episodeVerdict(result?.actions ?? 0, result?.findings.length ?? 0, Boolean(missionError)),
               findingIds: result?.findings.map((f) => f.fingerprint) ?? [],
-              discovery: result?.discovery,
+              discovery: result?.discovery?.map((t) => ({
+                ...t,
+                // The reproduction id: the fingerprint of the finding this trace emitted.
+                ...(t.findingMessage
+                  ? { findingId: result?.findings.find((f) => f.rawMessage === t.findingMessage)?.fingerprint }
+                  : {}),
+              })),
               durationMs: Date.now() - startedAt,
               error: missionError?.message ?? null,
             },

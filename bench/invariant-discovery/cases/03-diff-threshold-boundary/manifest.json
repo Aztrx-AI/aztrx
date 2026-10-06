@@ -1,0 +1,34 @@
+{
+  "id": "03-diff-threshold-boundary",
+  "name": "Checkout — the latest change moves the free-shipping threshold; the running server still breaks the boundary",
+  "category": "product_logic_boundary",
+  "family": "numeric-threshold",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/shipping.js:7",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_invariant": "cart.total >= 50 => shipping == 0",
+  "expected_candidate": {
+    "pre": {
+      "field": "total",
+      "op": ">=",
+      "value": 50
+    },
+    "expect": {
+      "field": "shipping",
+      "op": "==",
+      "value": 0
+    }
+  },
+  "expected_verdict": "violated",
+  "violating_state": "boundary",
+  "expected_role": "invariant-discoverer",
+  "seeded": [
+    {
+      "id": "boundary-charged",
+      "category": "product_logic_boundary",
+      "message": "Discovered invariant violated"
+    }
+  ]
+}

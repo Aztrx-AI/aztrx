@@ -20,10 +20,15 @@ import { submitRun } from "./cloud/index.js";
 import { formatDiff } from "./diff.js";
 import type { Finding } from "./types.js";
 import type { SpendBudget } from "./heal/types.js";
+import { collectLocalEvidence, type LocalEvidenceRequest } from "./discovery/evidence.js";
 
 export interface RunOptions {
   url: string;
   repoRoot: string;
+  /** Invariant discovery: also read rules from local code. `repo` scans code
+   * files under `repoRoot`; `diff` reads the live git diff (`true` = against
+   * HEAD, or a base ref) — the rule is inferred from the change, never passed in. */
+  evidence?: LocalEvidenceRequest;
   maxActions?: number;
   dryRun?: boolean;
   crashTest?: boolean;
@@ -169,6 +174,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   const allowHosts = allowHostsFrom(url, options.allowHosts ?? []);
   const ui = options.ui === true;
   const bus = options.bus ?? new EventBus();
+  const localEvidence = collectLocalEvidence(repoRoot, options.evidence);
 
   const say = (...parts: string[]) => {
     if (!ui) console.log(parts.join(" "));
@@ -192,6 +198,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
   if (options.repro) say(pc.dim(`Mode:   repro (${options.reproRuns ?? 3} runs)`));
   if (guardOn) say(pc.dim(`Net:    deny-by-default → allow ${[...allowHosts].join(", ") || "origin"}`));
   if (options.storageState) say(pc.dim(`Auth:   ${options.storageState}`));
+  for (const n of localEvidence.notes) say(pc.dim(`Rules:  ${n}`));
   if (options.allowDestructive) {
     notice(
       "⚠ DESTRUCTIVE MODE — delete/pay/logout/checkout controls are ENABLED. This can mutate real data. Run only against a disposable/dev instance you own.",
@@ -255,6 +262,7 @@ export async function run(options: RunOptions): Promise<Finding[]> {
     repoRoot,
     maxActions,
     dryRun: options.dryRun,
+    localEvidence: localEvidence.chunks,
     fuzz: options.fuzz,
     httpFuzz: options.httpFuzz,
     httpFuzzMutations: options.httpFuzzMutations,

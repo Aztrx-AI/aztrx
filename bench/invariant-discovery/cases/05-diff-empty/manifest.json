@@ -1,0 +1,15 @@
+{
+  "id": "05-diff-empty",
+  "name": "Checkout — nothing changed since the last commit (empty diff: no rule may be invented)",
+  "category": "product_logic_boundary",
+  "family": "numeric-threshold",
+  "expected_evidence": null,
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_invariant": "(none)",
+  "expected_candidate": null,
+  "expected_verdict": "none",
+  "expected_role": "invariant-discoverer",
+  "seeded": []
+}

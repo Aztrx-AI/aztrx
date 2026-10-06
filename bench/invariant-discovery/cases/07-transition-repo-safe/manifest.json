@@ -1,0 +1,28 @@
+{
+  "id": "07-transition-repo-safe",
+  "name": "Orders — the repo states `cancelled` is terminal and the server enforces it (negative control, repo source)",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == cancelled => action fulfill must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    },
+    "action": "fulfill",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "cancelled"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "repo_source",
+  "expected_location": "src/orderMachine.js:5",
+  "evidence_request": {
+    "repo": true
+  },
+  "expected_verdict": "preserved",
+  "seeded": []
+}
