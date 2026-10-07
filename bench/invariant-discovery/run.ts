@@ -54,7 +54,7 @@ interface Manifest {
   /** What the run is asked to read besides the page. */
   evidence_request?: { diff?: boolean; repo?: boolean };
   expected_invariant: string;
-  expected_candidate: { pre: Pred; action?: string; expect: Pred } | null;
+  expected_candidate: { pre: Pred; action?: string; target?: string; expect: Pred } | null;
   expected_verdict: "violated" | "preserved" | "none";
   violating_state?: string;
   expected_role: string;
@@ -166,6 +166,7 @@ interface Trace {
     evidence: { source: string; location?: string; signals: string[]; changed?: boolean; alsoSeenIn?: string[] };
     preconditions: Pred[];
     action?: { name: string };
+    target?: { state: string };
     expectation: Pred[];
   };
   reachedStage: string;
@@ -242,7 +243,8 @@ async function main() {
           (t) =>
             t.candidate.preconditions.some((p) => samePred(p, want.pre)) &&
             t.candidate.expectation.some((p) => samePred(p, want.expect)) &&
-            (want.action === undefined || t.candidate.action?.name === want.action)
+            (want.action === undefined || t.candidate.action?.name === want.action) &&
+            (want.target === undefined || t.candidate.target?.state === want.target)
         )
       : undefined;
 

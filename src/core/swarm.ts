@@ -431,6 +431,7 @@ export async function swarmDetect(opts: SwarmOptions): Promise<SwarmResult> {
               verdict: episodeVerdict(result?.actions ?? 0, result?.findings.length ?? 0, Boolean(missionError)),
               findingIds: result?.findings.map((f) => f.fingerprint) ?? [],
               discoveryRun: result?.discoveryRun,
+              environment: result?.environment,
               discovery: result?.discovery?.map((t) => ({
                 ...t,
                 // The reproduction id: the fingerprint of the finding this trace emitted.

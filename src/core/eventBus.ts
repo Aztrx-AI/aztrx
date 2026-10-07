@@ -40,8 +40,25 @@ export interface NoticeEvent {
   ts: number;
 }
 
+/** A dependency of the app that could not be reached while it was being
+ * exercised — a backend that isn't running, a host that doesn't resolve. That
+ * is a fact about the environment, not about the app's behavior, so it is
+ * recorded beside the findings, never as one. */
+export interface EnvironmentFailure {
+  /** Origin that was unreachable (`http://localhost:5000`). */
+  origin: string;
+  /** The browser's error (`net::ERR_CONNECTION_REFUSED`). */
+  error: string;
+  /** Requests that failed this way. */
+  count: number;
+  /** One URL that failed, for diagnosis. */
+  example: string;
+}
+
 export interface AztrxEvents {
   telemetry: TelemetryErrorPayload;
+  /** One failed request to an unreachable dependency (see `EnvironmentFailure`). */
+  environment: { url: string; error: string };
   action: RecordedAction;
   finding: Finding;
   repro: ReproEvent;

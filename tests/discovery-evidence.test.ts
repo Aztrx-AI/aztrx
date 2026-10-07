@@ -179,10 +179,10 @@ test("plan: a transition is judged where it must be refused, and checked where i
   const plan = planExperiment(c) as StateTransitionPlan;
   assert.equal(plan.family, "state-transition");
   assert.equal(plan.from, "cancelled");
-  assert.equal(plan.action, "fulfill");
+  assert.deepEqual(plan.intent, { kind: "action", name: "fulfill" });
   const [forbidden, control] = plan.states;
-  assert.deepEqual([forbidden.label, forbidden.assign.state, forbidden.action, forbidden.applicable], ["forbidden", "cancelled", "fulfill", true]);
-  assert.deepEqual([control.label, control.assign.state, control.action, control.applicable], ["allowed-control", "paid", "fulfill", false]);
+  assert.deepEqual([forbidden.label, forbidden.assign.state, forbidden.intent, forbidden.applicable], ["forbidden", "cancelled", { kind: "action", name: "fulfill" }, true]);
+  assert.deepEqual([control.label, control.assign.state, control.intent, control.applicable], ["allowed-control", "paid", { kind: "action", name: "fulfill" }, false]);
   assert.deepEqual(control.mustReach, { field: "state", value: "fulfilled" });
 });
 

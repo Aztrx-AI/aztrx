@@ -1,0 +1,28 @@
+{
+  "id": "10-successor-select-safe",
+  "name": "Jobs — same change, the server enforces the declared moves (negative control, successor list, <select>)",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == failed => moving to done must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    },
+    "target": "done",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/jobs.js:6",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_verdict": "preserved",
+  "seeded": []
+}

@@ -23,6 +23,8 @@ import type {
   NumericBoundaryPlan,
   PlannedState,
   StateTransitionPlan,
+  TransitionIntent,
+  TransitionTable,
 } from "./types.js";
 
 export interface Run {
@@ -234,9 +236,6 @@ export const bindNumericBoundary: Binder = async (page, c, rawPlan) => {
 
 // ---- state-transition ------------------------------------------------------
 
-const normName = (s: string): string =>
-  s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-
 interface StateReading {
   found: boolean;
   /** Canonical state name as the evidence spelled it. */
@@ -248,8 +247,9 @@ interface StateReading {
 
 /** Runs in the page. The state readout is whichever visible, non-interactive
  * element's text *is* one of the machine's own state names (optionally after a
- * `Label:` prefix). Elements showing different states at once make the
- * binding ambiguous — a legend or a list of orders is not one entity's state. */
+ * `Label:` prefix), or the selected option of a `<select>` whose option maps to
+ * one. Readouts showing different states at once make the binding ambiguous —
+ * a legend or a list of orders is not one entity's state. */
 async function readState(page: Page, states: string[]): Promise<StateReading> {
   return page
     .evaluate((states) => {
@@ -273,6 +273,16 @@ async function readState(page: Page, states: string[]): Promise<StateReading> {
           // Innermost match is the most specific: keep descending.
           via = describe(el) + ' "' + text.slice(0, 32) + '"';
         }
+      }
+      for (const sel of Array.from(document.querySelectorAll("select"))) {
+        if (sel.getClientRects().length === 0) continue;
+        const o = (sel as HTMLSelectElement).selectedOptions[0];
+        if (!o) continue;
+        const a = byNorm.get(norm(o.value));
+        const b = byNorm.get(norm(o.textContent ?? ""));
+        if ((a && b && a !== b) || !(a ?? b)) continue;
+        seen.add((a ?? b) as string);
+        via = describe(sel) + ' selected "' + (o.textContent ?? "").trim().slice(0, 24) + '"';
       }
       if (seen.size === 1) return { found: true, state: [...seen][0], via };
       if (seen.size === 0) return { found: false, reason: "nothing on the page shows one of the machine's states" };
@@ -353,41 +363,211 @@ async function locateAction(
     .catch(() => ({ found: false, reason: "page evaluation failed" }));
 }
 
-/** Shortest list of events that takes `from` to `to` using only transitions
+/** How a page lets a user move to a given state: through the option of a
+ * `<select>` whose options are the machine's states, or through a control
+ * named like the state. Option-to-state mapping is by the option's value or
+ * text matching a state name exactly (after case/punctuation folding); an
+ * option that maps to two different states, or a page with several such
+ * selects, is not guessed at. */
+interface TargetControl {
+  found: boolean;
+  kind?: "select" | "control";
+  /** The states a matching select offers right now. */
+  offered?: string[];
+  /** The option to choose (select only). */
+  value?: string;
+  reason?: string;
+  via?: string;
+}
+
+async function locateTarget(page: Page, states: string[], target: string, tag: boolean): Promise<TargetControl> {
+  return page
+    .evaluate(({ states, target, tag }) => {
+      const norm = (s: string) =>
+        s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const byNorm = new Map(states.map((s) => [norm(s), s]));
+      const stateOf = (o: HTMLOptionElement): string | null | "?" => {
+        const a = byNorm.get(norm(o.value));
+        const b = byNorm.get(norm(o.textContent ?? ""));
+        if (a && b && a !== b) return "?";
+        return a ?? b ?? null;
+      };
+      const describe = (el: Element) =>
+        el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.getAttribute("name") ? "[name=" + el.getAttribute("name") + "]" : "");
+
+      // A select belongs to the machine when its options are the machine's
+      // states. A final state can leave it with a single option, so one is
+      // enough — as long as no option is ambiguous.
+      const selects = Array.from(document.querySelectorAll("select"))
+        .filter((sel) => sel.getClientRects().length > 0)
+        .map((sel) => ({ sel, opts: Array.from((sel as HTMLSelectElement).options).map((o) => ({ o, st: stateOf(o) })) }))
+        .filter((x) => x.opts.some((y) => y.st && y.st !== "?") && !x.opts.some((y) => y.st === "?"));
+      if (selects.length > 1) {
+        return { found: false, reason: selects.length + " selects offer the machine's states; can't tell which one is this entity's" };
+      }
+      if (selects.length === 1) {
+        const { sel, opts } = selects[0];
+        const offered = [...new Set(opts.map((y) => y.st).filter((v): v is string => !!v && v !== "?"))];
+        const hits = opts.filter((y) => y.st === target);
+        if ((sel as HTMLSelectElement).disabled) {
+          return {
+            found: false,
+            kind: "select" as const,
+            offered,
+            reason: "the select is disabled (it offers: " + offered.join(", ") + ")",
+          };
+        }
+        if (hits.length === 0) {
+          return {
+            found: false,
+            kind: "select" as const,
+            offered,
+            reason: 'the select offers no option for "' + target + '" (it offers: ' + offered.join(", ") + ")",
+          };
+        }
+        if (hits.length > 1) {
+          return { found: false, kind: "select" as const, offered, reason: hits.length + ' options map to "' + target + '"' };
+        }
+        if (tag) {
+          document.querySelectorAll("[data-aztrx-select]").forEach((e) => e.removeAttribute("data-aztrx-select"));
+          sel.setAttribute("data-aztrx-select", "1");
+        }
+        return {
+          found: true,
+          kind: "select" as const,
+          offered,
+          value: hits[0].o.value,
+          via: describe(sel) + ' option "' + (hits[0].o.textContent ?? "").trim().slice(0, 24) + '" (offers: ' + offered.join(", ") + ")",
+        };
+      }
+
+      // No select of states: a control named like the state ("Cancelled").
+      const want = norm(target);
+      const rank = (idents: string[]): number => {
+        let best = 0;
+        for (const raw of idents) {
+          const v = norm(raw);
+          if (!v) continue;
+          if (v === want) best = Math.max(best, 2);
+          else if ((" " + v + " ").includes(" " + want + " ")) best = Math.max(best, 1);
+        }
+        return best;
+      };
+      const controls = Array.from(
+        document.querySelectorAll("button, [role=button], a[href], input[type=submit], input[type=button]")
+      ).filter((el) => el.getClientRects().length > 0 && !(el as HTMLButtonElement).disabled);
+      const scored = controls
+        .map((el) => ({
+          el,
+          r: rank([
+            el.id,
+            el.getAttribute("name") ?? "",
+            el.getAttribute("data-testid") ?? "",
+            el.getAttribute("aria-label") ?? "",
+            el.getAttribute("title") ?? "",
+            (el as HTMLInputElement).value ?? "",
+            (el as HTMLElement).innerText ?? "",
+          ]),
+        }))
+        .filter((x) => x.r > 0);
+      if (scored.length === 0) return { found: false, reason: 'no select option or control is named like "' + target + '"' };
+      const top = Math.max(...scored.map((x) => x.r));
+      const best = scored.filter((x) => x.r === top);
+      if (best.length !== 1) return { found: false, reason: best.length + ' controls match "' + target + '" equally' };
+      if (tag) {
+        document.querySelectorAll("[data-aztrx-action]").forEach((e) => e.removeAttribute("data-aztrx-action"));
+        best[0].el.setAttribute("data-aztrx-action", "@" + target);
+      }
+      const el = best[0].el as HTMLElement;
+      return {
+        found: true,
+        kind: "control" as const,
+        via: el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + ' "' + (el.innerText ?? "").trim().slice(0, 24) + '"' + (top === 2 ? " (exact name)" : " (word match)"),
+      };
+    }, { states, target, tag })
+    .catch(() => ({ found: false, reason: "page evaluation failed" }) as TargetControl);
+}
+
+/** Which of the machine's states the page lets a user move to, and through
+ * what — the evidence that a page is the thing a successor-list describes. */
+async function surveyTargets(page: Page, states: string[]): Promise<Array<{ state: string; via: string }>> {
+  const out: Array<{ state: string; via: string }> = [];
+  for (const s of states) {
+    const t = await locateTarget(page, states, s, false);
+    if (t.found) out.push({ state: s, via: t.via ?? "control" });
+  }
+  return out;
+}
+
+type Edge = { intent: TransitionIntent; next: string };
+
+function edgesOf(graph: TransitionTable, state: string): Edge[] {
+  if (graph.form === "action-map") {
+    return Object.entries(graph.transitions[state] ?? {}).map(([name, next]) => ({ intent: { kind: "action" as const, name }, next }));
+  }
+  return (graph.successors[state] ?? []).map((next) => ({ intent: { kind: "target" as const, state: next }, next }));
+}
+
+/** Shortest list of intents that takes `from` to `to` using only transitions
  * the evidence declares, or null when there is none. */
-export function routeThrough(graph: Record<string, Record<string, string>>, from: string, to: string): string[] | null {
+export function routeIntents(graph: TransitionTable, from: string, to: string): TransitionIntent[] | null {
   if (from === to) return [];
-  const prev = new Map<string, { state: string; event: string }>();
+  const prev = new Map<string, { state: string; intent: TransitionIntent }>();
   const queue = [from];
   const seen = new Set([from]);
   while (queue.length > 0) {
     const s = queue.shift() as string;
-    for (const [event, next] of Object.entries(graph[s] ?? {})) {
-      if (seen.has(next)) continue;
-      seen.add(next);
-      prev.set(next, { state: s, event });
-      if (next === to) {
-        const path: string[] = [];
+    for (const e of edgesOf(graph, s)) {
+      if (seen.has(e.next)) continue;
+      seen.add(e.next);
+      prev.set(e.next, { state: s, intent: e.intent });
+      if (e.next === to) {
+        const path: TransitionIntent[] = [];
         for (let cur = to; cur !== from; ) {
-          const p = prev.get(cur) as { state: string; event: string };
-          path.unshift(p.event);
+          const p = prev.get(cur) as { state: string; intent: TransitionIntent };
+          path.unshift(p.intent);
           cur = p.state;
         }
         return path;
       }
-      queue.push(next);
+      queue.push(e.next);
     }
   }
   return null;
 }
 
-async function clickAction(page: Page, event: string): Promise<string | null> {
-  const loc = await locateAction(page, event);
-  if (!loc.found) return loc.reason ?? "control not found";
+/** Shortest list of events that takes `from` to `to` in an action table. */
+export function routeThrough(graph: Record<string, Record<string, string>>, from: string, to: string): string[] | null {
+  const successors: Record<string, string[]> = {};
+  for (const [s, row] of Object.entries(graph)) successors[s] = Object.values(row);
+  const route = routeIntents({ name: "", form: "action-map", transitions: graph, successors }, from, to);
+  return route ? route.map((i) => (i.kind === "action" ? i.name : i.state)) : null;
+}
+
+const describeIntent = (i: TransitionIntent): string => (i.kind === "action" ? i.name : "→ " + i.state);
+
+/** Attempt one intent on the page. Returns why it could not be attempted, or
+ * null when the attempt was made. "Not offered" is a fact about the page (it
+ * does not let a user try that move from here), never a verdict on the rule. */
+async function attempt(page: Page, states: string[], intent: TransitionIntent): Promise<string | null> {
+  if (intent.kind === "action") {
+    const loc = await locateAction(page, intent.name);
+    if (!loc.found) return loc.reason ?? "control not found";
+    try {
+      await page.locator('[data-aztrx-action="' + intent.name + '"]').click({ timeout: 3000 });
+    } catch {
+      return 'could not click "' + intent.name + '"';
+    }
+    return null;
+  }
+
+  const t = await locateTarget(page, states, intent.state, true);
+  if (!t.found) return t.kind === "select" ? "not offered: " + t.reason : (t.reason ?? "control not found");
   try {
-    await page.locator('[data-aztrx-action="' + event + '"]').click({ timeout: 3000 });
+    if (t.kind === "select") await page.locator("[data-aztrx-select]").selectOption(t.value as string, { timeout: 3000 });
+    else await page.locator('[data-aztrx-action="@' + intent.state + '"]').click({ timeout: 3000 });
   } catch {
-    return 'could not click "' + event + '"';
+    return 'could not move to "' + intent.state + '"';
   }
   return null;
 }
@@ -408,84 +588,132 @@ async function freshSession(page: Page): Promise<void> {
   await page.reload({ waitUntil: "load" }).catch(() => {});
 }
 
-/** How many of a machine's actions must be bindable to controls on the page
+/** How many of a machine's moves must be bindable to something on the page
  * before the page is accepted as the thing the machine describes. */
-const MIN_LINKED_EVENTS = 2;
+const MIN_LINKED_MOVES = 2;
 
 export const bindStateTransition: Binder = async (page, _c, rawPlan) => {
   const plan = rawPlan as StateTransitionPlan;
-  const table = plan.graph.transitions;
-  const states = Object.keys(table);
+  const table = plan.graph;
+  const states = Object.keys(table.successors);
   const field = plan.variable.field;
 
   const reading = await readState(page, states);
   if (!reading.found) return { reason: reading.reason ?? "no state readout" };
-  const probe = await locateAction(page, plan.action);
-  if (!probe.found) return { reason: probe.reason ?? "action control not found" };
 
   // The link from source to page is the machine's own vocabulary showing up in
   // the UI. One stray "Cancel" button is not enough to call a page the thing
-  // the table describes: require the page to expose several of its events.
-  const events = [...new Set(Object.values(table).flatMap((row) => Object.keys(row)))];
-  const bound: BindingRecord[] = [];
-  const missing: string[] = [];
-  for (const event of events) {
-    const f = event === plan.action ? probe : await locateAction(page, event, false);
-    if (f.found) bound.push({ role: "control", name: event, matched: f.via ?? "control" });
-    else missing.push(event);
-  }
-  const needed = Math.min(events.length, MIN_LINKED_EVENTS);
-  if (bound.length < needed) {
-    return {
-      reason:
-        "weak source-to-page link: only " + bound.length + " of " + events.length + " actions of " + plan.graph.name +
-        " have a control on the page (need " + needed + "); no control for: " + missing.join(", "),
-    };
+  // the table describes: require the page to expose several of its moves.
+  const bound: BindingRecord[] = [{ role: "state_readout", name: table.name, matched: reading.via ?? "state readout" }];
+  if (table.form === "action-map") {
+    const events = [...new Set(Object.values(table.transitions).flatMap((row) => Object.keys(row)))];
+    const missing: string[] = [];
+    let linked = 0;
+    for (const event of events) {
+      const f = await locateAction(page, event, false);
+      if (f.found) {
+        bound.push({ role: "control", name: event, matched: f.via ?? "control" });
+        linked++;
+      } else missing.push(event);
+    }
+    const probe = plan.intent.kind === "action" ? await locateAction(page, plan.intent.name) : { found: true };
+    if (!probe.found) return { reason: (probe as { reason?: string }).reason ?? "action control not found" };
+    const needed = Math.min(events.length, MIN_LINKED_MOVES);
+    if (linked < needed) {
+      return {
+        reason:
+          "weak source-to-page link: only " + linked + " of " + events.length + " actions of " + table.name +
+          " have a control on the page (need " + needed + "); no control for: " + missing.join(", "),
+      };
+    }
+  } else {
+    const needed = Math.min(states.length, MIN_LINKED_MOVES);
+    let targets = await surveyTargets(page, states);
+    if (targets.length < needed) {
+      // What a page offers depends on where the entity is: a select at a final
+      // state offers only itself. That says nothing about the page, so look
+      // once more as a new visitor before calling the link weak.
+      await freshSession(page);
+      targets = await surveyTargets(page, states);
+      const again = await readState(page, states);
+      if (again.found) bound[0] = { role: "state_readout", name: table.name, matched: again.via ?? "state readout" };
+    }
+    if (targets.length < needed) {
+      return {
+        reason:
+          "weak source-to-page link: the page offers a way to reach only " + targets.length + " of " + states.length +
+          " states of " + table.name + " (need " + needed + "): " + (targets.map((t) => t.state).join(", ") || "none"),
+      };
+    }
+    for (const t of targets) bound.push({ role: "control", name: t.state, matched: t.via });
   }
 
+  // An attempted move can raise a confirm dialog ("Cancel this order?"). That is
+  // part of the product flow being attempted, so it is accepted; dismissing it
+  // would make a refused move and a declined confirmation look identical.
+  const dialogs: string[] = [];
+  const onDialog = (d: import("playwright").Dialog) => {
+    dialogs.push(d.message());
+    void d.accept().catch(() => {});
+  };
+  page.on("dialog", onDialog);
+
   return {
-    binding: [{ role: "state_readout", name: plan.graph.name, matched: reading.via ?? "state readout" }, ...bound],
+    binding: bound,
     async drive(st) {
       const target = st.assign[field] as string;
+      const intent = st.intent as TransitionIntent;
       const actions: ExecutedAction[] = [];
 
       let cur = await settledState(page, states);
       if (cur === null) return { failed: "could not read the state" };
-      let path = routeThrough(table, cur, target);
+      let path = routeIntents(table, cur, target);
       if (path === null) {
         // Can't get there from here (a terminal state). Start over as a new visitor.
         await freshSession(page);
         cur = await settledState(page, states);
         if (cur === null) return { failed: "could not read the state after a fresh session" };
         actions.push({ kind: "navigate", target: page.url(), detail: "fresh session" });
-        path = routeThrough(table, cur, target);
+        path = routeIntents(table, cur, target);
       }
       if (path === null) return { failed: 'no declared route from "' + cur + '" to "' + target + '"' };
 
-      for (const event of path) {
-        const expected: string = table[cur as string][event];
-        const err = await clickAction(page, event);
+      for (const step of path) {
+        const expected: string | undefined = edgesOf(table, cur as string).find((e) => JSON.stringify(e.intent) === JSON.stringify(step))?.next;
+        const err = await attempt(page, states, step);
         if (err) return { failed: "setup step: " + err };
-        actions.push({ kind: "click", target: event, detail: "setup: " + event });
+        actions.push({ kind: "click", target: describeIntent(step), detail: "setup: " + describeIntent(step) });
         const next = await settledState(page, states);
         if (next !== expected) {
-          return { failed: 'setup step "' + event + '" from "' + cur + '" should reach "' + expected + '" but the page shows "' + next + '"' };
+          return { failed: 'setup step "' + describeIntent(step) + '" from "' + cur + '" should reach "' + expected + '" but the page shows "' + next + '"' };
         }
         cur = next;
       }
 
       const before: ObservedState = { url: page.url(), flags: { [field]: cur as string } };
-      const err = await clickAction(page, st.action as string);
+      dialogs.length = 0;
+      const err = await attempt(page, states, intent);
       if (err) return { failed: err };
-      actions.push({ kind: "click", target: st.action as string, detail: st.label + ": " + st.action + " in " + cur });
+      actions.push({
+        kind: "click",
+        target: describeIntent(intent),
+        detail: st.label + ": " + describeIntent(intent) + " in " + cur + (dialogs.length ? ' (accepted dialog: "' + dialogs[0].slice(0, 60) + '")' : ""),
+      });
       const outcome = await settledState(page, states);
       const after: ObservedState = { url: page.url(), flags: outcome !== null ? { [field]: outcome } : {} };
       return { before, after, actions };
     },
-    explain: (st, run) =>
-      'After "' + st.action + '" in state "' + run.before.flags?.[field] + '" the page shows ' + field + "=" +
-      run.after.flags?.[field] + ', expected the state to stay "' + run.before.flags?.[field] + '"',
-    restore: async () => {},
+    explain: (st, run) => {
+      const i = st.intent as TransitionIntent;
+      const what = i.kind === "action" ? '"' + i.name + '"' : 'moving to "' + i.state + '"';
+      return (
+        "After " + what + ' in state "' + run.before.flags?.[field] + '" the page shows ' + field + "=" +
+        run.after.flags?.[field] + ', expected the state to stay "' + run.before.flags?.[field] + '"'
+      );
+    },
+    restore: async () => {
+      page.off("dialog", onDialog);
+    },
   };
 };
 

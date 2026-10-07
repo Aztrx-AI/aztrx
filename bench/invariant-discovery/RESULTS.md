@@ -1,11 +1,12 @@
 # Invariant-discovery benchmark results
 
-**8 / 8 cases pass · numeric threshold 5/5 · state transition 3/3 · every rule
+**10 / 10 cases pass · numeric threshold 5/5 · state transition 5/5 · every rule
 read from the right source, at the right `file:line` · 0 unexpected findings ·
 empty diff → 0 candidates**
 
-Before this milestone: 2 / 2 (numeric threshold, served JS only). Those two
-cases (01, 02) are unchanged and still pass with the same verdicts.
+History: 2 / 2 (numeric threshold, served JS only) → 8 / 8 (git diff, repo
+source, a second rule family) → 10 / 10 (successor-list tables, driven through a
+`<select>`). Cases 01–08 are unchanged and still pass with the same verdicts.
 
 | case | family | evidence (source @ location) | plan | verdict | time-to-proof |
 | --- | --- | --- | --- | --- | --- |
@@ -17,10 +18,12 @@ cases (01, 02) are unchanged and still pass with the same verdicts.
 | `06-transition-diff-broken` | transition | **git_diff** @ `src/orderMachine.js:5` | state-transition | **violated**, reproduced, in `forbidden` only | ~8.5s |
 | `07-transition-repo-safe` | transition | **repo_source** @ `src/orderMachine.js:5` | state-transition | preserved | — |
 | `08-transition-diff-safe` | transition | git_diff @ `src/orderMachine.js:5` | state-transition | preserved | — |
+| `09-successor-select-broken` | transition (successor list) | git_diff @ `src/jobs.js:6` | state-transition, intent *go to `done`* | **violated**, reproduced, in `forbidden` only | ~9.6s |
+| `10-successor-select-safe` | transition (successor list) | git_diff @ `src/jobs.js:6` | state-transition | preserved | — |
 
 Per family: numeric — discovered 4, right source 4, planned 4, executed 4,
-proven 2, cleared 2. Transition — discovered 3, right source 3, planned 3,
-executed 3, proven 1, cleared 2. (Case 05 is scored on inferring *nothing*.)
+proven 2, cleared 2. Transition — discovered 5, right source 5, planned 5,
+executed 5, proven 2, cleared 3. (Case 05 is scored on inferring *nothing*.)
 
 What the transition traces show (06): three rules come from the one changed
 row (`cancelled` + `pay` / `cancel` / `fulfill`). Only `fulfill` is violated:
@@ -43,18 +46,29 @@ class documented in the other corpora.
   measured that.
 - Eight cases, two rule shapes. Recall across shapes is unmeasured.
 - Threshold rules are `if (x OP n) { y = k }` or the ternary form, with
-  same-file constants. State rules are a literal `{ state: { event: "next" } }`
-  table whose targets are rows of the table. xstate-style configs, `switch`
-  guards, `if (status === "cancelled") throw …`, and tables built at runtime
-  are not read.
-- "Forbidden" is read from *absence*: an event that exists elsewhere in the
-  table but has no edge out of this state. That is a statement about the
-  table, not a statement the author wrote about this transition.
+  same-file constants. State rules are a literal table whose rows are either
+  `action → state` or a list of states, and whose every target is itself a row.
+  Enum members as keys or values (`[Status.New]: [Status.Queued]`), xstate-style
+  configs, `switch` guards, `if (status === "cancelled") throw …`, and tables
+  built at runtime are not read.
+- "Forbidden" is read from *absence*: a move the table does not list from this
+  state. That is a statement about the table, not a statement the author wrote
+  about this transition. A successor list also yields many such rules (every
+  unlisted pair); only the rows a diff touched are used, and the per-role cap
+  is 6.
 - Binding is by the evidence's own vocabulary and stops rather than guesses:
   a threshold rule needs one input and one readout named like its variables; a
-  state rule needs exactly one element showing one of the machine's states
-  (optionally after `Label:`) and one control per event, named like the event.
-  A page showing a list of orders, or icon-only buttons, stops at binding.
+  state rule needs exactly one element (or one `<select>`) showing one of the
+  machine's states (optionally after `Label:`), and the page must expose at
+  least two of the machine's moves — a control named like each action, or
+  select options / controls named like the target states. An option that maps
+  to two states, several selects, or a list of orders each with its own select
+  stops at binding. A select that does not *offer* the forbidden move from the
+  rule's state (a "smart" dropdown) leaves the rule `unknown`, not preserved:
+  the UI never lets a user attempt it.
+- An attempted move that raises a `confirm()` dialog has the dialog accepted;
+  dismissing it would make a refused move and a declined confirmation look
+  identical.
 - Reaching a state uses only edges the evidence declares. A terminal state is
   left by starting a fresh session (clear cookies/storage, reload) — a
   fixture-friendly assumption; auth'd apps would lose their login.

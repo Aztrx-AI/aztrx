@@ -30,6 +30,7 @@ interface Rec {
     candidatesInferred: number;
     candidatesAttempted: number;
     candidatesCapped: number;
+    environment?: Array<{ origin: string; error: string; count: number; example: string }>;
   };
   discovery?: Array<{
     candidate: { id: string; confidence: number; evidence: { source: string; location?: string; changed?: boolean } };
@@ -67,6 +68,9 @@ for (const r of recs) {
     for (const [src, v] of by) console.log(`  ${src}: ${v.n} chunk(s)${v.changed ? `, ${v.changed} changed line(s)` : ""}`);
     for (const e of run.evidence.filter((x) => x.source === "git_diff")) console.log(`    diff: ${e.location} (${e.changedLines} changed)`);
     console.log(`invariant_inferred: ${run.candidatesInferred} (attempted ${run.candidatesAttempted}, over budget ${run.candidatesCapped})`);
+    for (const e of run.environment ?? []) {
+      console.log(`environment: dependency unavailable — ${e.origin} (${e.error}) ×${e.count}, e.g. ${e.example} — not a finding`);
+    }
   }
   const traces = r.discovery ?? [];
   if (traces.length === 0) console.log("candidates: none — the pipeline stopped at invariant_inferred");

@@ -32,10 +32,35 @@ const INIT_SCRIPT = `
  * for them. We pull the real throw-site stack off the Error *object* via
  * `msg.args()`, not `msg.text()` (which is just the message, no stack).
  */
-export function attachInterceptor(page: Page, bus: EventBus): void {
+/** Connection-level failures that mean "nothing is there to talk to" — a
+ * dependency that is down — as opposed to one that answered badly or hung. */
+const DEPENDENCY_DOWN = /ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|ERR_INTERNET_DISCONNECTED/;
+
+/** Is `url` on a different origin than the app under test? The app's *own*
+ * origin refusing connections is the app being down — that stays a finding. */
+function isOtherOrigin(url: string, targetOrigin: string): boolean {
+  try {
+    return new URL(url).origin !== targetOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/** `targetOrigin`, when given, lets the interceptor tell an unreachable
+ * *dependency* (a cross-origin backend that isn't running) from a failure of
+ * the app itself, and report the former as environment instead of a finding. */
+export function attachInterceptor(page: Page, bus: EventBus, targetOrigin?: string): void {
   page.on("console", async (msg) => {
     if (msg.type() !== "error") return;
     const text = msg.text();
+
+    // The browser also logs a refused request to the console ("Failed to load
+    // resource: net::ERR_CONNECTION_REFUSED"). When that request was already
+    // classified as an unreachable dependency, the echo is the same fact.
+    if (targetOrigin && DEPENDENCY_DOWN.test(text)) {
+      const at = msg.location().url;
+      if (at && isOtherOrigin(at, targetOrigin)) return;
+    }
 
     // Pull the real Error (and its stack) out of the console args. React 18 and
     // Next.js log a thrown error as `console.error(error)` — the Error object is
@@ -109,6 +134,10 @@ export function attachInterceptor(page: Page, bus: EventBus): void {
     // walk navigates away, a `mailto:` click, or an adblocker all surface as
     // `requestfailed`. Skip them so they don't become false-positive errors.
     if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT|ERR_BLOCKED_BY_RESPONSE/.test(errText)) return;
+    if (targetOrigin && DEPENDENCY_DOWN.test(errText) && isOtherOrigin(req.url(), targetOrigin)) {
+      bus.emit("environment", { url: req.url(), error: errText });
+      return;
+    }
     bus.emit("telemetry", {
       type: "network_timeout",
       rawMessage: `Request failed: ${req.url()} (${errText})`,

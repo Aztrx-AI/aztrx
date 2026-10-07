@@ -28,6 +28,7 @@ import { observe } from "./observe.js";
 import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit, flowSkipAudit } from "./security.js";
 import { invariantDiscovery } from "./discovery/runtime.js";
 import type { DiscoveryRunReport, DiscoveryTrace } from "./discovery/types.js";
+import type { EnvironmentFailure } from "./eventBus.js";
 import type { EvidenceChunk } from "./discovery/evidence.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
@@ -84,6 +85,9 @@ export interface MissionResult {
   /** What the evidence looked like before inference — so a run that infers
    * nothing can still say where it stopped. */
   discoveryRun?: DiscoveryRunReport;
+  /** Dependencies that were unreachable while the mission ran. Environment,
+   * not behavior: never turned into findings. */
+  environment?: EnvironmentFailure[];
   roleId: string;
   /** Auth-state path saved by the first mission (used to authenticate replays). */
   replayStorageState?: string;
@@ -96,6 +100,8 @@ interface WiredPage {
   recorder: ActionRecorder;
   workerBus: EventBus;
   observedUrls: Set<string>;
+  /** Dependencies of the app that were unreachable (not findings). */
+  environment: Map<string, EnvironmentFailure>;
   /** Auth-state path saved when this mission did the auto-login. */
   replayStorageState?: string;
 }
@@ -161,7 +167,15 @@ async function openAgentPage(browser: Browser, opts: AgentOptions, forwardBus?: 
 
   const context = await browser.newContext(opts.storageState ? { storageState: opts.storageState } : {});
   const page = await context.newPage();
-  attachInterceptor(page, workerBus);
+  attachInterceptor(page, workerBus, new URL(opts.url).origin);
+  const environment = new Map<string, EnvironmentFailure>();
+  workerBus.on("environment", ({ url, error }) => {
+    const origin = new URL(url).origin;
+    const key = origin + " " + error;
+    const seen = environment.get(key);
+    if (seen) seen.count++;
+    else environment.set(key, { origin, error, count: 1, example: url });
+  });
 
   // Collect every same-origin URL the page issues — including `fetch()` fired
   // from click handlers — so the folded HTTP fuzzer can probe endpoints a fresh
@@ -270,7 +284,7 @@ async function openAgentPage(browser: Browser, opts: AgentOptions, forwardBus?: 
     await page.waitForTimeout(800);
   }
 
-  return { context, page, classifier, recorder, workerBus, observedUrls, replayStorageState };
+  return { context, page, classifier, recorder, workerBus, observedUrls, environment, replayStorageState };
 }
 
 /** Emulate a 3G-ish connection via CDP: 400ms RTT, ~750kbps down, ~250kbps up. */
@@ -445,13 +459,18 @@ export async function runAgentMission(
     }
 
     await wired.page.waitForTimeout(500);
+    const environment = [...wired.environment.values()];
+    for (const e of environment) {
+      opts.log(`[env] dependency unavailable: ${e.origin} (${e.error}) ×${e.count} — not a finding`);
+    }
     return {
       findings: tagFindings(wired.classifier.findings(), mission.role.id),
       actions: result.actions + extraActions,
       newCoverage: result.newCoverage,
       sawLoginForm: result.sawLoginForm,
       discovery: result.discovery,
-      discoveryRun: result.discoveryRun,
+      discoveryRun: result.discoveryRun && { ...result.discoveryRun, environment },
+      environment,
       roleId: mission.role.id,
       replayStorageState: wired.replayStorageState,
     };

@@ -7,11 +7,15 @@
  *   numeric-boundary   the rule has an ordered numeric precondition, so its
  *                      bugs live at the boundary: probe the threshold, one
  *                      step either side, and one value clearly inside.
- *   state-transition   the rule says an action must not move the system out
- *                      of a discrete state: reach that state, take the
- *                      action, expect the state to hold — and, as a control,
- *                      take the same action where the evidence says it is
- *                      allowed, so "nothing happened" can't pass for "refused".
+ *   state-transition   the rule says an attempted move must not take the
+ *                      system out of a discrete state: reach that state,
+ *                      attempt the move, expect the state to hold — and, as a
+ *                      control, attempt a move the evidence says is allowed, so
+ *                      "nothing happened" can't pass for "refused".
+ *
+ * A move is stated as an *intent* — "do this action" or "go to that state" —
+ * and never as a control. Whether a page offers it as a button, a link, a
+ * select option or a menu is the runtime binder's business, not the planner's.
  *
  * Nothing here knows what `total`, `shipping`, `cancelled` or `fulfill`
  * mean. A candidate that fits neither form has no plan.
@@ -26,6 +30,8 @@ import type {
   PlannedState,
   StatePredicate,
   StateTransitionPlan,
+  TransitionIntent,
+  TransitionTable,
 } from "./types.js";
 
 function decimals(n: number): number {
@@ -59,7 +65,7 @@ const isDiscreteState = (p: StatePredicate) => p.op === "==" && typeof p.value =
 /** Which plan family a candidate's form calls for, or null if none fits. */
 export function planFamily(c: InvariantCandidate): PlanFamily | null {
   if (c.preconditions.some(isOrderedNumeric)) return "numeric-boundary";
-  if (c.action && c.context?.transitionTable && c.preconditions.some(isDiscreteState)) return "state-transition";
+  if ((c.action || c.target) && c.context?.transitionTable && c.preconditions.some(isDiscreteState)) return "state-transition";
   return null;
 }
 
@@ -82,25 +88,51 @@ function planNumericBoundary(c: InvariantCandidate): NumericBoundaryPlan | null 
 function planStateTransition(c: InvariantCandidate): StateTransitionPlan | null {
   const pre = c.preconditions.find(isDiscreteState);
   const table = c.context?.transitionTable;
-  if (!pre || !table || !c.action) return null;
+  if (!pre || !table) return null;
   const from = pre.value as string;
-  const action = c.action.name;
 
-  const states: PlannedState[] = [{ label: "forbidden", assign: { [pre.field]: from }, action, applicable: true }];
+  let intent: TransitionIntent;
+  if (c.action) intent = { kind: "action", name: c.action.name };
+  else if (c.target) intent = { kind: "target", state: c.target.state };
+  else return null;
 
-  // A state where the evidence says the same action IS allowed. If it works
-  // there, the page's controls are demonstrably wired to it.
-  const allowedIn = Object.keys(table.transitions).find((s) => s !== from && action in table.transitions[s]);
-  if (allowedIn) {
-    states.push({
-      label: "allowed-control",
-      assign: { [pre.field]: allowedIn },
-      action,
-      mustReach: { field: pre.field, value: table.transitions[allowedIn][action] },
-      applicable: false,
-    });
+  const states: PlannedState[] = [{ label: "forbidden", assign: { [pre.field]: from }, intent, applicable: true }];
+
+  // A move the evidence says IS allowed, from some other state. If it works
+  // there, the page's controls are demonstrably wired to the machine.
+  const control = allowedMove(table, from, intent);
+  if (!control) return null; // nothing to vouch for the experiment: no honest verdict is possible
+  states.push({
+    label: "allowed-control",
+    assign: { [pre.field]: control.in },
+    intent: control.intent,
+    mustReach: { field: pre.field, value: control.reaches },
+    applicable: false,
+  });
+  return { family: "state-transition", candidateId: c.id, variable: { field: pre.field, path: pre.path }, graph: table, from, intent, states };
+}
+
+/** Pick a permitted move to use as the control. Prefer the very same move
+ * (same action, or same target) from another state; otherwise any permitted
+ * move, so the control still shows the page can move the machine at all. */
+function allowedMove(
+  table: TransitionTable,
+  from: string,
+  intent: TransitionIntent
+): { in: string; intent: TransitionIntent; reaches: string } | null {
+  const states = Object.keys(table.successors);
+  if (intent.kind === "action") {
+    const s = states.find((x) => x !== from && intent.name in table.transitions[x]);
+    return s ? { in: s, intent, reaches: table.transitions[s][intent.name] } : null;
   }
-  return { family: "state-transition", candidateId: c.id, variable: { field: pre.field, path: pre.path }, graph: table, from, action, states };
+  const same = states.find((x) => x !== from && x !== intent.state && table.successors[x].includes(intent.state));
+  if (same) return { in: same, intent, reaches: intent.state };
+  for (const x of states) {
+    if (x === from) continue;
+    const t = table.successors[x].find((y) => y !== x);
+    if (t) return { in: x, intent: { kind: "target", state: t }, reaches: t };
+  }
+  return null;
 }
 
 /** Returns null when the candidate fits no plan family — the caller records

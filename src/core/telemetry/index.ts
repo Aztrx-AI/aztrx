@@ -15,6 +15,7 @@ import * as path from "path";
 import pc from "picocolors";
 import type { Finding } from "../types.js";
 import type { DiscoveryRunReport, DiscoveryTrace } from "../discovery/types.js";
+import type { EnvironmentFailure } from "../eventBus.js";
 import { detectFrameworkMeta } from "../init.js";
 import { createSanitizer } from "./sanitize.js";
 import type {
@@ -186,6 +187,7 @@ export interface RawEpisode {
   /** Raw discovery traces; every string in them is sanitized before it is persisted or shared. */
   discovery?: DiscoveryTrace[];
   discoveryRun?: DiscoveryRunReport;
+  environment?: EnvironmentFailure[];
   durationMs: number;
   error?: string | null;
 }
@@ -233,6 +235,9 @@ export function submitEpisode(raw: RawEpisode, opts: EpisodeSubmitOptions): void
     finding_ids: raw.findingIds,
     duration_ms: raw.durationMs,
     error: raw.error ? sanitize.text(raw.error) : null,
+    ...(raw.environment && raw.environment.length > 0
+      ? { environment_failures: sanitizeDeep(raw.environment, (s) => sanitize.text(s)) }
+      : {}),
     ...(raw.discoveryRun ? { discovery_run: sanitizeDeep(raw.discoveryRun, (s) => sanitize.text(s)) } : {}),
     ...(raw.discovery && raw.discovery.length > 0
       ? { discovery: sanitizeDeep(raw.discovery, (s) => sanitize.text(s)) }

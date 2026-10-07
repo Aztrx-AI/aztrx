@@ -152,6 +152,7 @@ function thresholdCandidates(ctx: Ctx): InvariantCandidate[] {
 
 type Node =
   | { kind: "obj"; entries: Array<{ key: string; from: number; to: number; value: Node }> }
+  | { kind: "arr"; items: Node[] }
   | { kind: "str"; value: string }
   | { kind: "other" };
 
@@ -216,14 +217,35 @@ function parseObject(text: string, at: number): { node: Node; end: number } | nu
   const value = (depth: number): Node | null => {
     ws();
     if (text[i] === "{") return depth >= MAX_DEPTH ? null : object(depth + 1);
+    if (text[i] === "[") return depth >= MAX_DEPTH ? null : array(depth + 1);
     if (text[i] === '"' || text[i] === "'" || text[i] === "`") {
       const s = str();
       if (s === null) return null;
       ws();
       // `"a" + x` or `"a".toUpperCase()` is not a plain literal.
-      return text[i] === "," || text[i] === "}" ? { kind: "str", value: s } : opaque() ? { kind: "other" } : null;
+      return text[i] === "," || text[i] === "}" || text[i] === "]" ? { kind: "str", value: s } : opaque() ? { kind: "other" } : null;
     }
     return opaque() ? { kind: "other" } : null;
+  };
+
+  const array = (depth: number): Node | null => {
+    if (text[i] !== "[") return null;
+    i++;
+    const items: Node[] = [];
+    for (;;) {
+      ws();
+      if (i >= n) return null;
+      if (text[i] === "]") {
+        i++;
+        return { kind: "arr", items };
+      }
+      const v = value(depth);
+      if (!v) return null;
+      items.push(v);
+      ws();
+      if (text[i] === ",") i++;
+      else if (text[i] !== "]") return null;
+    }
   };
 
   const object = (depth: number): Node | null => {
@@ -263,25 +285,48 @@ function parseObject(text: string, at: number): { node: Node; end: number } | nu
   return node ? { node, end: i } : null;
 }
 
-/** A table is a state machine only if it says so structurally: every row is an
- * object of event -> string, and every target is itself a row. A config blob
- * that merely nests objects does not qualify. */
+/** A table is a state machine only if it says so structurally: every row is
+ * either an object of action -> state, or a list of states, and every state
+ * named is itself a row. A config blob that merely nests objects or lists does
+ * not qualify, and a table that mixes the two forms is not read. */
 function asTransitionTable(name: string, root: Node): TransitionTable | null {
   if (root.kind !== "obj" || root.entries.length < 2) return null;
   const states = new Set(root.entries.map((e) => e.key));
   const transitions: Record<string, Record<string, string>> = {};
+  const successors: Record<string, string[]> = {};
+  let form: TransitionTable["form"] | null = null;
   let edges = 0;
+
   for (const row of root.entries) {
-    if (row.value.kind !== "obj") return null;
+    const v = row.value;
+    if (v.kind !== "obj" && v.kind !== "arr") return null;
+    // An empty row is compatible with either form; a non-empty one decides it.
+    const rowForm: TransitionTable["form"] | null =
+      v.kind === "obj" ? (v.entries.length > 0 ? "action-map" : null) : v.items.length > 0 ? "successor-list" : null;
+    if (rowForm) {
+      if (form && form !== rowForm) return null;
+      form = rowForm;
+    }
     const events: Record<string, string> = {};
-    for (const ev of row.value.entries) {
-      if (ev.value.kind !== "str" || !states.has(ev.value.value)) return null;
-      events[ev.key] = ev.value.value;
-      edges++;
+    const next: string[] = [];
+    if (v.kind === "obj") {
+      for (const ev of v.entries) {
+        if (ev.value.kind !== "str" || !states.has(ev.value.value)) return null;
+        events[ev.key] = ev.value.value;
+        if (!next.includes(ev.value.value)) next.push(ev.value.value);
+        edges++;
+      }
+    } else {
+      for (const item of v.items) {
+        if (item.kind !== "str" || !states.has(item.value)) return null;
+        if (!next.includes(item.value)) next.push(item.value);
+        edges++;
+      }
     }
     transitions[row.key] = events;
+    successors[row.key] = next;
   }
-  return edges > 0 ? { name, transitions } : null;
+  return edges > 0 && form ? { name, form, transitions, successors } : null;
 }
 
 function transitionCandidates(ctx: Ctx): InvariantCandidate[] {
@@ -295,6 +340,7 @@ function transitionCandidates(ctx: Ctx): InvariantCandidate[] {
     const table = asTransitionTable(decl[1], parsed.node);
     if (!table) continue;
 
+    const states = Object.keys(table.successors);
     const events: string[] = [];
     for (const row of Object.values(table.transitions)) for (const e of Object.keys(row)) if (!events.includes(e)) events.push(e);
 
@@ -305,34 +351,54 @@ function transitionCandidates(ctx: Ctx): InvariantCandidate[] {
       const lines = span(startLine, ctx.lineOf(Math.max(row.from, row.to - 1)));
       const changed = ctx.touched(lines);
       if (ctx.chunk.changedLines && !changed) continue;
-      const terminal = Object.keys(table.transitions[state]).length === 0;
+      // A row declared empty is an explicit "no way out"; an omitted move is
+      // the same fact read from a gap.
+      const terminal = table.successors[state].length === 0;
+      const pre: StatePredicate = { field: "state", path: table.name, op: "==", value: state };
+      const where = {
+        source: ctx.chunk.source,
+        location: `${ctx.chunk.location}:${startLine}`,
+        ...(changed !== undefined ? { changed } : {}),
+      };
 
-      for (const event of events) {
-        if (event in table.transitions[state]) continue;
-        // The row where the event *is* allowed — the other half of the evidence.
-        const witness = parsed.node.entries.find((r) => event in table.transitions[r.key]);
-        const signals = [rowText];
-        if (witness) signals.push(text.slice(witness.from, witness.to).trim().replace(/,$/, ""));
-        const pre: StatePredicate = { field: "state", path: table.name, op: "==", value: state };
-        out.push({
-          id: `${table.name}:${state}+${event}=>stays(${state})`,
-          description:
-            `${ctx.chunk.location} declares ${table.name}: in "${state}" the action "${event}" has no transition, ` +
-            `so it must not change the state`,
-          evidence: {
-            source: ctx.chunk.source,
-            location: `${ctx.chunk.location}:${startLine}`,
-            signals,
-            ...(changed !== undefined ? { changed } : {}),
-          },
-          preconditions: [pre],
-          action: { name: event },
-          context: { transitionTable: table },
-          expectation: [{ ...pre }],
-          // A row declared empty is an explicit "no way out"; an omitted event
-          // is the same fact read from a gap.
-          confidence: terminal ? 0.7 : 0.6,
-        });
+      if (table.form === "action-map") {
+        for (const event of events) {
+          if (event in table.transitions[state]) continue;
+          // The row where the event *is* allowed — the other half of the evidence.
+          const witness = parsed.node.entries.find((r) => event in table.transitions[r.key]);
+          const signals = [rowText];
+          if (witness) signals.push(text.slice(witness.from, witness.to).trim().replace(/,$/, ""));
+          out.push({
+            id: `${table.name}:${state}+${event}=>stays(${state})`,
+            description:
+              `${ctx.chunk.location} declares ${table.name}: in "${state}" the action "${event}" has no transition, ` +
+              `so it must not change the state`,
+            evidence: { ...where, signals },
+            preconditions: [pre],
+            action: { name: event },
+            context: { transitionTable: table },
+            expectation: [{ ...pre }],
+            confidence: terminal ? 0.7 : 0.6,
+          });
+        }
+      } else {
+        // Successor list: the row names the states this one may move to. Moving
+        // to any other state is not declared, so it must not change the state.
+        for (const target of states) {
+          if (target === state || table.successors[state].includes(target)) continue;
+          out.push({
+            id: `${table.name}:${state}->${target}=>stays(${state})`,
+            description:
+              `${ctx.chunk.location} declares ${table.name}: "${state}" lists no transition to "${target}", ` +
+              `so moving there must not change the state`,
+            evidence: { ...where, signals: [rowText] },
+            preconditions: [pre],
+            target: { state: target },
+            context: { transitionTable: table },
+            expectation: [{ ...pre }],
+            confidence: terminal ? 0.7 : 0.6,
+          });
+        }
       }
     }
   }

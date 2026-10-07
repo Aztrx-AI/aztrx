@@ -7,6 +7,7 @@
  * actually saw. A candidate with no `evidence.signals` does not exist.
  */
 
+import type { EnvironmentFailure } from "../eventBus.js";
 import type { ExecutedAction, ObservedState, Verdict } from "../invariant.js";
 
 export type PredicateOp = "==" | "!=" | ">=" | ">" | "<=" | "<";
@@ -26,14 +27,30 @@ export interface StatePredicate {
  * same rule is stated in more than one place (see `evidence.ts`). */
 export type EvidenceSource = "served_js" | "repo_source" | "git_diff";
 
-/** A state machine the rule was read from: state -> event -> next state.
- * Carried on the candidate so the planner can route to a state using only
- * transitions the evidence itself declares. */
+/** A state machine the rule was read from. Carried on the candidate so the
+ * planner can route to a state using only transitions the evidence itself
+ * declares. Two literal forms are read:
+ *
+ *   action-map      { a: { go: "b" } }   state -> action -> next state
+ *   successor-list  { a: ["b", "c"] }    state -> the states it may move to
+ *
+ * Both reduce to the same graph (`successors`); only the first names actions. */
 export interface TransitionTable {
   /** The identifier the table was declared under (`orderMachine`). */
   name: string;
+  form: "action-map" | "successor-list";
+  /** state -> action -> next. Empty rows for a successor list (it has no actions). */
   transitions: Record<string, Record<string, string>>;
+  /** state -> states it may move to, in declaration order. */
+  successors: Record<string, string[]>;
 }
+
+/** What an experiment attempts, stated without saying how a page does it. A
+ * runtime binder decides whether that is a button, a link, a select option or
+ * a menu — the planner never does. */
+export type TransitionIntent =
+  | { kind: "action"; name: string }
+  | { kind: "target"; state: string };
 
 export interface InvariantCandidate {
   id: string;
@@ -53,8 +70,11 @@ export interface InvariantCandidate {
   };
   preconditions: StatePredicate[];
   /** The action whose effect the rule constrains, when the rule is about a
-   * transition rather than a value. */
+   * transition rather than a value (an action-map table names its actions). */
   action?: { name: string };
+  /** The state a transition aims at, when the evidence names states but not
+   * actions (a successor-list table). Exactly one of `action` / `target`. */
+  target?: { state: string };
   /** Structure the rule was read from, when more than the rule itself is
    * needed to plan an experiment. */
   context?: { transitionTable: TransitionTable };
@@ -70,8 +90,8 @@ export interface PlannedState {
   label: string;
   /** Values the experiment must establish first (field → value). */
   assign: Record<string, number | string>;
-  /** The action to take once `assign` holds, for transition plans. */
-  action?: string;
+  /** What to attempt once `assign` holds, for transition plans. */
+  intent?: TransitionIntent;
   /** For a control that is *expected to succeed*: the value the field must
    * reach, proving the action is observable at all. Controls are never judged
    * against the candidate; they only vouch for the experiment. */
@@ -101,9 +121,9 @@ export interface NumericBoundaryPlan extends PlanBase {
 export interface StateTransitionPlan extends PlanBase {
   family: "state-transition";
   graph: TransitionTable;
-  /** The state the rule is about, and the action it must not honour there. */
+  /** The state the rule is about, and the move it must not honour there. */
   from: string;
-  action: string;
+  intent: TransitionIntent;
 }
 
 export type ExperimentPlan = NumericBoundaryPlan | StateTransitionPlan;
@@ -168,6 +188,10 @@ export interface DiscoveryRunReport {
   candidatesAttempted: number;
   /** Inferred but not attempted: over the per-mission budget. */
   candidatesCapped: number;
+  /** Dependencies of the app that were unreachable during the run (a backend
+   * that isn't running). Not product behavior — recorded so they can't be
+   * mistaken for it. */
+  environment?: EnvironmentFailure[];
 }
 
 /** The full trace of one candidate through every stage — what episode

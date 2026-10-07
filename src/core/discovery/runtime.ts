@@ -106,7 +106,7 @@ function chainFor(trace: DiscoveryTrace, binding: BindingRecord[]): string[] {
   if (trace.plan) {
     chain.push(
       `experiment (${trace.plan.family}): ` +
-        trace.plan.states.map((s) => `${s.label}${s.action ? ` [${s.action}]` : ""}`).join(", ")
+        trace.plan.states.map((s) => `${s.label}${s.intent ? ` [${s.intent.kind === "action" ? s.intent.name : "→ " + s.intent.state}]` : ""}`).join(", ")
     );
   }
   for (const o of trace.observations) {
@@ -209,14 +209,17 @@ export async function invariantDiscovery(
         continue;
       }
       trace.reachedStage = "execution";
-      progress.executed = true;
+      // "Executed" means the experiment itself ran: a judged state was driven.
+      // A control that ran while every judged state could not be attempted is
+      // not an experiment on the rule.
+      if (st.applicable) progress.executed = true;
 
       let verdict: Verdict = "unknown";
       let note: string | undefined;
       if (!observable(run.after)) {
         note = "the outcome was not readable; not judged";
       } else {
-        progress.observed = true;
+        if (st.applicable) progress.observed = true;
         verdict = evaluateInvariant(spec, run.before, run.actions, run.after, [{ label: "state", value: st.label }]).verdict;
         if (verdict === "unknown") note = "precondition not met in this state; control only";
       }
@@ -265,7 +268,12 @@ export async function invariantDiscovery(
       else trace.verdict = "preserved";
     }
 
-    if (!progress.executed) trace.stoppedBecause ??= "execution: no planned state could be driven (" + (trace.observations[0]?.note ?? "unknown") + ")";
+    if (!progress.executed) {
+      // Say why the judged state could not be attempted, not why a control did.
+      const judged = plan.states.findIndex((s) => s.applicable);
+      const note = trace.observations.find((o) => o.label === plan.states[judged]?.label)?.note ?? trace.observations[0]?.note ?? "unknown";
+      trace.stoppedBecause ??= "execution: the rule's own state could not be attempted (" + note + ")";
+    }
     else if (!progress.observed) trace.stoppedBecause ??= "observation: the outcome was never readable";
     progress.concluded = trace.verdict !== "unknown";
     finish();

@@ -45,6 +45,23 @@ const SKIP_FILE = /\.min\.[cm]?js$|\.d\.ts$/i;
 
 const MAX_SCRIPTS = 8;
 
+/** Library and framework code looks like it: the bundler names it after the
+ * package, or after what it is. Nothing here knows a particular bundler. */
+const VENDOR_LOOKING = /node_modules|vendor|framework|polyfill|webpack|runtime|react-dom|next[-_]dist|devtools|chunk-vendors|.min.|jquery|lodash/i;
+
+/** 0 for a script likely to be the app's own, 1 for one that is obviously a
+ * library. Used only to decide what to read first when there are more scripts
+ * than the cap allows — a vendor chunk is never excluded while there is room. */
+export function scriptPriority(src: string): 0 | 1 {
+  let path = src;
+  try {
+    path = decodeURIComponent(new URL(src, "http://x").pathname);
+  } catch {
+    /* keep the raw string */
+  }
+  return VENDOR_LOOKING.test(path) ? 1 : 0;
+}
+
 /** Served program text for the page: inline scripts plus same-origin
  * external ones. Code the browser was handed — real evidence of what the app
  * is written to do, not an assumption about it. */
@@ -54,9 +71,17 @@ export async function collectServedJs(page: Page): Promise<EvidenceChunk[]> {
     .evaluate(() => Array.from(document.scripts).map((s) => ({ src: s.src, text: s.src ? "" : s.textContent ?? "" })))
     .catch(() => [] as Array<{ src: string; text: string }>);
 
+  // The page lists scripts in document order, which on a real bundled app puts
+  // the framework first. Read inline code and application-looking chunks before
+  // library-looking ones so the cap can't crowd the app's own code out.
+  const ordered = scripts
+    .map((s, i) => ({ s, i, rank: s.src ? scriptPriority(s.src) : -1 }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.s);
+
   const out: EvidenceChunk[] = [];
   let n = 0;
-  for (const s of scripts) {
+  for (const s of ordered) {
     if (n >= MAX_SCRIPTS) break;
     if (!s.src) {
       if (s.text.trim()) {

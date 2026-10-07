@@ -139,3 +139,70 @@ files were not classifiable. Treat it as direction, not a rate.
 The engine can only reach as far as the first rule it can read, and on the one
 independent repo it read none. The generalization gap is at inference — one
 stage before anything about runtime binding could be tested on real UIs.
+
+---
+
+# Generalization v1 — EasyBuy, rerun
+
+Same checkout (`b8610cf`), same inputs (URL, repo, `--diff HEAD~1`), same
+machine state (no Postgres, no `easybuy-server`). What changed is the engine:
+it now reads successor-list tables, plans a control-agnostic *intent*, binds an
+intent to a `<select>`, and classifies unreachable dependencies as environment.
+
+| stage | v0 (before) | v1 (after) |
+| --- | --- | --- |
+| evidence_extracted | ✓ both changed files, 36 changed lines | ✓ same (7 served-JS chunks, ranked application-first, + 2 diff) |
+| invariant_inferred | **✗ 0 rules — stopped here** | ✓ **8 rules** from the changed table (6 attempted, 2 over the per-mission budget). Rows `DELIVERED: []` and `CANCELLED: []` give the strongest ones (confidence 0.7) |
+| experiment_planned | — | ✓ 6/6: "attempt a move to state X" with a control that vouches for it |
+| runtime_bound | — | **✗ 6/6 — stopped here:** `nothing on the page shows one of the machine's states` |
+| experiment_executed / observation_captured / verdict | — | not reached; every candidate is `unknown`, none is a finding |
+
+The pipeline advanced two stages and then stopped at the next real thing: the
+URL it was pointed at is not a page that shows an order. Two URLs were tried:
+the storefront (`/`) and the admin orders page (`/dashboard/admin/orders`);
+both stop identically. The admin page is where `OrderStatusSelect` lives, but
+it needs a session and gets its orders from the `easybuy-server` API, which was
+not running — so it renders no orders, and there is no state to read.
+
+### Environment vs behavior
+
+| | v0 | v1 |
+| --- | --- | --- |
+| findings reported | 5: four `ERR_CONNECTION_REFUSED` to `localhost:5000`, worded as a "hostile request takes the server down" | **0 of those.** The missing backend is recorded as `environment_failures` / `discovery_run.environment`: `http://localhost:5000 (net::ERR_CONNECTION_REFUSED) ×4`, one example URL, "not a finding" |
+| still a finding | — | `HTTP 500 /api/auth/get-session` on the app's *own* origin. The dev log blames `Prisma schema mismatch` — an unmigrated database, which is this machine's setup, not the product. A browser cannot tell that from a product bug, so it stays a finding and is the limit of the environment classifier |
+
+The rule: a connection-level failure (refused, unresolved, unreachable,
+disconnected) to an origin *other than the app under test* is environment. The
+app's own origin refusing connections is still the app being down, and a
+dependency that answered badly or hung is still behavior.
+
+### What the rerun says about the next bottleneck
+
+`runtime_bound` is the new first failure. Three things stand between this repo
+and a verdict, and the first two are about the *page*, not the rule:
+
+1. **A page that shows one entity.** The admin dashboard is a list of orders,
+   each with its own status select. A test confirms what aztrx does on that
+   shape: with different states in the rows it refuses (`the page shows several
+   of the machine's states at once`); with the same state in every row it still
+   refuses (two selects are two entities). It never guesses which order a rule
+   is about. Entity scoping — "this row" — does not exist yet.
+2. **An authenticated session and a backend.** The page needs an admin login and
+   `easybuy-server`; aztrx has `--login`/`--storage-state`, untried here.
+3. **The UI may not be where the rule is enforced.** This upstream commit made
+   the dropdown offer only valid next statuses. Aztrx's own select test shows the
+   consequence: asked to attempt a move the select does not offer, it reports
+   `not offered: the select offers no option for "X"` and the candidate is
+   `unknown` — it can neither prove nor clear a rule the UI never lets a user
+   attempt. The rule the table names is enforced by the API; testing it means
+   sending the request, which is a different driver.
+
+None of these were added or worked around for EasyBuy.
+
+## Sanity check: what is not special-cased
+
+- No identifier from EasyBuy (`order`, `status`, `PENDING`, …) appears in the
+  engine. A test fails the build if discovery code names a product feature, and
+  another asserts the planner never mentions a kind of control.
+- Renamed-state tests (`q1…q4`) show successor-list inference and planning are
+  structural.

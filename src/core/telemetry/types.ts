@@ -1,4 +1,5 @@
 import type { DiscoveryRunReport, DiscoveryTrace } from "../discovery/types.js";
+import type { EnvironmentFailure } from "../eventBus.js";
 
 /** Telemetry payload schema — the data-flywheel columnar tuple. Flat on purpose
  * so a record can be appended to a JSONL dataset as-is and loaded into any
@@ -74,6 +75,9 @@ export interface EpisodeRecord {
    * rules were inferred / attempted / over budget). Present on discovery
    * missions even when nothing was inferred. */
   discovery_run?: DiscoveryRunReport;
+  /** Dependencies of the app that were unreachable during the mission. A fact
+   * about the environment, recorded so it can't be mistaken for behavior. */
+  environment_failures?: EnvironmentFailure[];
 }
 
 export interface EpisodeEnvelope {

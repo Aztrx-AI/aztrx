@@ -24,7 +24,12 @@ never fed to the run.
 | family | rule shape | plan | judged by |
 | --- | --- | --- | --- |
 | numeric threshold | `cart.total >= 50 ⇒ shipping == 0` | `numeric-boundary`: below / boundary / just-above / clearly-above | `evaluateInvariant` |
-| state transition | `orderMachine`: in `cancelled`, `fulfill` has no edge ⇒ must not change the state | `state-transition`: reach the state along declared edges, take the action, expect the state to hold; plus a control where the action *is* allowed | `evaluateInvariant` |
+| state transition | `{ a: { go: "b" } }` (action → state) or `{ a: ["b", "c"] }` (the states it may move to): a move the table does not list must not change the state | `state-transition`: reach the state along declared edges, attempt the move as an *intent* (an action, or "go to state X"), expect the state to hold; plus a control that attempts a permitted move | `evaluateInvariant` |
+
+The planner states what to attempt and never how: whether a page offers the
+move as a button, a link, a `<select>` option or a menu is decided by the
+runtime binder, from the evidence's own vocabulary, and a mapping that is not
+unambiguous is not guessed (`unbound`).
 
 Neither family has a feature-specific checker. A test fails the build if the
 discovery code names a product feature.
@@ -41,6 +46,8 @@ discovery code names a product feature.
 | 06 | transition | the latest change makes `cancelled` terminal in `src/orderMachine.js`; the running server still lets a cancelled order be fulfilled | git_diff | **violated** in `forbidden`; trace → `src/orderMachine.js:5` |
 | 07 | transition | the repo says `cancelled` is terminal, server enforces it | repo_source | preserved |
 | 08 | transition | same change as 06, server enforces it | git_diff | preserved |
+| 09 | transition (successor list, `<select>`) | the latest change lets a failed job be retried; the running server also lets it jump straight to `done` | git_diff @ `src/jobs.js:6` | **violated** in `forbidden`, through the select |
+| 10 | transition (successor list, `<select>`) | same change, server enforces the declared moves | git_diff | preserved |
 
 Diff cases ship `repo/commit/` (committed) and `repo/working/` (layered on top,
 uncommitted); the harness makes a real git repository out of them, so `--diff`
