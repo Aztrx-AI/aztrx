@@ -1,0 +1,32 @@
+diff --git a/app/page.tsx b/app/page.tsx
+index 2133162..2886dda 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -20,6 +20,9 @@ export default async function Home() {
+         <button type="submit" name="action" value="cancel">
+           Cancel
+         </button>
++        <button type="submit" name="action" value="reopen">
++          Reopen
++        </button>
+       </form>
+     </main>
+   );
+diff --git a/lib/workflow.ts b/lib/workflow.ts
+index bb39973..b0a5a8a 100644
+--- a/lib/workflow.ts
++++ b/lib/workflow.ts
+@@ -1,5 +1,5 @@
+ export type OrderStatus = "pending" | "confirmed" | "completed" | "cancelled";
+-export type OrderAction = "confirm" | "complete" | "cancel";
++export type OrderAction = "confirm" | "complete" | "cancel" | "reopen";
+ 
+ /**
+  * Which action moves an order out of which status. A status with no entry for
+@@ -9,5 +9,5 @@ export const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderAction, OrderS
+   pending: { confirm: "confirmed", cancel: "cancelled" },
+   confirmed: { complete: "completed", cancel: "cancelled" },
+   completed: {},
+-  cancelled: {},
++  cancelled: { reopen: "pending" },
+ };

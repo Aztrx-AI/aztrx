@@ -18,3 +18,4 @@ server/.data/
 server/keys.json
 server/dist/
 bench/invariant-discovery/.out/
+bench/real-project/.out/

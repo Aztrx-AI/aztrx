@@ -17,6 +17,7 @@
 import type { Page } from "playwright";
 import type { ExecutedAction, ObservedState } from "../invariant.js";
 import type {
+  BindingRecord,
   ExperimentPlan,
   InvariantCandidate,
   NumericBoundaryPlan,
@@ -41,6 +42,8 @@ export interface Session {
   explain(st: PlannedState, run: Run): string;
   /** Leave the page as the experiment found it, where that is possible. */
   restore(): Promise<void>;
+  /** What the rule was tied to in the running app, and why that element. */
+  binding: BindingRecord[];
 }
 
 export interface Unbound {
@@ -55,6 +58,8 @@ interface Located {
   found: boolean;
   reason?: string;
   value?: number | null;
+  /** Which element was matched and how strongly. */
+  via?: string;
 }
 
 /** Runs in the page. Locates a control or readout for an identifier and, for
@@ -99,6 +104,9 @@ async function locateField(page: Page, field: string, kind: "input" | "output"):
           return m ? Number(m[0].replace(/,/g, "")) : null;
         };
 
+        const describe = (el: Element) =>
+          el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.getAttribute("name") ? "[name=" + el.getAttribute("name") + "]" : "");
+
         if (kind === "input") {
           const sel =
             "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea";
@@ -110,7 +118,11 @@ async function locateField(page: Page, field: string, kind: "input" | "output"):
           if (best.length !== 1) return { found: false, reason: best.length + ' inputs match "' + field + '" equally' };
           document.querySelectorAll("[data-aztrx-field]").forEach((e) => e.removeAttribute("data-aztrx-field"));
           best[0].el.setAttribute("data-aztrx-field", field);
-          return { found: true, value: num((best[0].el as HTMLInputElement).value) };
+          return {
+            found: true,
+            value: num((best[0].el as HTMLInputElement).value),
+            via: describe(best[0].el) + (top === 2 ? " (exact name)" : " (word match)"),
+          };
         }
 
         const skip = "input, textarea, script, style, button, select, option";
@@ -125,14 +137,16 @@ async function locateField(page: Page, field: string, kind: "input" | "output"):
           const best = scored.filter((x) => x.r === top);
           // Nested matches (a wrapper and the value inside it) read the same figure.
           const figures = new Set(best.map((x) => num(x.text)));
-          if (figures.size === 1) return { found: true, value: num(best[0].text) };
+          if (figures.size === 1) {
+            return { found: true, value: num(best[0].text), via: describe(best[0].el) + ' showing "' + best[0].text.slice(0, 24) + '"' };
+          }
           return { found: false, reason: best.length + ' readouts match "' + field + '" with different figures' };
         }
         // Fallback: a "Shipping: $5.99" style line in the visible text.
         const body = document.body?.innerText ?? "";
         const words = want.split(" ").join("[\\s_-]*");
         const m = new RegExp(words + "[^\\d\\n-]{0,24}(-?\\$?\\s?\\d[\\d,]*(?:\\.\\d+)?)", "i").exec(body);
-        if (m) return { found: true, value: num(m[1]) };
+        if (m) return { found: true, value: num(m[1]), via: 'visible text "' + m[0].trim().slice(0, 32) + '"' };
         return { found: false, reason: 'no readout is named like "' + field + '"' };
       },
       { field, kind }
@@ -200,6 +214,10 @@ export const bindNumericBoundary: Binder = async (page, c, rawPlan) => {
   const initialInput = inBind.value;
 
   return {
+    binding: [
+      { role: "input", name: variable, matched: inBind.via ?? "input" },
+      { role: "output", name: target.field, matched: outBind.via ?? "readout" },
+    ],
     drive: (st) => driveNumeric(page, variable, target.field, st.assign[variable] as number, st.label),
     explain: (st, run) =>
       "At " + variable + "=" + run.after.flags?.[variable] + " (" + st.label + ") the page shows " + target.field + "=" +
@@ -224,6 +242,8 @@ interface StateReading {
   /** Canonical state name as the evidence spelled it. */
   state?: string;
   reason?: string;
+  /** The element the state was read from. */
+  via?: string;
 }
 
 /** Runs in the page. The state readout is whichever visible, non-interactive
@@ -238,6 +258,9 @@ async function readState(page: Page, states: string[]): Promise<StateReading> {
       const byNorm = new Map(states.map((s) => [norm(s), s]));
       const interactive = "button, a, input, select, option, textarea, label, script, style, [role=button]";
       const seen = new Set<string>();
+      let via = "";
+      const describe = (el: Element) =>
+        el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.getAttribute("data-testid") ? "[data-testid=" + el.getAttribute("data-testid") + "]" : "");
       for (const el of Array.from(document.body?.querySelectorAll("*") ?? [])) {
         if (el.matches(interactive) || el.closest("button, a, [role=button]")) continue;
         if (el.getClientRects().length === 0) continue;
@@ -245,9 +268,13 @@ async function readState(page: Page, states: string[]): Promise<StateReading> {
         if (!text || text.length > 80) continue;
         const tail = text.includes(":") ? text.slice(text.lastIndexOf(":") + 1) : text;
         const hit = byNorm.get(norm(tail));
-        if (hit !== undefined) seen.add(hit);
+        if (hit !== undefined) {
+          seen.add(hit);
+          // Innermost match is the most specific: keep descending.
+          via = describe(el) + ' "' + text.slice(0, 32) + '"';
+        }
       }
-      if (seen.size === 1) return { found: true, state: [...seen][0] };
+      if (seen.size === 1) return { found: true, state: [...seen][0], via };
       if (seen.size === 0) return { found: false, reason: "nothing on the page shows one of the machine's states" };
       return { found: false, reason: "the page shows several of the machine's states at once: " + [...seen].join(", ") };
     }, states)
@@ -271,9 +298,13 @@ async function settledState(page: Page, states: string[]): Promise<string | null
 }
 
 /** Tags the one visible control named like `event` so it can be clicked. */
-async function locateAction(page: Page, event: string): Promise<{ found: boolean; reason?: string }> {
+async function locateAction(
+  page: Page,
+  event: string,
+  tag = true
+): Promise<{ found: boolean; reason?: string; via?: string }> {
   return page
-    .evaluate((event) => {
+    .evaluate(({ event, tag }) => {
       const norm = (s: string) =>
         s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
       const want = norm(event);
@@ -309,10 +340,16 @@ async function locateAction(page: Page, event: string): Promise<{ found: boolean
       const top = Math.max(...scored.map((x) => x.r));
       const best = scored.filter((x) => x.r === top);
       if (best.length !== 1) return { found: false, reason: best.length + ' controls match "' + event + '" equally' };
-      document.querySelectorAll("[data-aztrx-action]").forEach((e) => e.removeAttribute("data-aztrx-action"));
-      best[0].el.setAttribute("data-aztrx-action", event);
-      return { found: true };
-    }, event)
+      if (tag) {
+        document.querySelectorAll("[data-aztrx-action]").forEach((e) => e.removeAttribute("data-aztrx-action"));
+        best[0].el.setAttribute("data-aztrx-action", event);
+      }
+      const el = best[0].el as HTMLElement;
+      const via =
+        el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + ' "' + (el.innerText ?? "").trim().slice(0, 24) + '"' +
+        (top === 2 ? " (exact name)" : " (word match)");
+      return { found: true, via };
+    }, { event, tag })
     .catch(() => ({ found: false, reason: "page evaluation failed" }));
 }
 
@@ -371,6 +408,10 @@ async function freshSession(page: Page): Promise<void> {
   await page.reload({ waitUntil: "load" }).catch(() => {});
 }
 
+/** How many of a machine's actions must be bindable to controls on the page
+ * before the page is accepted as the thing the machine describes. */
+const MIN_LINKED_EVENTS = 2;
+
 export const bindStateTransition: Binder = async (page, _c, rawPlan) => {
   const plan = rawPlan as StateTransitionPlan;
   const table = plan.graph.transitions;
@@ -382,7 +423,28 @@ export const bindStateTransition: Binder = async (page, _c, rawPlan) => {
   const probe = await locateAction(page, plan.action);
   if (!probe.found) return { reason: probe.reason ?? "action control not found" };
 
+  // The link from source to page is the machine's own vocabulary showing up in
+  // the UI. One stray "Cancel" button is not enough to call a page the thing
+  // the table describes: require the page to expose several of its events.
+  const events = [...new Set(Object.values(table).flatMap((row) => Object.keys(row)))];
+  const bound: BindingRecord[] = [];
+  const missing: string[] = [];
+  for (const event of events) {
+    const f = event === plan.action ? probe : await locateAction(page, event, false);
+    if (f.found) bound.push({ role: "control", name: event, matched: f.via ?? "control" });
+    else missing.push(event);
+  }
+  const needed = Math.min(events.length, MIN_LINKED_EVENTS);
+  if (bound.length < needed) {
+    return {
+      reason:
+        "weak source-to-page link: only " + bound.length + " of " + events.length + " actions of " + plan.graph.name +
+        " have a control on the page (need " + needed + "); no control for: " + missing.join(", "),
+    };
+  }
+
   return {
+    binding: [{ role: "state_readout", name: plan.graph.name, matched: reading.via ?? "state readout" }, ...bound],
     async drive(st) {
       const target = st.assign[field] as string;
       const actions: ExecutedAction[] = [];

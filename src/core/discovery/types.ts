@@ -134,6 +134,42 @@ export type DiscoveryStage =
   | "observation"
   | "evaluation";
 
+/** The pipeline, named the way a miss gets diagnosed. */
+export type PipelineStage =
+  | "evidence_extracted"
+  | "invariant_inferred"
+  | "runtime_bound"
+  | "experiment_planned"
+  | "experiment_executed"
+  | "observation_captured"
+  | "verdict";
+
+export interface StageOutcome {
+  stage: PipelineStage;
+  /** `skipped`: an earlier stage failed, so this one never ran. */
+  outcome: "ok" | "failed" | "skipped";
+  detail?: string;
+}
+
+/** One thing in the running app the rule was tied to, and why that element. */
+export interface BindingRecord {
+  role: "state_readout" | "control" | "input" | "output";
+  /** The name from the evidence it was matched on (`complete`, `total`). */
+  name: string;
+  /** What was found — element, the text/attribute matched, and how strongly. */
+  matched: string;
+}
+
+/** What one run's evidence looked like before any inference — so a run that
+ * infers nothing can still say where it stopped. */
+export interface DiscoveryRunReport {
+  evidence: Array<{ source: EvidenceSource; location: string; chars: number; changedLines?: number }>;
+  candidatesInferred: number;
+  candidatesAttempted: number;
+  /** Inferred but not attempted: over the per-mission budget. */
+  candidatesCapped: number;
+}
+
 /** The full trace of one candidate through every stage — what episode
  * telemetry stores, and what a benchmark miss is diagnosed from. */
 export interface DiscoveryTrace {
@@ -150,5 +186,12 @@ export interface DiscoveryTrace {
   /** Fingerprint of the finding this trace produced — the reproduction id.
    * Attached once the classifier has minted it. */
   findingId?: string;
+  /** Per-stage outcome, in pipeline order. */
+  stages: StageOutcome[];
+  /** What the rule was tied to in the running app. Absent if binding failed. */
+  binding?: BindingRecord[];
+  /** Why this behavior was tested: source line → rule → runtime target →
+   * experiment → observation → verdict, one hop per entry. */
+  chain?: string[];
   durationMs: number;
 }

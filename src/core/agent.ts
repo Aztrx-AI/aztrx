@@ -27,7 +27,7 @@ import { keyboardWalk } from "./keyboardWalk.js";
 import { observe } from "./observe.js";
 import { ssrKeyScan, tokenTamper, paywallBypass, objectRefAudit, repeatUseAudit, flowSkipAudit } from "./security.js";
 import { invariantDiscovery } from "./discovery/runtime.js";
-import type { DiscoveryTrace } from "./discovery/types.js";
+import type { DiscoveryRunReport, DiscoveryTrace } from "./discovery/types.js";
 import type { EvidenceChunk } from "./discovery/evidence.js";
 import { attachNetworkGuard } from "./networkGuard.js";
 import { resolveFrame, resolveServerFrame } from "./resolver.js";
@@ -81,6 +81,9 @@ export interface MissionResult {
   /** Invariant-discovery traces (evidence -> candidate -> plan -> verdict), when
    * the mission ran that behavior. Feeds episode telemetry. */
   discovery?: DiscoveryTrace[];
+  /** What the evidence looked like before inference — so a run that infers
+   * nothing can still say where it stopped. */
+  discoveryRun?: DiscoveryRunReport;
   roleId: string;
   /** Auth-state path saved by the first mission (used to authenticate replays). */
   replayStorageState?: string;
@@ -288,7 +291,13 @@ async function runBehavior(
   mission: Mission,
   opts: AgentOptions,
   budget: number
-): Promise<{ actions: number; newCoverage: number; sawLoginForm: boolean; discovery?: DiscoveryTrace[] }> {
+): Promise<{
+  actions: number;
+  newCoverage: number;
+  sawLoginForm: boolean;
+  discovery?: DiscoveryTrace[];
+  discoveryRun?: DiscoveryRunReport;
+}> {
   const { page, workerBus } = wired;
   const kind = mission.role.behaviors[0]?.kind ?? "walk";
   const payloads = mission.role.behaviors[0]?.payloads;
@@ -377,8 +386,15 @@ async function runBehavior(
         dryRun: opts.dryRun,
         extraEvidence: opts.localEvidence,
       });
+      const ev = dr.report.evidence;
+      opts.log(
+        "[invariant] evidence: " + ev.length + " chunk(s) (" +
+          (["served_js", "repo_source", "git_diff"] as const).map((s) => ev.filter((e) => e.source === s).length + " " + s).join(", ") +
+          "); " + dr.report.candidatesInferred + " rule(s) inferred, " + dr.report.candidatesAttempted + " attempted" +
+          (dr.report.candidatesCapped ? ", " + dr.report.candidatesCapped + " over budget" : "")
+      );
       if (dr.candidates === 0) opts.log("[invariant] no stated rule found in the evidence");
-      return { actions: dr.statesRun, newCoverage: 0, sawLoginForm: false, discovery: dr.traces };
+      return { actions: dr.statesRun, newCoverage: 0, sawLoginForm: false, discovery: dr.traces, discoveryRun: dr.report };
     }
     case "walk":
     default: {
@@ -435,6 +451,7 @@ export async function runAgentMission(
       newCoverage: result.newCoverage,
       sawLoginForm: result.sawLoginForm,
       discovery: result.discovery,
+      discoveryRun: result.discoveryRun,
       roleId: mission.role.id,
       replayStorageState: wired.replayStorageState,
     };

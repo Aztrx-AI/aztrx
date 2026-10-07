@@ -1,4 +1,4 @@
-import type { DiscoveryTrace } from "../discovery/types.js";
+import type { DiscoveryRunReport, DiscoveryTrace } from "../discovery/types.js";
 
 /** Telemetry payload schema — the data-flywheel columnar tuple. Flat on purpose
  * so a record can be appended to a JSONL dataset as-is and loaded into any
@@ -70,6 +70,10 @@ export interface EpisodeRecord {
    * observed, inferred invariant + confidence, experiment plan, actions,
    * before/after state and verdict per state. Additive; absent otherwise. */
   discovery?: DiscoveryTrace[];
+  /** What the evidence looked like before inference (sources, sizes, how many
+   * rules were inferred / attempted / over budget). Present on discovery
+   * missions even when nothing was inferred. */
+  discovery_run?: DiscoveryRunReport;
 }
 
 export interface EpisodeEnvelope {
