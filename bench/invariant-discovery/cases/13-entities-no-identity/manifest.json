@@ -1,0 +1,29 @@
+{
+  "id": "13-entities-no-identity",
+  "name": "Jobs list — rows that nothing tells apart: the rule is read, the page cannot be scoped, so nothing is claimed",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == failed => moving to done must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    },
+    "target": "done",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/jobs.js:6",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_verdict": "unknown",
+  "expected_stop": "entity scoping: .*nothing inside them tells one from another",
+  "seeded": []
+}

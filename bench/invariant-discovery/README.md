@@ -48,6 +48,9 @@ discovery code names a product feature.
 | 08 | transition | same change as 06, server enforces it | git_diff | preserved |
 | 09 | transition (successor list, `<select>`) | the latest change lets a failed job be retried; the running server also lets it jump straight to `done` | git_diff @ `src/jobs.js:6` | **violated** in `forbidden`, through the select |
 | 10 | transition (successor list, `<select>`) | same change, server enforces the declared moves | git_diff | preserved |
+| 11 | transition, **many entities** | a list page: five jobs in different states, each row with its own `<select>`; the list re-sorts after every move; the server lets a failed job jump to `done` | git_diff @ `src/jobs.js:6` | **violated** on the failed job's row only; trace names the entity |
+| 12 | transition, many entities | same page, server enforces the declared moves | git_diff | preserved |
+| 13 | transition, many entities | rows that read the same and carry no id, addressed by position | git_diff | **unknown, honestly**: `entity scoping: … nothing inside them tells one from another`, no finding |
 
 Diff cases ship `repo/commit/` (committed) and `repo/working/` (layered on top,
 uncommitted); the harness makes a real git repository out of them, so `--diff`

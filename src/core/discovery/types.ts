@@ -173,11 +173,14 @@ export interface StageOutcome {
 
 /** One thing in the running app the rule was tied to, and why that element. */
 export interface BindingRecord {
-  role: "state_readout" | "control" | "input" | "output";
+  role: "state_readout" | "control" | "input" | "output" | "entity_scope";
   /** The name from the evidence it was matched on (`complete`, `total`). */
   name: string;
   /** What was found — element, the text/attribute matched, and how strongly. */
   matched: string;
+  /** For an entity scope: how sure the identity is (an id attribute is firmer
+   * than a piece of text). Heuristic, not a probability. */
+  confidence?: number;
 }
 
 /** What one run's evidence looked like before any inference — so a run that

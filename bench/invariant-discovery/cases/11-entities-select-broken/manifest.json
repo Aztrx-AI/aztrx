@@ -1,0 +1,35 @@
+{
+  "id": "11-entities-select-broken",
+  "name": "Jobs list — five jobs, each with its own select; the server lets a failed job jump to done (entity scoping, rows re-sort after every move)",
+  "category": "state_transition",
+  "family": "state-transition",
+  "expected_invariant": "state == failed => moving to done must not change the state",
+  "expected_candidate": {
+    "pre": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    },
+    "target": "done",
+    "expect": {
+      "field": "state",
+      "op": "==",
+      "value": "failed"
+    }
+  },
+  "expected_role": "invariant-discoverer",
+  "expected_evidence": "git_diff",
+  "expected_location": "src/jobs.js:6",
+  "evidence_request": {
+    "diff": true
+  },
+  "expected_verdict": "violated",
+  "violating_state": "forbidden",
+  "seeded": [
+    {
+      "id": "failed-to-done",
+      "category": "state_transition",
+      "message": "Discovered invariant violated"
+    }
+  ]
+}

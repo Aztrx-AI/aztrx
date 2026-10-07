@@ -1,12 +1,13 @@
 # Invariant-discovery benchmark results
 
-**10 / 10 cases pass · numeric threshold 5/5 · state transition 5/5 · every rule
-read from the right source, at the right `file:line` · 0 unexpected findings ·
-empty diff → 0 candidates**
+**13 / 13 cases pass · numeric threshold 5/5 · state transition 8/8 (1 of them an
+honest `unknown`) · every rule read from the right source, at the right
+`file:line` · 0 unexpected findings · empty diff → 0 candidates**
 
 History: 2 / 2 (numeric threshold, served JS only) → 8 / 8 (git diff, repo
 source, a second rule family) → 10 / 10 (successor-list tables, driven through a
-`<select>`). Cases 01–08 are unchanged and still pass with the same verdicts.
+`<select>`) → 13 / 13 (list pages of many entities, scoped to one). Cases 01–10 are
+unchanged and still pass with the same verdicts.
 
 | case | family | evidence (source @ location) | plan | verdict | time-to-proof |
 | --- | --- | --- | --- | --- | --- |
@@ -20,10 +21,21 @@ source, a second rule family) → 10 / 10 (successor-list tables, driven through
 | `08-transition-diff-safe` | transition | git_diff @ `src/orderMachine.js:5` | state-transition | preserved | — |
 | `09-successor-select-broken` | transition (successor list) | git_diff @ `src/jobs.js:6` | state-transition, intent *go to `done`* | **violated**, reproduced, in `forbidden` only | ~9.6s |
 | `10-successor-select-safe` | transition (successor list) | git_diff @ `src/jobs.js:6` | state-transition | preserved | — |
+| `11-entities-select-broken` | transition, 5 entities | git_diff @ `src/jobs.js:6` | state-transition, scoped | **violated**, reproduced, on `J-104` only | ~10s |
+| `12-entities-select-safe` | transition, 5 entities | git_diff @ `src/jobs.js:6` | state-transition, scoped | preserved | — |
+| `13-entities-no-identity` | transition, 5 entities | git_diff @ `src/jobs.js:6` | rule planned, **not bound** | **unknown** — `nothing inside them tells one from another` | — |
 
 Per family: numeric — discovered 4, right source 4, planned 4, executed 4,
-proven 2, cleared 2. Transition — discovered 5, right source 5, planned 5,
-executed 5, proven 2, cleared 3. (Case 05 is scored on inferring *nothing*.)
+proven 2, cleared 2. Transition — discovered 8, right source 8, planned 8,
+executed 7, proven 3, cleared 4, honest-unknown 1. (Case 05 is scored on
+inferring *nothing*; case 13 on reading the rule and then *not* judging.)
+
+What the list cases (11, 12) exercise: five rows in different states, three of
+them `running`; each row has its own select; every successful move re-sorts the
+list, so the row that was acted on changes position. The forbidden attempt goes
+to the row already in the rule's state (`J-104`); the control moves a *different*
+row (`J-102`/`J-101`). Before and after are read from the same entity (`flags.entity`
+in the trace), and no other row is touched.
 
 What the transition traces show (06): three rules come from the one changed
 row (`cancelled` + `pay` / `cancel` / `fulfill`). Only `fulfill` is violated:
@@ -66,6 +78,19 @@ class documented in the other corpora.
   stops at binding. A select that does not *offer* the forbidden move from the
   rule's state (a "smart" dropdown) leaves the rule `unknown`, not preserved:
   the UI never lets a user attempt it.
+- Entity scoping is structural: the children of the lowest element that holds
+  every state-bearing element, when they are the same tag holding mostly the
+  same kinds of things (Jaccard ≥ 0.75 on the tags they contain, so an optional
+  image does not make two cards different). The identity is the first value at
+  the same place in every repetition that is unique across them: an `id`/`data-*`
+  attribute, a link target, or a short leaf text, in that order. Values that merely
+  number the repetitions (0,1,2… / 1,2,3…) are refused — they name a position, and
+  a re-sort moves it. After an action the entity is re-found by identity and must
+  still agree with at least one of its other identifying values; zero, several, or
+  a disagreeing match is `unknown`, never "the row that is there now".
+- A list page is scoped, not understood: which entity to act on is chosen for
+  convenience (the one needing the least setup), and the experiment mutates it.
+  On a real admin page that is a real order.
 - An attempted move that raises a `confirm()` dialog has the dialog accepted;
   dismissing it would make a refused move and a declined confirmation look
   identical.

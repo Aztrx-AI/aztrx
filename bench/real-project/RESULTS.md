@@ -206,3 +206,107 @@ None of these were added or worked around for EasyBuy.
   another asserts the planner never mentions a kind of control.
 - Renamed-state tests (`q1…q4`) show successor-list inference and planning are
   structural.
+
+---
+
+# Entity Scoping v0 — EasyBuy, second rerun
+
+Same checkout (`b8610cf`), same diff (`--diff HEAD~1`), same two URLs. What
+changed in the engine: a page that repeats a structure is now scoped to one
+repetition — its state, its controls, and the before/after reads all come from
+the same entity, found again by identity after every action, or the result is
+`unknown`.
+
+## Stage by stage
+
+| stage | previous rerun | this rerun |
+| --- | --- | --- |
+| evidence_extracted | ✓ 2 changed files, 36 lines | ✓ same |
+| invariant_inferred | ✓ 8 rules (6 attempted, 2 over the per-mission cap) | ✓ same |
+| experiment_planned | ✓ 6/6 | ✓ 6/6 |
+| runtime_bound | ✗ 6/6 — nothing on the page shows one of the machine's states | **✗ 6/6 — unchanged**, on both URLs |
+| experiment_executed / observation_captured / verdict | not reached | not reached; all `unknown`, none a finding |
+
+**The external stop did not move, and the reason is now fully accounted for.**
+Entity scoping never got a chance to run on the real page, because the real page
+does not render orders in this environment:
+
+1. `/dashboard/admin/orders` is a server component that calls `requireRole("admin")`
+   — better-auth over Postgres. With no database the page crashes at the auth
+   layer (`BetterAuthError: Prisma schema mismatch`, now visible in the run's
+   findings) and shows an error boundary, not a list. The storefront (`/`) has
+   no orders at all.
+2. Even with a database, the list comes from `GET {API_URL}/api/admin/orders`,
+   served by the separate `easybuy-server`. That server hard-wires the Neon
+   serverless driver (`src/prisma.ts`: `new PrismaNeon({ connectionString })`),
+   so it cannot run against a local Postgres without editing its source or
+   shimming Neon's HTTP/WebSocket protocol. This was not done: the point is to
+   test their software, not a patched copy.
+3. I tried to bring up Postgres in Docker so at least sign-in would work.
+   Docker Desktop would not start non-interactively on this machine (the process
+   exits at launch; only the WSL service runs), so there was no daemon.
+
+Nothing was faked and no verdict is claimed. The previous run's environment
+note stands: the missing backend is recorded as `environment_failures`, not as a
+finding; the one remaining finding (`HTTP 500 /api/auth/get-session`) is this
+machine's missing database, which a browser cannot tell from a product bug.
+
+## What the real markup says, by reading it (inspection, not measurement)
+
+The admin page renders one card per order under a common container: a header
+holding `Order #<id>` and the customer, the `OrderStatusSelect`, the total, then
+the line items (with a product image only when the product has one). Nothing on
+the card prints the status as text; **the select is the only state-bearing
+element**, and its options are `[status, ...nextStatuses(status)]`; at a final
+status it is `disabled`.
+
+Reading it against the scoping rules found a real weakness, now fixed: "these
+repetitions are alike" compared exact tag sets, so one card with a product image
+and one without would have looked like different kinds of thing and the page
+would have been refused. It now asks for mostly the same tags (Jaccard ≥ 0.75),
+while a filter dropdown of states next to the cards is still rejected as
+unlike. Both are tests.
+
+Beyond that, scoping should find `Order #<id>` as the identity (a unique leaf
+text at the same place in every card). That is a prediction.
+
+## What *is* measured: the shape of that page, generically
+
+A generic page built to the same pattern — cards with an optional image, a
+header title as identity, a select offering only valid next states, disabled
+at the final state — was run through the whole pipeline (test
+`scoped: a list whose dropdowns only offer valid moves cannot be asked`). All
+rules bind (`runtime_bound ✓`, `entity_scope: div ×4`), and **every one ends
+`unknown` at `experiment_executed`**: `not offered: the select offers no option
+for "…"` or `the select is disabled`. None is a finding, none is `preserved`.
+
+## Is API-level verification now justified?
+
+For this class of change — yes, and the evidence is specific:
+
+- The upstream commit under test *is* a UI restriction: "only offer valid next
+  statuses", final orders locked. Whatever the UI enforces, a UI-driven
+  experiment can never attempt the forbidden move, so it can neither prove nor
+  clear the rule. The test above shows aztrx saying exactly that, correctly,
+  for every rule.
+- The rule that matters is enforced elsewhere (`easybuy-server`), and a stale or
+  missing check there is precisely the bug the UI restriction would hide.
+- The means to attempt it is *in the diff*: the changed file contains the call
+  the UI makes — `PATCH {API_URL}/api/admin/orders/{orderId}` with body
+  `{ "status": <next> }` — so an API-level driver would not have to guess an
+  endpoint; it could read one from the evidence, the way the rule itself is read.
+
+Caveats: this rests on one external repository, and the UI-only result was
+measured on a faithful generic page, not on the real admin page (which could
+not be rendered). It justifies building the capability next; it does not
+measure it. It would also need what this run lacked — a reachable backend and a
+session — and mutates real data, which is a risk to name before it is a feature.
+
+## Next bottleneck, in order
+
+1. **A runnable target.** Here: Postgres for the client's auth, and a backend
+   that can run off Neon. No change to aztrx fixes this; it is a precondition
+   for any verdict on this repo.
+2. **A session.** `--login` / `--storage-state` exist; untried on this app.
+3. **An API-level driver**, seeded from the fetch call in the changed file,
+   for rules the UI declines to let a user attempt.

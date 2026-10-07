@@ -55,7 +55,11 @@ interface Manifest {
   evidence_request?: { diff?: boolean; repo?: boolean };
   expected_invariant: string;
   expected_candidate: { pre: Pred; action?: string; target?: string; expect: Pred } | null;
-  expected_verdict: "violated" | "preserved" | "none";
+  /** `unknown`: the rule is read and planned but the page cannot honestly be
+   * judged; the run must say why (`expected_stop`) and claim nothing. */
+  expected_verdict: "violated" | "preserved" | "unknown" | "none";
+  /** Regex the trace's `stoppedBecause` must match, for `unknown` cases. */
+  expected_stop?: string;
   violating_state?: string;
   expected_role: string;
   seeded: Array<{ id: string; category: string; message: string }>;
@@ -268,9 +272,17 @@ async function main() {
     const unexpected = unexplained.filter((f) => !AMBIENT_NOISE_RE.test(f.rawMessage));
 
     const expectViolation = manifest.expected_verdict === "violated";
+    const expectUnknown = manifest.expected_verdict === "unknown";
     let outcomeOk: boolean;
     let stageOk: boolean;
-    if (expectNone) {
+    if (expectUnknown) {
+      // Read and planned, but not judged: no finding, and a stated reason.
+      stageOk = discovered && sourceOk && planned;
+      outcomeOk =
+        verdict === "unknown" &&
+        discoveryFindings.length === 0 &&
+        new RegExp(manifest.expected_stop ?? ".").test(trace?.stoppedBecause ?? "");
+    } else if (expectNone) {
       // Nothing changed, so nothing may be inferred, planned, or reported.
       stageOk = traces.length === 0;
       outcomeOk = discoveryFindings.length === 0;
@@ -286,6 +298,7 @@ async function main() {
     let failedStage: string | null = null;
     if (!pass) {
       if (expectNone) failedStage = traces.length > 0 ? "a rule was inferred from an empty diff" : "unexpected findings";
+      else if (expectUnknown && discovered && sourceOk && planned) failedStage = `expected an honest unknown (${manifest.expected_stop}), got ${verdict}: ${trace?.stoppedBecause ?? "no stop reason"}`;
       else if (!discovered) failedStage = traces.length === 0 ? "evidence extraction / inference" : "inference (a different rule was inferred)";
       else if (!sourceOk) failedStage = `evidence trace (${trace?.candidate.evidence.source} @ ${trace?.candidate.evidence.location})`;
       else if (trace?.stoppedBecause) failedStage = trace.stoppedBecause;
@@ -354,6 +367,7 @@ async function main() {
     executed: count(rs, (r) => r.executed as boolean),
     violationsProven: count(rs, (r) => r.proven as boolean),
     ruleCleared: count(rs, (r) => r.verdict === "preserved"),
+    honestUnknown: count(rs, (r) => r.expectedVerdict === "unknown" && (r.pass as boolean)),
     unexpectedFindings: rs.reduce((s, r) => s + (r.unexpectedFindings as number), 0),
     ambientNoise: rs.reduce((s, r) => s + (r.ambientNoise as number), 0),
   });
@@ -378,7 +392,7 @@ async function main() {
   for (const [fam, t] of Object.entries(byFamily)) {
     console.log(
       `  ${fam.padEnd(18)} ${t.passed}/${t.cases} pass · discovered ${t.discovered} · right source ${t.correctEvidenceSource} · ` +
-        `planned ${t.planned} · executed ${t.executed} · proven ${t.violationsProven} · cleared ${t.ruleCleared} · unexpected ${t.unexpectedFindings}`
+        `planned ${t.planned} · executed ${t.executed} · proven ${t.violationsProven} · cleared ${t.ruleCleared} · honest-unknown ${t.honestUnknown} · unexpected ${t.unexpectedFindings}`
     );
   }
   console.log("");
