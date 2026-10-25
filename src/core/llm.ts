@@ -94,6 +94,22 @@ function announce(model: string, provider: Provider, baseUrl?: string): void {
   process.stderr.write(`LLM: ${label}\n`);
 }
 
+/** Token usage of one completed request, as the provider reported it. */
+export interface LlmUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+let usageSink: ((u: LlmUsage) => void) | undefined;
+
+/** Observe the usage of every completion made from now on (one sink; pass
+ * undefined to stop). Spend accounting hangs off this — the client itself
+ * keeps no totals. */
+export function setUsageSink(fn: ((u: LlmUsage) => void) | undefined): void {
+  usageSink = fn;
+}
+
 /** Run one completion against the active provider and return the text. */
 export async function complete(opts: CompleteOptions): Promise<string> {
   const s = resolveSettings();
@@ -175,7 +191,9 @@ async function anthropicComplete(
   const data = (await res.json()) as {
     content?: Array<{ type?: string; text?: string }>;
     stop_reason?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
+  usageSink?.({ model, inputTokens: data.usage?.input_tokens ?? 0, outputTokens: data.usage?.output_tokens ?? 0 });
   const text = (data.content ?? [])
     .filter((c) => c.type === "text")
     .map((c) => c.text ?? "")
@@ -189,6 +207,9 @@ async function openaiComplete(
   model: string,
   opts: CompleteOptions,
 ): Promise<string> {
+  // OpenAI proper rejects `max_tokens` on current models and `temperature` on
+  // reasoning ones; other OpenAI-compatible endpoints still expect the old shape.
+  const official = (s.baseUrl ?? "").includes("api.openai.com");
   const res = await fetch(`${s.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -197,8 +218,9 @@ async function openaiComplete(
     },
     body: JSON.stringify({
       model,
-      max_tokens: opts.maxTokens ?? 2048,
-      temperature: opts.temperature ?? 0,
+      ...(official
+        ? { max_completion_tokens: opts.maxTokens ?? 2048 }
+        : { max_tokens: opts.maxTokens ?? 2048, temperature: opts.temperature ?? 0 }),
       messages: [
         { role: "system", content: opts.system },
         { role: "user", content: opts.prompt },
@@ -214,7 +236,9 @@ async function openaiComplete(
   const data = (await res.json()) as {
     error?: { message?: string };
     choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  usageSink?.({ model, inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: data.usage?.completion_tokens ?? 0 });
   // OpenRouter reports upstream failures in the body with HTTP 200, so `res.ok`
   // alone does not mean the model answered.
   if (data.error) throw new Error(`LLM request failed: ${data.error.message ?? "unknown error"}`);
