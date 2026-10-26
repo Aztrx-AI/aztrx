@@ -1,0 +1,37 @@
+{
+  "arm": "baseline",
+  "model": "qwen3.5:9b",
+  "provider": "localhost:11434",
+  "capUsd": 2,
+  "budgets": {
+    "maxMs": 600000,
+    "experiments": 12,
+    "turns": 40
+  },
+  "repoDir": "C:/Users/dchap/karnezz-lab/work2/buggy",
+  "startedAt": "2026-10-26T19:59:56.216Z",
+  "claims": 0,
+  "metrics": {
+    "turns": 4,
+    "validToolCalls": 1,
+    "invalidToolCalls": 3,
+    "noToolCalls": 0,
+    "toolErrors": 0,
+    "observations": 1,
+    "actionsExecuted": 0,
+    "validCallRate": 0.25
+  },
+  "stoppedBecause": "3 consecutive invalid tool calls",
+  "ledger": {
+    "calls": 4,
+    "inputTokens": 13814,
+    "outputTokens": 101,
+    "costUsd": 0,
+    "priced": true,
+    "capUsd": 2,
+    "models": [
+      "qwen3.5:9b"
+    ],
+    "elapsedMs": 13256
+  }
+}

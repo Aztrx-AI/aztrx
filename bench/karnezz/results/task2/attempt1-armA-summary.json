@@ -1,0 +1,40 @@
+{
+  "arm": "pipeline",
+  "model": "qwen3.5:9b",
+  "provider": "localhost:11434",
+  "capUsd": 2,
+  "budgets": {
+    "maxMs": 600000,
+    "experiments": 12,
+    "turns": 40
+  },
+  "repoDir": "C:/Users/dchap/karnezz-lab/work2/buggy",
+  "startedAt": "2026-10-26T19:54:09.314Z",
+  "generation": {
+    "status": "format_error",
+    "formatError": "reply was cut off by the output limit before the JSON closed",
+    "finishReason": "length"
+  },
+  "counts": {
+    "generated": 0,
+    "executed": 0,
+    "supported_violation": 0,
+    "disproven": 0,
+    "unknown": 0,
+    "environment": 0
+  },
+  "observations": 0,
+  "stoppedBecause": "no experiments: generation format_error (reply was cut off by the output limit before the JSON closed)",
+  "ledger": {
+    "calls": 1,
+    "inputTokens": 2970,
+    "outputTokens": 1126,
+    "costUsd": 0,
+    "priced": true,
+    "capUsd": 2,
+    "models": [
+      "qwen3.5:9b"
+    ],
+    "elapsedMs": 141354
+  }
+}

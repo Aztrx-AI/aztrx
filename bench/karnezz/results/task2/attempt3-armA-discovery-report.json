@@ -1,0 +1,1017 @@
+{
+  "baseUrl": "http://127.0.0.1:5101",
+  "startedAt": "2026-10-26T20:05:41.346Z",
+  "inventory": {
+    "sha256": "c83ee64d7a7ff1e7d04a2c1702e565e2377a7721057e4906e7d657064940f81b",
+    "sections": [
+      {
+        "source": "docs:README.md",
+        "chars": 7457
+      },
+      {
+        "source": "ui:/",
+        "chars": 261
+      },
+      {
+        "source": "ui:/settings",
+        "chars": 249
+      },
+      {
+        "source": "ui:/settings/app",
+        "chars": 402
+      },
+      {
+        "source": "ui:/",
+        "chars": 261
+      }
+    ],
+    "text": "### docs:README.md\n# Flame\r\n\r\n![Homescreen screenshot](.github/home.png)\r\n\r\n## Description\r\n\r\nFlame is self-hosted startpage for your server. Its design is inspired (heavily) by [SUI](https://github.com/jeroenpardon/sui). Flame is very easy to setup and use. With built-in editors, it allows you to setup your very own application hub in no time - no file editing necessary.\r\n\r\n## Functionality\r\n- 📝 Create, update, delete your applications and bookmarks directly from the app using built-in GUI editors\r\n- 📌 Pin your favourite items to the homescreen for quick and easy access\r\n- 🔍 Integrated search bar with local filtering, 11 web search providers and ability to add your own\r\n- 🔑 Authentication system to protect your settings, apps and bookmarks\r\n- 🔨 Dozens of options to customize Flame interface to your needs, including support for custom CSS, 15 built-in color themes and custom theme builder\r\n- ☀️ Weather widget with current temperature, cloud coverage and animated weather status\r\n- 🐳 Docker integration to automatically pick and add apps based on their labels\r\n\r\n## Installation\r\n\r\n### With Docker (recommended)\r\n\r\n[Docker Hub link](https://hub.docker.com/r/pawelmalak/flame)\r\n\r\n```sh\r\ndocker pull pawelmalak/flame\r\n\r\n# for ARM architecture (e.g. RaspberryPi)\r\ndocker pull pawelmalak/flame:multiarch\r\n\r\n# installing specific version\r\ndocker pull pawelmalak/flame:2.0.0\r\n```\r\n\r\n#### Deployment\r\n\r\n```sh\r\n# run container\r\ndocker run -p 5005:5005 -v /path/to/data:/app/data -e PASSWORD=[redacted] pawelmalak/flame\r\n```\r\n\r\n#### Building images\r\n\r\n```sh\r\n# build image for amd64 only\r\ndocker build -t flame -f .docker/Dockerfile .\r\n\r\n# build multiarch image for amd64, armv7 and arm64\r\n# building failed multiple times with 2GB memory usage limit so you might want to increase it\r\ndocker buildx build \\\r\n  --platform linux/arm/v7,linux/arm64,linux/amd64 \\\r\n  -f .docker/Dockerfile.multiarch \\\r\n  -t flame:multiarch .\r\n```\r\n\r\n#### Docker-Compose\r\n\r\n```yaml\r\nversion: '3.6'\r\n\r\nservices:\r\n  flame:\r\n    image: pawelmalak/flame\r\n    container_name: flame\r\n    volumes:\r\n      - /path/to/host/data:/app/data\r\n      - /var/run/docker.sock:/var/run/docker.sock # optional but required for Docker integration\r\n    ports:\r\n      - 5005:5005\r\n    secrets:\r\n      - password # optional but required for (1)\r\n    environment:\r\n      - PASSWORD=[redacted]      - PASSWORD_FILE=/run/secrets/password # optional but required for (1)\r\n    restart: unless-stopped\r\n\r\n# optional but required for Docker secrets (1)\r\nsecrets:\r\n  password:\r\n    file: /path/to/secrets/password\r\n```\r\n\r\n##### Docker Secrets\r\n\r\nAll environment variables can be overwritten by appending `_FILE` to the variable value. For example, you can use `PASSWORD_FILE` to pass through a docker secret instead of `PASSWORD`. If both `PASSWORD` and `PASSWORD_FILE` are set, the docker secret will take precedent.\r\n\r\n```bash\r\n# ./secrets/flame_password\r\nmy_custom_secret_password_123\r\n\r\n# ./docker-compose.yml\r\nsecrets:\r\n  password:\r\n    file: ./secrets/flame_password\r\n```\r\n\r\n#### Skaffold\r\n\r\n```sh\r\n# use skaffold\r\nskaffold dev\r\n```\r\n\r\n### Without Docker\r\n\r\nFollow instructions from wiki: [Installation without Docker](https://github.com/pawelmalak/flame/wiki/Installation-without-docker)\r\n\r\n## Development\r\n\r\n### Technology\r\n\r\n- Backend\r\n  - Node.js + Express\r\n  - Sequelize ORM + SQLite\r\n- Frontend\r\n  - React\r\n  - Redux\r\n  - TypeScript\r\n- Deployment\r\n  - Docker\r\n  - Kubernetes\r\n\r\n### Creating dev environment\r\n\r\n```sh\r\n# clone repository\r\ngit clone https://github.com/pawelmalak/flame\r\ncd flame\r\n\r\n# run only once\r\nnpm run dev-init\r\n\r\n# start backend and frontend development servers\r\nnpm run dev\r\n```\r\n\r\n## Screenshots\r\n\r\n![Apps screenshot](.github/apps.png)\r\n\r\n![Bookmarks screenshot](.github/bookmarks.png)\r\n\r\n![Settings screenshot](.github/settings.png)\r\n\r\n![Themes screenshot](.github/themes.png)\r\n\r\n## Usage\r\n\r\n### Authentication\r\n\r\nVisit [project wiki](https://github.com/pawelmalak/flame/wiki/Authentication) to read more about authentication\r\n\r\n### Search bar\r\n\r\n#### Searching\r\n\r\nThe default search setting is to search through all your apps and bookmarks. If you want to search using specific search engine, you need to type your search query with selected prefix. For example, to search for \"what is docker\" using google search you would type: `/g what is docker`.\r\n\r\nFor list of supported search engines, shortcuts and more about searching functionality visit [project wiki](https://github.com/pawelmalak/flame/wiki/Search-bar).\r\n\r\n### Setting up weather module\r\n\r\n1. Obtain API Key from [Weather API](https://www.weatherapi.com/pricing.aspx).\r\n   > Free plan allows for 1M calls per month. Flame is making less then 3K API calls per month.\r\n2. Get lat/long for your location. You can get them from [latlong.net](https://www.latlong.net/convert-address-to-lat-long.html).\r\n3. Enter and save data. Weather widget will now update and should be visible on Home page.\r\n\r\n### Docker integration\r\n\r\nIn order to use the Docker integration, each container must have the following labels:\r\n\r\n```yml\r\nlabels:\r\n  - flame.type=application # \"app\" works too\r\n  - flame.name=My container\r\n  - flame.url=https://example.com\r\n  - flame.icon=icon-name # optional, default is \"docker\"\r\n# - flame.icon=custom to make changes in app. ie: custom icon upload\r\n```\r\n\r\n> \"Use Docker API\" option must be enabled for this to work. You can find it in Settings > Docker\r\n\r\nYou can also set up different apps in the same label adding `;` between each one.\r\n\r\n```yml\r\nlabels:\r\n  - flame.type=application\r\n  - flame.name=First App;Second App\r\n  - flame.url=https://example1.com;https://example2.com\r\n  - flame.icon=icon-name1;icon-name2\r\n```\r\n\r\nIf you want to use a remote docker host follow this instructions in the host:\r\n\r\n- Open the file `/lib/systemd/system/docker.service`, search for `ExecStart` and edit the value\r\n\r\n```text\r\nExecStart=/usr/bin/dockerd -H tcp://0.0.0.0:${PORT} -H unix:///var/run/docker.sock\r\n```\r\n\r\n>The above command will bind the docker engine server to the Unix socket as well as TCP port of your choice. “0.0.0.0” means docker-engine accepts connections from all IP addresses.\r\n\r\n- Restart the daemon and Docker service\r\n\r\n```shell\r\nsudo systemctl daemon-reload\r\nsudo service docker restart\r\n```\r\n\r\n- Test if it is working\r\n\r\n```shell\r\ncurl http://${IP}:${PORT}/version\r\n```\r\n\r\n### Kubernetes integration\r\n\r\nIn order to use the Kubernetes integration, each ingress must have the following annotations:\r\n\r\n```yml\r\nmetadata:\r\n  annotations:\r\n  - flame.pawelmalak/type=application # \"app\" works too\r\n  - flame.pawelmalak/name=My container\r\n  - flame.pawelmalak/url=https://example.com\r\n  - flame.pawelmalak/icon=icon-name # optional, default is \"kubernetes\"\r\n```\r\n\r\n> \"Use Kubernetes Ingress API\" option must be enabled for this to work. You can find it in Settings > Docker\r\n\r\n### Import HTML Bookmarks (Experimental)\r\n\r\n- Requirements\r\n  - python3\r\n  - pip packages: Pillow, beautifulsoup4\r\n- Backup your `db.sqlite` before running script!\r\n- Known Issues:\r\n  - generated icons are sometimes incorrect\r\n\r\n```bash\r\npip3 install Pillow, beautifulsoup4\r\n\r\ncd flame/.dev\r\npython3 bookmarks_importer.py --bookmarks <path to bookmarks.html> --data <path to flame data folder>\r\n```\r\n\r\n### Custom CSS and themes\r\n\r\nSee project wiki for [Custom CSS](https://github.com/pawelmalak/flame/wiki/Custom-CSS) and [Custom theme with CSS](https://github.com/pawelmalak/flame/wiki/Custom-theme-with-CSS).\r\n\n\n### ui:/\ntitle: Flame\nurl: /\nheadings: Good night!\nbuttons: \ninputs: input[text] \"\"\nlinks: Go to Settings -> /settings | /settings -> /settings/app |  -> /settings\ntext: You need to enable JavaScript to run this app.Tuesday, 27 October 2026Go to SettingsGood night!Welco\n\n### ui:/settings\ntitle: Flame\nurl: /settings\nheadings: Settings | App themes\nbuttons: \ninputs: \nlinks: Go back -> / | Theme -> /settings | App -> /settings/app\ntext: You need to enable JavaScript to run this app.SettingsGo backThemeAppApp themesblackboardgazetteespr\n\n### ui:/settings/app\ntitle: Flame\nurl: /settings/app\nheadings: Settings | Authentication\nbuttons: Login\ninputs: input[password] \"Password\" | select[select-one] \"Session duration\"\nlinks: Go back -> / | Theme -> /settings | App -> /settings/app | project wiki -> https://github.com/pawelmalak/flame/wiki/Authentication\ntext: You need to enable JavaScript to run this app.SettingsGo backThemeAppAuthenticationPasswordSee proje\n\n### ui:/\ntitle: Flame\nurl: /\nheadings: Good night!\nbuttons: \ninputs: input[text] \"\"\nlinks: Go to Settings -> /settings | /settings -> /settings/app |  -> /settings\ntext: You need to enable JavaScript to run this app.Tuesday, 27 October 2026Go to SettingsGood night!Welco"
+  },
+  "prompt": "Propose up to 12 hypotheses.\n\n=== INVENTORY ===\n### docs:README.md\n# Flame\r\n\r\n![Homescreen screenshot](.github/home.png)\r\n\r\n## Description\r\n\r\nFlame is self-hosted startpage for your server. Its design is inspired (heavily) by [SUI](https://github.com/jeroenpardon/sui). Flame is very easy to setup and use. With built-in editors, it allows you to setup your very own application hub in no time - no file editing necessary.\r\n\r\n## Functionality\r\n- 📝 Create, update, delete your applications and bookmarks directly from the app using built-in GUI editors\r\n- 📌 Pin your favourite items to the homescreen for quick and easy access\r\n- 🔍 Integrated search bar with local filtering, 11 web search providers and ability to add your own\r\n- 🔑 Authentication system to protect your settings, apps and bookmarks\r\n- 🔨 Dozens of options to customize Flame interface to your needs, including support for custom CSS, 15 built-in color themes and custom theme builder\r\n- ☀️ Weather widget with current temperature, cloud coverage and animated weather status\r\n- 🐳 Docker integration to automatically pick and add apps based on their labels\r\n\r\n## Installation\r\n\r\n### With Docker (recommended)\r\n\r\n[Docker Hub link](https://hub.docker.com/r/pawelmalak/flame)\r\n\r\n```sh\r\ndocker pull pawelmalak/flame\r\n\r\n# for ARM architecture (e.g. RaspberryPi)\r\ndocker pull pawelmalak/flame:multiarch\r\n\r\n# installing specific version\r\ndocker pull pawelmalak/flame:2.0.0\r\n```\r\n\r\n#### Deployment\r\n\r\n```sh\r\n# run container\r\ndocker run -p 5005:5005 -v /path/to/data:/app/data -e PASSWORD=[redacted] pawelmalak/flame\r\n```\r\n\r\n#### Building images\r\n\r\n```sh\r\n# build image for amd64 only\r\ndocker build -t flame -f .docker/Dockerfile .\r\n\r\n# build multiarch image for amd64, armv7 and arm64\r\n# building failed multiple times with 2GB memory usage limit so you might want to increase it\r\ndocker buildx build \\\r\n  --platform linux/arm/v7,linux/arm64,linux/amd64 \\\r\n  -f .docker/Dockerfile.multiarch \\\r\n  -t flame:multiarch .\r\n```\r\n\r\n#### Docker-Compose\r\n\r\n```yaml\r\nversion: '3.6'\r\n\r\nservices:\r\n  flame:\r\n    image: pawelmalak/flame\r\n    container_name: flame\r\n    volumes:\r\n      - /path/to/host/data:/app/data\r\n      - /var/run/docker.sock:/var/run/docker.sock # optional but required for Docker integration\r\n    ports:\r\n      - 5005:5005\r\n    secrets:\r\n      - password # optional but required for (1)\r\n    environment:\r\n      - PASSWORD=[redacted]      - PASSWORD_FILE=/run/secrets/password # optional but required for (1)\r\n    restart: unless-stopped\r\n\r\n# optional but required for Docker secrets (1)\r\nsecrets:\r\n  password:\r\n    file: /path/to/secrets/password\r\n```\r\n\r\n##### Docker Secrets\r\n\r\nAll environment variables can be overwritten by appending `_FILE` to the variable value. For example, you can use `PASSWORD_FILE` to pass through a docker secret instead of `PASSWORD`. If both `PASSWORD` and `PASSWORD_FILE` are set, the docker secret will take precedent.\r\n\r\n```bash\r\n# ./secrets/flame_password\r\nmy_custom_secret_password_123\r\n\r\n# ./docker-compose.yml\r\nsecrets:\r\n  password:\r\n    file: ./secrets/flame_password\r\n```\r\n\r\n#### Skaffold\r\n\r\n```sh\r\n# use skaffold\r\nskaffold dev\r\n```\r\n\r\n### Without Docker\r\n\r\nFollow instructions from wiki: [Installation without Docker](https://github.com/pawelmalak/flame/wiki/Installation-without-docker)\r\n\r\n## Development\r\n\r\n### Technology\r\n\r\n- Backend\r\n  - Node.js + Express\r\n  - Sequelize ORM + SQLite\r\n- Frontend\r\n  - React\r\n  - Redux\r\n  - TypeScript\r\n- Deployment\r\n  - Docker\r\n  - Kubernetes\r\n\r\n### Creating dev environment\r\n\r\n```sh\r\n# clone repository\r\ngit clone https://github.com/pawelmalak/flame\r\ncd flame\r\n\r\n# run only once\r\nnpm run dev-init\r\n\r\n# start backend and frontend development servers\r\nnpm run dev\r\n```\r\n\r\n## Screenshots\r\n\r\n![Apps screenshot](.github/apps.png)\r\n\r\n![Bookmarks screenshot](.github/bookmarks.png)\r\n\r\n![Settings screenshot](.github/settings.png)\r\n\r\n![Themes screenshot](.github/themes.png)\r\n\r\n## Usage\r\n\r\n### Authentication\r\n\r\nVisit [project wiki](https://github.com/pawelmalak/flame/wiki/Authentication) to read more about authentication\r\n\r\n### Search bar\r\n\r\n#### Searching\r\n\r\nThe default search setting is to search through all your apps and bookmarks. If you want to search using specific search engine, you need to type your search query with selected prefix. For example, to search for \"what is docker\" using google search you would type: `/g what is docker`.\r\n\r\nFor list of supported search engines, shortcuts and more about searching functionality visit [project wiki](https://github.com/pawelmalak/flame/wiki/Search-bar).\r\n\r\n### Setting up weather module\r\n\r\n1. Obtain API Key from [Weather API](https://www.weatherapi.com/pricing.aspx).\r\n   > Free plan allows for 1M calls per month. Flame is making less then 3K API calls per month.\r\n2. Get lat/long for your location. You can get them from [latlong.net](https://www.latlong.net/convert-address-to-lat-long.html).\r\n3. Enter and save data. Weather widget will now update and should be visible on Home page.\r\n\r\n### Docker integration\r\n\r\nIn order to use the Docker integration, each container must have the following labels:\r\n\r\n```yml\r\nlabels:\r\n  - flame.type=application # \"app\" works too\r\n  - flame.name=My container\r\n  - flame.url=https://example.com\r\n  - flame.icon=icon-name # optional, default is \"docker\"\r\n# - flame.icon=custom to make changes in app. ie: custom icon upload\r\n```\r\n\r\n> \"Use Docker API\" option must be enabled for this to work. You can find it in Settings > Docker\r\n\r\nYou can also set up different apps in the same label adding `;` between each one.\r\n\r\n```yml\r\nlabels:\r\n  - flame.type=application\r\n  - flame.name=First App;Second App\r\n  - flame.url=https://example1.com;https://example2.com\r\n  - flame.icon=icon-name1;icon-name2\r\n```\r\n\r\nIf you want to use a remote docker host follow this instructions in the host:\r\n\r\n- Open the file `/lib/systemd/system/docker.service`, search for `ExecStart` and edit the value\r\n\r\n```text\r\nExecStart=/usr/bin/dockerd -H tcp://0.0.0.0:${PORT} -H unix:///var/run/docker.sock\r\n```\r\n\r\n>The above command will bind the docker engine server to the Unix socket as well as TCP port of your choice. “0.0.0.0” means docker-engine accepts connections from all IP addresses.\r\n\r\n- Restart the daemon and Docker service\r\n\r\n```shell\r\nsudo systemctl daemon-reload\r\nsudo service docker restart\r\n```\r\n\r\n- Test if it is working\r\n\r\n```shell\r\ncurl http://${IP}:${PORT}/version\r\n```\r\n\r\n### Kubernetes integration\r\n\r\nIn order to use the Kubernetes integration, each ingress must have the following annotations:\r\n\r\n```yml\r\nmetadata:\r\n  annotations:\r\n  - flame.pawelmalak/type=application # \"app\" works too\r\n  - flame.pawelmalak/name=My container\r\n  - flame.pawelmalak/url=https://example.com\r\n  - flame.pawelmalak/icon=icon-name # optional, default is \"kubernetes\"\r\n```\r\n\r\n> \"Use Kubernetes Ingress API\" option must be enabled for this to work. You can find it in Settings > Docker\r\n\r\n### Import HTML Bookmarks (Experimental)\r\n\r\n- Requirements\r\n  - python3\r\n  - pip packages: Pillow, beautifulsoup4\r\n- Backup your `db.sqlite` before running script!\r\n- Known Issues:\r\n  - generated icons are sometimes incorrect\r\n\r\n```bash\r\npip3 install Pillow, beautifulsoup4\r\n\r\ncd flame/.dev\r\npython3 bookmarks_importer.py --bookmarks <path to bookmarks.html> --data <path to flame data folder>\r\n```\r\n\r\n### Custom CSS and themes\r\n\r\nSee project wiki for [Custom CSS](https://github.com/pawelmalak/flame/wiki/Custom-CSS) and [Custom theme with CSS](https://github.com/pawelmalak/flame/wiki/Custom-theme-with-CSS).\r\n\n\n### ui:/\ntitle: Flame\nurl: /\nheadings: Good night!\nbuttons: \ninputs: input[text] \"\"\nlinks: Go to Settings -> /settings | /settings -> /settings/app |  -> /settings\ntext: You need to enable JavaScript to run this app.Tuesday, 27 October 2026Go to SettingsGood night!Welco\n\n### ui:/settings\ntitle: Flame\nurl: /settings\nheadings: Settings | App themes\nbuttons: \ninputs: \nlinks: Go back -> / | Theme -> /settings | App -> /settings/app\ntext: You need to enable JavaScript to run this app.SettingsGo backThemeAppApp themesblackboardgazetteespr\n\n### ui:/settings/app\ntitle: Flame\nurl: /settings/app\nheadings: Settings | Authentication\nbuttons: Login\ninputs: input[password] \"Password\" | select[select-one] \"Session duration\"\nlinks: Go back -> / | Theme -> /settings | App -> /settings/app | project wiki -> https://github.com/pawelmalak/flame/wiki/Authentication\ntext: You need to enable JavaScript to run this app.SettingsGo backThemeAppAuthenticationPasswordSee proje\n\n### ui:/\ntitle: Flame\nurl: /\nheadings: Good night!\nbuttons: \ninputs: input[text] \"\"\nlinks: Go to Settings -> /settings | /settings -> /settings/app |  -> /settings\ntext: You need to enable JavaScript to run this app.Tuesday, 27 October 2026Go to SettingsGood night!Welco\n=== END INVENTORY ===",
+  "reply": "{\"hypotheses\": [{\"behavior\": \"Adding an application via the GUI editor should persist after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestApp\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://example.com\"}, {\"op\": \"snapshot\", \"label\": \"before_reload\"}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_reload\"}], \"reads\": [{\"name\": \"app_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_reload\", \"read\": \"app_list_count\"}, \"right\": 1}]}, {\"behavior\": \"Deleting an application should remove it from the list after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestApp2\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://example2.com\"}, {\"op\": \"snapshot\", \"label\": \"before_delete\"}, {\"op\": \"click\", \"target\": {\"text\": \"Delete\"}}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_delete_reload\"}], \"reads\": [{\"name\": \"app_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_delete_reload\", \"read\": \"app_list_count\"}, \"right\": 0}]}, {\"behavior\": \"The count of applications displayed should equal the number of items in the list.\", \"property\": \"consistency\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"a count equals the number of listed items\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"snapshot\", \"label\": \"count_snapshot\"}], \"reads\": [{\"name\": \"app_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}, {\"name\": \"app_count_text\", \"what\": \"text\", \"target\": {\"text\": \"Count\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"count_snapshot\", \"read\": \"app_list_count\"}, \"right\": 10}]}, {\"behavior\": \"Sorting applications by name should order them alphabetically.\", \"property\": \"ordering\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"sorting by X orders by X\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"click\", \"target\": {\"text\": \"Sort by Name\"}}, {\"op\": \"snapshot\", \"label\": \"sorted_snapshot\"}], \"reads\": [{\"name\": \"first_app_name\", \"what\": \"text\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"contains\", \"left\": {\"snapshot\": \"sorted_snapshot\", \"read\": \"first_app_name\"}, \"right\": \"A\"}]}, {\"behavior\": \"The search bar should filter the list of applications in real-time.\", \"property\": \"consistency\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"local filtering\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Search\"}, \"value\": \"TestApp\"}, {\"op\": \"snapshot\", \"label\": \"filtered_snapshot\"}], \"reads\": [{\"name\": \"app_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"filtered_snapshot\", \"read\": \"app_list_count\"}, \"right\": 1}]}, {\"behavior\": \"Adding a bookmark should persist after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/bookmarks\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestBookmark\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://bookmark.com\"}, {\"op\": \"snapshot\", \"label\": \"before_reload_bookmark\"}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_reload_bookmark\"}], \"reads\": [{\"name\": \"bookmark_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_reload_bookmark\", \"read\": \"bookmark_list_count\"}, \"right\": 1}]}, {\"behavior\": \"Deleting a bookmark should remove it from the list after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/bookmarks\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestBookmark2\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://bookmark2.com\"}, {\"op\": \"snapshot\", \"label\": \"before_delete_bookmark\"}, {\"op\": \"click\", \"target\": {\"text\": \"Delete\"}}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_delete_bookmark_reload\"}], \"reads\": [{\"name\": \"bookmark_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_delete_bookmark_reload\", \"read\": \"bookmark_list_count\"}, \"right\": 0}]}, {\"behavior\": \"The count of bookmarks displayed should equal the number of items in the list.\", \"property\": \"consistency\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"a count equals the number of listed items\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/bookmarks\"}, {\"op\": \"snapshot\", \"label\": \"bookmark_count_snapshot\"}], \"reads\": [{\"name\": \"bookmark_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}, {\"name\": \"bookmark_count_text\", \"what\": \"text\", \"target\": {\"text\": \"Count\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"bookmark_count_snapshot\", \"read\": \"bookmark_list_count\"}, \"right\": 10}]}, {\"behavior\": \"Sorting bookmarks by name should order them alphabetically.\", \"property\": \"ordering\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"sorting by X orders by X\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/bookmarks\"}, {\"op\": \"click\", \"target\": {\"text\": \"Sort by Name\"}}, {\"op\": \"snapshot\", \"label\": \"sorted_bookmark_snapshot\"}], \"reads\": [{\"name\": \"first_bookmark_name\", \"what\": \"text\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"contains\", \"left\": {\"snapshot\": \"sorted_bookmark_snapshot\", \"read\": \"first_bookmark_name\"}, \"right\": \"A\"}]}, {\"behavior\": \"The search bar should filter the list of bookmarks in real-time.\", \"property\": \"consistency\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"local filtering\"}, \"impact\": 3, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/bookmarks\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Search\"}, \"value\": \"TestBookmark\"}, {\"op\": \"snapshot\", \"label\": \"filtered_bookmark_snapshot\"}], \"reads\": [{\"name\": \"bookmark_list_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"filtered_bookmark_snapshot\", \"read\": \"bookmark_list_count\"}, \"right\": 1}]}, {\"behavior\": \"Pinning an application should persist after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestPinnedApp\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://pinned.com\"}, {\"op\": \"click\", \"target\": {\"text\": \"Pin\"}}, {\"op\": \"snapshot\", \"label\": \"before_reload_pin\"}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_reload_pin\"}], \"reads\": [{\"name\": \"pinned_app_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_reload_pin\", \"read\": \"pinned_app_count\"}, \"right\": 1}]}, {\"behavior\": \"Unpinning an application should remove it from the pinned list after a page reload.\", \"property\": \"persistence\", \"expectation\": {\"kind\": \"universal\", \"quote\": \"what you add then remove is gone; what you save survives a reload\"}, \"impact\": 4, \"steps\": [{\"op\": \"goto\", \"path\": \"/settings/app\"}, {\"op\": \"fill\", \"target\": {\"text\": \"Name\"}, \"value\": \"TestUnpinnedApp\"}, {\"op\": \"fill\", \"target\": {\"text\": \"URL\"}, \"value\": \"https://unpinned.com\"}, {\"op\": \"click\", \"target\": {\"text\": \"Pin\"}}, {\"op\": \"click\", \"target\": {\"text\": \"Unpin\"}}, {\"op\": \"reload\"}, {\"op\": \"snapshot\", \"label\": \"after_unpin_reload\"}], \"reads\": [{\"name\": \"pinned_app_count\", \"what\": \"count\", \"target\": {\"role\": \"listitem\"}}], \"expect\": [{\"kind\": \"equals\", \"left\": {\"snapshot\": \"after_unpin_reload\", \"read\": \"pinned_app_count\"}, \"right\": 0}]}]}",
+  "generation": {
+    "status": "ok",
+    "finishReason": "stop"
+  },
+  "hypotheses": [
+    {
+      "id": "h1",
+      "behavior": "Adding an application via the GUI editor should persist after a page reload.",
+      "property": "persistence",
+      "expectation": {
+        "kind": "universal",
+        "quote": "what you add then remove is gone; what you save survives a reload"
+      },
+      "impact": 4,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Name"
+          },
+          "value": "TestApp"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "URL"
+          },
+          "value": "https://example.com"
+        },
+        {
+          "op": "snapshot",
+          "label": "before_reload"
+        },
+        {
+          "op": "reload"
+        },
+        {
+          "op": "snapshot",
+          "label": "after_reload"
+        }
+      ],
+      "reads": [
+        {
+          "name": "app_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "after_reload.app_list_count",
+          "right": 1
+        }
+      ]
+    },
+    {
+      "id": "h2",
+      "behavior": "Deleting an application should remove it from the list after a page reload.",
+      "property": "persistence",
+      "expectation": {
+        "kind": "universal",
+        "quote": "what you add then remove is gone; what you save survives a reload"
+      },
+      "impact": 4,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Name"
+          },
+          "value": "TestApp2"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "URL"
+          },
+          "value": "https://example2.com"
+        },
+        {
+          "op": "snapshot",
+          "label": "before_delete"
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Delete"
+          }
+        },
+        {
+          "op": "reload"
+        },
+        {
+          "op": "snapshot",
+          "label": "after_delete_reload"
+        }
+      ],
+      "reads": [
+        {
+          "name": "app_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "after_delete_reload.app_list_count",
+          "right": 0
+        }
+      ]
+    },
+    {
+      "id": "h3",
+      "behavior": "The count of applications displayed should equal the number of items in the list.",
+      "property": "consistency",
+      "expectation": {
+        "kind": "universal",
+        "quote": "a count equals the number of listed items"
+      },
+      "impact": 3,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "snapshot",
+          "label": "count_snapshot"
+        }
+      ],
+      "reads": [
+        {
+          "name": "app_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        },
+        {
+          "name": "app_count_text",
+          "what": "text",
+          "target": {
+            "text": "Count"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "count_snapshot.app_list_count",
+          "right": 10
+        }
+      ]
+    },
+    {
+      "id": "h4",
+      "behavior": "Sorting applications by name should order them alphabetically.",
+      "property": "ordering",
+      "expectation": {
+        "kind": "universal",
+        "quote": "sorting by X orders by X"
+      },
+      "impact": 3,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Sort by Name"
+          }
+        },
+        {
+          "op": "snapshot",
+          "label": "sorted_snapshot"
+        }
+      ],
+      "reads": [
+        {
+          "name": "first_app_name",
+          "what": "text",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "contains",
+          "left": "sorted_snapshot.first_app_name",
+          "right": "A"
+        }
+      ]
+    },
+    {
+      "id": "h5",
+      "behavior": "The search bar should filter the list of applications in real-time.",
+      "property": "consistency",
+      "expectation": {
+        "kind": "universal",
+        "quote": "local filtering"
+      },
+      "impact": 3,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Search"
+          },
+          "value": "TestApp"
+        },
+        {
+          "op": "snapshot",
+          "label": "filtered_snapshot"
+        }
+      ],
+      "reads": [
+        {
+          "name": "app_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "filtered_snapshot.app_list_count",
+          "right": 1
+        }
+      ]
+    },
+    {
+      "id": "h6",
+      "behavior": "Adding a bookmark should persist after a page reload.",
+      "property": "persistence",
+      "expectation": {
+        "kind": "universal",
+        "quote": "what you add then remove is gone; what you save survives a reload"
+      },
+      "impact": 4,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/bookmarks"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Name"
+          },
+          "value": "TestBookmark"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "URL"
+          },
+          "value": "https://bookmark.com"
+        },
+        {
+          "op": "snapshot",
+          "label": "before_reload_bookmark"
+        },
+        {
+          "op": "reload"
+        },
+        {
+          "op": "snapshot",
+          "label": "after_reload_bookmark"
+        }
+      ],
+      "reads": [
+        {
+          "name": "bookmark_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "after_reload_bookmark.bookmark_list_count",
+          "right": 1
+        }
+      ]
+    },
+    {
+      "id": "h7",
+      "behavior": "The count of bookmarks displayed should equal the number of items in the list.",
+      "property": "consistency",
+      "expectation": {
+        "kind": "universal",
+        "quote": "a count equals the number of listed items"
+      },
+      "impact": 3,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/bookmarks"
+        },
+        {
+          "op": "snapshot",
+          "label": "bookmark_count_snapshot"
+        }
+      ],
+      "reads": [
+        {
+          "name": "bookmark_list_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        },
+        {
+          "name": "bookmark_count_text",
+          "what": "text",
+          "target": {
+            "text": "Count"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "bookmark_count_snapshot.bookmark_list_count",
+          "right": 10
+        }
+      ]
+    },
+    {
+      "id": "h8",
+      "behavior": "Sorting bookmarks by name should order them alphabetically.",
+      "property": "ordering",
+      "expectation": {
+        "kind": "universal",
+        "quote": "sorting by X orders by X"
+      },
+      "impact": 3,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/bookmarks"
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Sort by Name"
+          }
+        },
+        {
+          "op": "snapshot",
+          "label": "sorted_bookmark_snapshot"
+        }
+      ],
+      "reads": [
+        {
+          "name": "first_bookmark_name",
+          "what": "text",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "contains",
+          "left": "sorted_bookmark_snapshot.first_bookmark_name",
+          "right": "A"
+        }
+      ]
+    },
+    {
+      "id": "h9",
+      "behavior": "Pinning an application should persist after a page reload.",
+      "property": "persistence",
+      "expectation": {
+        "kind": "universal",
+        "quote": "what you add then remove is gone; what you save survives a reload"
+      },
+      "impact": 4,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Name"
+          },
+          "value": "TestPinnedApp"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "URL"
+          },
+          "value": "https://pinned.com"
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Pin"
+          }
+        },
+        {
+          "op": "snapshot",
+          "label": "before_reload_pin"
+        },
+        {
+          "op": "reload"
+        },
+        {
+          "op": "snapshot",
+          "label": "after_reload_pin"
+        }
+      ],
+      "reads": [
+        {
+          "name": "pinned_app_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "after_reload_pin.pinned_app_count",
+          "right": 1
+        }
+      ]
+    },
+    {
+      "id": "h10",
+      "behavior": "Unpinning an application should remove it from the pinned list after a page reload.",
+      "property": "persistence",
+      "expectation": {
+        "kind": "universal",
+        "quote": "what you add then remove is gone; what you save survives a reload"
+      },
+      "impact": 4,
+      "steps": [
+        {
+          "op": "goto",
+          "path": "/settings/app"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "Name"
+          },
+          "value": "TestUnpinnedApp"
+        },
+        {
+          "op": "fill",
+          "target": {
+            "text": "URL"
+          },
+          "value": "https://unpinned.com"
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Pin"
+          }
+        },
+        {
+          "op": "click",
+          "target": {
+            "text": "Unpin"
+          }
+        },
+        {
+          "op": "reload"
+        },
+        {
+          "op": "snapshot",
+          "label": "after_unpin_reload"
+        }
+      ],
+      "reads": [
+        {
+          "name": "pinned_app_count",
+          "what": "count",
+          "target": {
+            "role": "listitem"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "equals",
+          "left": "after_unpin_reload.pinned_app_count",
+          "right": 0
+        }
+      ]
+    }
+  ],
+  "rejected": [
+    {
+      "index": 6,
+      "why": "steps missing, too many, or malformed"
+    },
+    {
+      "index": 9,
+      "why": "steps missing, too many, or malformed"
+    }
+  ],
+  "results": [
+    {
+      "hypothesis": {
+        "id": "h3",
+        "behavior": "The count of applications displayed should equal the number of items in the list.",
+        "property": "consistency",
+        "expectation": {
+          "kind": "universal",
+          "quote": "a count equals the number of listed items"
+        },
+        "impact": 3,
+        "steps": [
+          {
+            "op": "goto",
+            "path": "/settings/app"
+          },
+          {
+            "op": "snapshot",
+            "label": "count_snapshot"
+          }
+        ],
+        "reads": [
+          {
+            "name": "app_list_count",
+            "what": "count",
+            "target": {
+              "role": "listitem"
+            }
+          },
+          {
+            "name": "app_count_text",
+            "what": "text",
+            "target": {
+              "text": "Count"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "kind": "equals",
+            "left": "count_snapshot.app_list_count",
+            "right": 10
+          }
+        ]
+      },
+      "priority": 1.125,
+      "outcome": "supported_violation",
+      "reason": "violated in two independent sessions",
+      "runs": [
+        {
+          "steps": [
+            {
+              "step": {
+                "op": "goto",
+                "path": "/settings/app"
+              },
+              "ok": true
+            },
+            {
+              "step": {
+                "op": "snapshot",
+                "label": "count_snapshot"
+              },
+              "ok": true
+            }
+          ],
+          "readings": [
+            {
+              "label": "count_snapshot",
+              "name": "app_list_count",
+              "value": 0
+            },
+            {
+              "label": "count_snapshot",
+              "name": "app_count_text",
+              "value": null
+            }
+          ],
+          "relations": [
+            {
+              "relation": {
+                "kind": "equals",
+                "left": "count_snapshot.app_list_count",
+                "right": 10
+              },
+              "held": false
+            }
+          ],
+          "environment": []
+        },
+        {
+          "steps": [
+            {
+              "step": {
+                "op": "goto",
+                "path": "/settings/app"
+              },
+              "ok": true
+            },
+            {
+              "step": {
+                "op": "snapshot",
+                "label": "count_snapshot"
+              },
+              "ok": true
+            }
+          ],
+          "readings": [
+            {
+              "label": "count_snapshot",
+              "name": "app_list_count",
+              "value": 0
+            },
+            {
+              "label": "count_snapshot",
+              "name": "app_count_text",
+              "value": null
+            }
+          ],
+          "relations": [
+            {
+              "relation": {
+                "kind": "equals",
+                "left": "count_snapshot.app_list_count",
+                "right": 10
+              },
+              "held": false
+            }
+          ],
+          "environment": []
+        }
+      ],
+      "durationMs": 16525
+    },
+    {
+      "hypothesis": {
+        "id": "h1",
+        "behavior": "Adding an application via the GUI editor should persist after a page reload.",
+        "property": "persistence",
+        "expectation": {
+          "kind": "universal",
+          "quote": "what you add then remove is gone; what you save survives a reload"
+        },
+        "impact": 4,
+        "steps": [
+          {
+            "op": "goto",
+            "path": "/settings/app"
+          },
+          {
+            "op": "fill",
+            "target": {
+              "text": "Name"
+            },
+            "value": "TestApp"
+          },
+          {
+            "op": "fill",
+            "target": {
+              "text": "URL"
+            },
+            "value": "https://example.com"
+          },
+          {
+            "op": "snapshot",
+            "label": "before_reload"
+          },
+          {
+            "op": "reload"
+          },
+          {
+            "op": "snapshot",
+            "label": "after_reload"
+          }
+        ],
+        "reads": [
+          {
+            "name": "app_list_count",
+            "what": "count",
+            "target": {
+              "role": "listitem"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "kind": "equals",
+            "left": "after_reload.app_list_count",
+            "right": 1
+          }
+        ]
+      },
+      "priority": 1,
+      "outcome": "unknown",
+      "reason": "step could not run ({\"op\":\"fill\",\"target\":{\"text\":\"Name\"},\"value\":\"TestApp\"}): locator.fill: Timeout 8000ms exceeded.",
+      "runs": [
+        {
+          "steps": [
+            {
+              "step": {
+                "op": "goto",
+                "path": "/settings/app"
+              },
+              "ok": true
+            },
+            {
+              "step": {
+                "op": "fill",
+                "target": {
+                  "text": "Name"
+                },
+                "value": "TestApp"
+              },
+              "ok": false,
+              "error": "locator.fill: Timeout 8000ms exceeded."
+            }
+          ],
+          "readings": [],
+          "relations": [
+            {
+              "relation": {
+                "kind": "equals",
+                "left": "after_reload.app_list_count",
+                "right": 1
+              },
+              "held": null
+            }
+          ],
+          "environment": []
+        }
+      ],
+      "durationMs": 13112
+    },
+    {
+      "hypothesis": {
+        "id": "h4",
+        "behavior": "Sorting applications by name should order them alphabetically.",
+        "property": "ordering",
+        "expectation": {
+          "kind": "universal",
+          "quote": "sorting by X orders by X"
+        },
+        "impact": 3,
+        "steps": [
+          {
+            "op": "goto",
+            "path": "/settings/app"
+          },
+          {
+            "op": "click",
+            "target": {
+              "text": "Sort by Name"
+            }
+          },
+          {
+            "op": "snapshot",
+            "label": "sorted_snapshot"
+          }
+        ],
+        "reads": [
+          {
+            "name": "first_app_name",
+            "what": "text",
+            "target": {
+              "role": "listitem"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "kind": "contains",
+            "left": "sorted_snapshot.first_app_name",
+            "right": "A"
+          }
+        ]
+      },
+      "priority": 1,
+      "outcome": "unknown",
+      "reason": "step could not run ({\"op\":\"click\",\"target\":{\"text\":\"Sort by Name\"}}): locator.click: Timeout 8000ms exceeded.",
+      "runs": [
+        {
+          "steps": [
+            {
+              "step": {
+                "op": "goto",
+                "path": "/settings/app"
+              },
+              "ok": true
+            },
+            {
+              "step": {
+                "op": "click",
+                "target": {
+                  "text": "Sort by Name"
+                }
+              },
+              "ok": false,
+              "error": "locator.click: Timeout 8000ms exceeded."
+            }
+          ],
+          "readings": [],
+          "relations": [
+            {
+              "relation": {
+                "kind": "contains",
+                "left": "sorted_snapshot.first_app_name",
+                "right": "A"
+              },
+              "held": null
+            }
+          ],
+          "environment": []
+        }
+      ],
+      "durationMs": 13058
+    },
+    {
+      "hypothesis": {
+        "id": "h5",
+        "behavior": "The search bar should filter the list of applications in real-time.",
+        "property": "consistency",
+        "expectation": {
+          "kind": "universal",
+          "quote": "local filtering"
+        },
+        "impact": 3,
+        "steps": [
+          {
+            "op": "goto",
+            "path": "/settings/app"
+          },
+          {
+            "op": "fill",
+            "target": {
+              "text": "Search"
+            },
+            "value": "TestApp"
+          },
+          {
+            "op": "snapshot",
+            "label": "filtered_snapshot"
+          }
+        ],
+        "reads": [
+          {
+            "name": "app_list_count",
+            "what": "count",
+            "target": {
+              "role": "listitem"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "kind": "equals",
+            "left": "filtered_snapshot.app_list_count",
+            "right": 1
+          }
+        ]
+      },
+      "priority": 1,
+      "outcome": "unknown",
+      "reason": "step could not run ({\"op\":\"fill\",\"target\":{\"text\":\"Search\"},\"value\":\"TestApp\"}): locator.fill: Timeout 8000ms exceeded.",
+      "runs": [
+        {
+          "steps": [
+            {
+              "step": {
+                "op": "goto",
+                "path": "/settings/app"
+              },
+              "ok": true
+            },
+            {
+              "step": {
+                "op": "fill",
+                "target": {
+                  "text": "Search"
+                },
+                "value": "TestApp"
+              },
+              "ok": false,
+              "error": "locator.fill: Timeout 8000ms exceeded."
+            }
+          ],
+          "readings": [],
+          "relations": [
+            {
+              "relation": {
+                "kind": "equals",
+                "left": "filtered_snapshot.app_list_count",
+                "right": 1
+              },
+              "held": null
+            }
+          ],
+          "environment": []
+        }
+      ],
+      "durationMs": 13075
+    }
+  ],
+  "notRun": [
+    {
+      "id": "h2",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    },
+    {
+      "id": "h6",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    },
+    {
+      "id": "h7",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    },
+    {
+      "id": "h8",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    },
+    {
+      "id": "h9",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    },
+    {
+      "id": "h10",
+      "why": "near-duplicate of a higher-priority hypothesis"
+    }
+  ],
+  "counts": {
+    "generated": 10,
+    "executed": 4,
+    "supported_violation": 1,
+    "disproven": 0,
+    "unknown": 3,
+    "environment": 0
+  },
+  "observations": 2,
+  "stoppedBecause": "all prioritized hypotheses executed",
+  "isolation": "reset-per-run",
+  "ledger": {
+    "calls": 1,
+    "inputTokens": 3027,
+    "outputTokens": 2409,
+    "costUsd": 0,
+    "priced": true,
+    "capUsd": 2,
+    "models": [
+      "qwen3.5:9b"
+    ],
+    "elapsedMs": 162890
+  }
+}
