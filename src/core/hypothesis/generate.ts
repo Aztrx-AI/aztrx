@@ -33,6 +33,12 @@ const TARGET_SCHEMA = {
  * right *shape* and the closed vocabularies; `parseHypotheses` still checks the
  * per-op fields, because a schema cannot say "fill needs a value" cheaply.
  */
+const REF_SCHEMA = {
+  type: "object",
+  properties: { snapshot: { type: "string" }, read: { type: "string" } },
+  required: ["snapshot", "read"],
+};
+
 export const HYPOTHESES_SCHEMA = {
   type: "object",
   properties: {
@@ -78,9 +84,10 @@ export const HYPOTHESES_SCHEMA = {
               type: "object",
               properties: {
                 kind: { type: "string", enum: ["equals", "not_equals", "increased_by", "contains", "not_contains"] },
-                left: { type: "string" },
+                left: REF_SCHEMA,
                 right: { type: ["string", "number"] },
-                base: { type: "string" },
+                right_ref: REF_SCHEMA,
+                base: REF_SCHEMA,
                 by: { type: "number" },
               },
               required: ["kind", "left"],
@@ -118,7 +125,8 @@ Reply with ONLY a JSON object {"hypotheses": [ ... ]} (no prose, no code fence),
  "impact": 1-5,
  "steps": [ {"op":"goto","path":"/x"} | {"op":"click","target":T} | {"op":"fill","target":T,"value":string} | {"op":"press","key":string} | {"op":"reload"} | {"op":"snapshot","label":string} ],
  "reads": [ {"name":string,"what":"count"|"text"|"value"|"visible","target":T} ],
- "expect": [ {"kind":"equals"|"not_equals","left":"label.name","right":"label.name"|string|number} | {"kind":"increased_by","left":"label.name","base":"label.name","by":number} | {"kind":"contains"|"not_contains","left":"label.name","right":string} ]
+ "expect": [ {"kind":"equals"|"not_equals","left":R,"right":string|number  OR  "right_ref":R} | {"kind":"increased_by","left":R,"base":R,"by":number} | {"kind":"contains"|"not_contains","left":R,"right":string} ]
+where R = {"snapshot": a label you used in a snapshot step, "read": the name of one of your reads}, e.g. {"snapshot":"after_add","read":"item_count"}. A reading only exists at a snapshot, so every R names both.
 }
 where T is an object with any of: text, label, placeholder, role, selector (prefer text/label/role over selector).
 Every read is taken at every snapshot. "count" counts elements matching T; "text" is the visible text of the first match; "value" is an input's value; "visible" is true/false.`;
@@ -179,9 +187,27 @@ function asRead(x: unknown): Read | undefined {
 
 const REF = /^[\w-]+\.[\w-]+$/;
 
+/** A reference to a reading: `{snapshot, read}` (constrained form) or `"label.name"` (older form). */
+function asRef(v: unknown): string | undefined {
+  if (typeof v === "string") return REF.test(v) ? v : undefined;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const ref = `${o.snapshot}.${o.read}`;
+    return typeof o.snapshot === "string" && typeof o.read === "string" && REF.test(ref) ? ref : undefined;
+  }
+  return undefined;
+}
+
 function asRelation(x: unknown): Relation | undefined {
   if (!x || typeof x !== "object") return undefined;
-  const o = x as Record<string, unknown>;
+  const raw = x as Record<string, unknown>;
+  // Normalise references to "label.name"; a malformed one stays malformed (never guessed).
+  const o: Record<string, unknown> = { ...raw };
+  const left = asRef(raw.left);
+  o.left = left ?? "";
+  if (raw.base !== undefined) o.base = asRef(raw.base) ?? "";
+  if (raw.right_ref !== undefined) o.right = asRef(raw.right_ref);
+  else if (raw.right && typeof raw.right === "object") o.right = asRef(raw.right);
   if (typeof o.kind !== "string" || !REL.has(o.kind) || typeof o.left !== "string" || !REF.test(o.left)) return undefined;
   const scalar = (v: unknown): v is string | number => typeof v === "string" || typeof v === "number";
   switch (o.kind) {

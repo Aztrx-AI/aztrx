@@ -87,3 +87,27 @@ The only change: `src/core/llm.ts` passes `num_ctx` (default 16384, `AZTRX_NUM_C
 to Ollama, for both arms. No prompt, schema, validator, budget or protocol rule
 changes. Attempt 2 is a second attempt on a task whose first attempt was seen, and
 runs both arms from fresh containers under the unchanged budgets.
+
+## Addendum B — attempt 2 void, attempt 3 (recorded before attempt 3 ran)
+
+Attempt 2 (engine `57fa0c6`, `num_ctx` fixed) again reached no experiments, for two
+further interface reasons, both seen in the run traces and neither about the task:
+
+- Arm A: generation completed (`stop`, 1,836 tokens) and returned 12 hypotheses, **all
+  rejected** by the validator: every relation named a reading bare (`"app_list_count"`)
+  where the contract needs `snapshot.reading`. The schema typed references as plain
+  strings; Ollama does not enforce JSON-Schema `pattern` (probed: it returned a
+  non-matching string), so the format could not be required that way.
+- Arm B: 4 turns, 1 valid call (`look`), then three identical `click` calls with
+  `target` as the string `"text: Go to Settings"`; the runtime rejected each correctly
+  ("must be an object") and the 3-consecutive-invalid cap ended the run. The message
+  gave no example of the right shape.
+
+Changes (interface compliance only, app-agnostic, developed against the dev fixture
+and unit tests, not by re-running Flame): references in the hypothesis schema are now
+objects `{snapshot, read}` (object shape *is* enforced by constrained decoding); the
+parser accepts both that and the old dotted form and still rejects bare or partial
+references; invalid baseline tool calls are answered with the tool's worked example.
+No budget, cap, validator rule, outcome rule, or the three-strike limit changed.
+Attempt 3 is the third attempt on a task whose earlier attempts were seen; the
+sealed answer has not been opened.

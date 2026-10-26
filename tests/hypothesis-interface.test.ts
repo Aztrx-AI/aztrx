@@ -173,3 +173,35 @@ test("baseline: a report call is recorded as a claim", async () => {
     app.close();
   }
 });
+
+test("relations accept structured {snapshot, read} references and still reject malformed ones", () => {
+  const structured = {
+    ...valid,
+    expect: [{ kind: "increased_by", left: { snapshot: "b", read: "n" }, base: { snapshot: "a", read: "n" }, by: 1 }],
+  };
+  const withRef = { ...valid, expect: [{ kind: "equals", left: { snapshot: "b", read: "n" }, right_ref: { snapshot: "a", read: "n" } }] };
+  const bareName = { ...valid, expect: [{ kind: "equals", left: "n", right: 1 }] };
+  const noRead = { ...valid, expect: [{ kind: "equals", left: { snapshot: "b" }, right: 1 }] };
+  const badRight = { ...valid, expect: [{ kind: "equals", left: { snapshot: "b", read: "n" }, right_ref: { snapshot: "a" } }] };
+  const r = parseHypotheses(JSON.stringify({ hypotheses: [structured, withRef, bareName, noRead, badRight] }), inv);
+  assert.equal(r.accepted.length, 2);
+  assert.deepEqual(r.accepted[0].expect, [{ kind: "increased_by", left: "b.n", base: "a.n", by: 1 }]);
+  assert.deepEqual(r.accepted[1].expect, [{ kind: "equals", left: "b.n", right: "a.n" }]);
+  assert.equal(r.rejected.length, 3, "a bare reading name, a half reference and a bad right_ref are not guessed at");
+});
+
+test("baseline: an invalid call is answered with a worked example of the right shape", async () => {
+  const app = await page();
+  try {
+    const r = await runBaseline({
+      baseUrl: app.url,
+      callTools: scripted([{ name: "click", arguments: { target: "text: Go" } }, { name: "done", arguments: {} }]),
+      ledger: new Ledger(),
+      maxTurns: 3,
+      maxMs: 60_000,
+    });
+    assert.match(r.turns[0].observation, /must be an object\. A valid call looks like click\(\{"target":\{"text":"Save"\}\}\)/);
+  } finally {
+    app.close();
+  }
+});

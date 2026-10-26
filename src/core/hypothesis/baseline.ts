@@ -49,6 +49,8 @@ interface ToolContext {
 }
 
 interface Tool extends ToolDef {
+  /** A valid arguments object, quoted back to the model when it sends an invalid one. */
+  example: Record<string, unknown>;
   /** Does a successful call return what the page now looks like? */
   observes: boolean;
   /** Extra argument checks the schema cannot express; return a message when invalid. */
@@ -68,6 +70,7 @@ const hasTarget = (v: unknown): string | undefined => {
 export const TOOLS: Tool[] = [
   {
     name: "look",
+    example: {},
     description: "See the current page: URL, title, visible text and the interactive controls (buttons, links, inputs) on it.",
     parameters: { type: "object", properties: {} },
     observes: true,
@@ -75,6 +78,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "goto",
+    example: { path: "/settings" },
     description: "Open a page of the app by its path.",
     parameters: { type: "object", properties: { path: { type: "string", description: "same-origin path starting with /, e.g. /settings" } }, required: ["path"] },
     observes: true,
@@ -86,6 +90,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "click",
+    example: { target: { text: "Save" } },
     description: "Click an element, then see the page.",
     parameters: { type: "object", properties: { target: TARGET_SCHEMA }, required: ["target"] },
     observes: true,
@@ -98,6 +103,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "fill",
+    example: { target: { label: "Name" }, value: "example" },
     description: "Type a value into an input, replacing what is there. Does not submit; press Enter or click the submit control afterwards.",
     parameters: { type: "object", properties: { target: TARGET_SCHEMA, value: { type: "string" } }, required: ["target", "value"] },
     observes: false,
@@ -109,6 +115,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "press",
+    example: { key: "Enter" },
     description: "Press a keyboard key (e.g. Enter, Tab, Escape), then see the page.",
     parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
     observes: true,
@@ -121,6 +128,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "reload",
+    example: {},
     description: "Reload the current page, then see it.",
     parameters: { type: "object", properties: {} },
     observes: true,
@@ -131,6 +139,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "report",
+    example: { claim: "did X and saw Y", why_it_is_wrong: "Z should have happened" },
     description: "Record a defect you found: what you did, what you saw, and why it is wrong.",
     parameters: {
       type: "object",
@@ -146,6 +155,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "done",
+    example: {},
     description: "Finish the session.",
     parameters: { type: "object", properties: {} },
     observes: false,
@@ -284,7 +294,7 @@ export async function runBaseline(opts: {
         const bad = checkArguments(tool, call.arguments);
         if (bad) {
           status = "invalid_tool_call";
-          obs = `invalid arguments for "${call.name}": ${bad}.`;
+          obs = `invalid arguments for "${call.name}": ${bad}. A valid call looks like ${call.name}(${JSON.stringify(tool.example)}).`;
           m.invalidToolCalls++;
         } else {
           m.validToolCalls++;
