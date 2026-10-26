@@ -10,7 +10,89 @@
 
 import type { ExpectationKind, Hypothesis, Inventory, PropertyKind, Read, Relation, Step, Target } from "./types.js";
 
-export type Completer = (req: { system: string; prompt: string; maxTokens: number }) => Promise<string>;
+/** A reply, optionally with why generation stopped (`length` = possibly cut off). */
+export type CompleterReply = string | { text: string; finishReason?: string };
+export type Completer = (req: { system: string; prompt: string; maxTokens: number; schema?: object }) => Promise<CompleterReply>;
+
+export const replyText = (r: CompleterReply): { text: string; finishReason?: string } => (typeof r === "string" ? { text: r } : r);
+
+const TARGET_SCHEMA = {
+  type: "object",
+  properties: {
+    text: { type: "string" },
+    label: { type: "string" },
+    placeholder: { type: "string" },
+    role: { type: "string" },
+    selector: { type: "string" },
+  },
+};
+
+/**
+ * JSON Schema for the reply, handed to a transport that can constrain decoding.
+ * Deliberately flat (one step object with an `op` tag, not a oneOf): it forces the
+ * right *shape* and the closed vocabularies; `parseHypotheses` still checks the
+ * per-op fields, because a schema cannot say "fill needs a value" cheaply.
+ */
+export const HYPOTHESES_SCHEMA = {
+  type: "object",
+  properties: {
+    hypotheses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          behavior: { type: "string" },
+          property: { type: "string", enum: ["round-trip", "persistence", "consistency", "idempotence", "ordering", "documented", "other"] },
+          expectation: {
+            type: "object",
+            properties: { kind: { type: "string", enum: ["doc", "test", "ui", "universal"] }, quote: { type: "string" } },
+            required: ["kind"],
+          },
+          impact: { type: "integer", minimum: 1, maximum: 5 },
+          steps: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                op: { type: "string", enum: ["goto", "click", "fill", "press", "reload", "snapshot"] },
+                path: { type: "string" },
+                target: TARGET_SCHEMA,
+                value: { type: "string" },
+                key: { type: "string" },
+                label: { type: "string" },
+              },
+              required: ["op"],
+            },
+          },
+          reads: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { name: { type: "string" }, what: { type: "string", enum: ["count", "text", "value", "visible"] }, target: TARGET_SCHEMA },
+              required: ["name", "what", "target"],
+            },
+          },
+          expect: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: ["equals", "not_equals", "increased_by", "contains", "not_contains"] },
+                left: { type: "string" },
+                right: { type: ["string", "number"] },
+                base: { type: "string" },
+                by: { type: "number" },
+              },
+              required: ["kind", "left"],
+            },
+          },
+        },
+        required: ["behavior", "property", "expectation", "impact", "steps", "reads", "expect"],
+      },
+    },
+  },
+  required: ["hypotheses"],
+};
 
 const SYSTEM = `You design experiments that expose behavioral defects in a running web application, using only what a user could see and do.
 
@@ -28,7 +110,7 @@ Rules for every hypothesis:
 4. Stay inside the product: only same-origin pages, only data you create yourself with obviously synthetic values. No login attempts, no deleting pre-existing data, no payments, no scanning, no attacks.
 5. Prefer hypotheses where you are genuinely unsure of the outcome and a failure would matter to users. Do not propose a check you are certain will pass.
 
-Reply with ONLY a JSON array (no prose, no code fence) of objects:
+Reply with ONLY a JSON object {"hypotheses": [ ... ]} (no prose, no code fence), each element:
 {
  "behavior": string,
  "property": "round-trip"|"persistence"|"consistency"|"idempotence"|"ordering"|"documented"|"other",
@@ -113,17 +195,51 @@ function asRelation(x: unknown): Relation | undefined {
   }
 }
 
-/** Pull a JSON array out of a reply, tolerating a code fence or stray prose. */
-function jsonArray(text: string): unknown[] {
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start < 0 || end <= start) return [];
+export type GenerationStatus =
+  /** At least one hypothesis passed validation. */
+  | "ok"
+  /** The reply was not the JSON we asked for (unparseable, truncated, wrong shape). Nothing was salvaged. */
+  | "format_error"
+  /** The reply was valid and said there is nothing worth testing. */
+  | "no_hypotheses"
+  /** The reply was valid JSON with candidates, and every one failed validation. */
+  | "all_rejected";
+
+/**
+ * Extract the hypothesis list from a reply. Accepts `{"hypotheses":[…]}` or a bare
+ * array (older prompt, other providers), tolerating a code fence, but never guesses:
+ * anything else is a format error with the reason.
+ */
+function extractList(text: string, truncated: boolean): { list: unknown[] } | { error: string } {
+  const t = text.trim();
+  if (!t) return { error: "empty reply" };
+  const fenced = t.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  const body = fenced ? fenced[1].trim() : t;
+  let v: unknown;
   try {
-    const v = JSON.parse(text.slice(start, end + 1));
-    return Array.isArray(v) ? v : [];
+    v = JSON.parse(body);
   } catch {
-    return [];
+    // Prose around JSON the model really wrote (unconstrained providers): read the
+    // outermost array or object, as written. Anything that still does not parse is a format error.
+    for (const [open, close] of [["{", "}"], ["[", "]"]] as const) {
+      const i = body.indexOf(open);
+      const j = body.lastIndexOf(close);
+      if (i < 0 || j <= i) continue;
+      try {
+        const cand: unknown = JSON.parse(body.slice(i, j + 1));
+        if (Array.isArray(cand) || (cand && typeof cand === "object" && Array.isArray((cand as { hypotheses?: unknown }).hypotheses))) {
+          v = cand;
+          break;
+        }
+      } catch {
+        /* try the next shape */
+      }
+    }
+    if (v === undefined) return { error: truncated ? "reply was cut off by the output limit before the JSON closed" : "reply is not valid JSON" };
   }
+  if (Array.isArray(v)) return { list: v };
+  if (v && typeof v === "object" && Array.isArray((v as { hypotheses?: unknown }).hypotheses)) return { list: (v as { hypotheses: unknown[] }).hypotheses };
+  return { error: 'JSON has no "hypotheses" array' };
 }
 
 export interface Rejected {
@@ -137,23 +253,34 @@ export interface Rejected {
  * is not the model's hypothesis. A cited quote that is not in the inventory
  * demotes the expectation to `universal`, because the model never saw it.
  */
-export function parseHypotheses(reply: string, inv: Inventory): { accepted: Hypothesis[]; rejected: Rejected[] } {
+export function parseHypotheses(
+  reply: string,
+  inv: Inventory,
+  finishReason?: string
+): { accepted: Hypothesis[]; rejected: Rejected[]; status: GenerationStatus; formatError?: string } {
   const hay = norm(inv.text);
   const accepted: Hypothesis[] = [];
   const rejected: Rejected[] = [];
-  jsonArray(reply).forEach((raw, index) => {
+  const extracted = extractList(reply, finishReason === "length" || finishReason === "max_tokens");
+  if ("error" in extracted) return { accepted, rejected, status: "format_error", formatError: extracted.error };
+  extracted.list.forEach((raw, index) => {
     const o = (raw ?? {}) as Record<string, unknown>;
     const steps = Array.isArray(o.steps) ? o.steps.map(asStep) : [];
     const reads = Array.isArray(o.reads) ? o.reads.map(asRead) : [];
     const expect = Array.isArray(o.expect) ? o.expect.map(asRelation) : [];
     const exp = (o.expectation ?? {}) as Record<string, unknown>;
-    if (typeof o.behavior !== "string" || !o.behavior.trim()) return void rejected.push({ index, why: "no behavior" });
+    if (typeof o.behavior !== "string" || o.behavior.trim().length < 15) return void rejected.push({ index, why: "no meaningful behavior statement" });
     if (typeof o.property !== "string" || !PROPERTIES.has(o.property as PropertyKind)) return void rejected.push({ index, why: "unknown property kind" });
     if (typeof exp.kind !== "string" || !KINDS.has(exp.kind as ExpectationKind)) return void rejected.push({ index, why: "no expectation source" });
     if (!steps.length || steps.length > 12 || steps.some((s) => !s)) return void rejected.push({ index, why: "steps missing, too many, or malformed" });
     if (!reads.length || reads.some((r) => !r)) return void rejected.push({ index, why: "reads missing or malformed" });
     if (!expect.length || expect.some((r) => !r)) return void rejected.push({ index, why: "expectations missing or malformed" });
 
+    // Actionable: the script has to do something to the app, and has to take at
+    // least one reading moment; otherwise there is nothing to compare.
+    const stepList = steps as Step[];
+    if (!stepList.some((s) => s.op !== "snapshot")) return void rejected.push({ index, why: "script performs no action" });
+    if (!stepList.some((s) => s.op === "snapshot")) return void rejected.push({ index, why: "script takes no snapshot" });
     const snaps = new Set((steps as Step[]).filter((s) => s.op === "snapshot").map((s) => (s as { label: string }).label));
     const names = new Set((reads as Read[]).map((r) => r.name));
     // `left` and `base` are always readings. `right` is a reading only when its
@@ -167,6 +294,8 @@ export function parseHypotheses(reply: string, inv: Inventory): { accepted: Hypo
       .flatMap((r) => [r.left, ...("base" in r ? [r.base] : []), ...("right" in r && typeof r.right === "string" && snaps.has(r.right.split(".")[0]) && REF.test(r.right) ? [r.right] : [])])
       .find((ref) => !resolves(ref));
     if (bad) return void rejected.push({ index, why: `relation refers to unknown snapshot/read: ${bad}` });
+    if ((expect as Relation[]).some((r) => (r.kind === "equals" || r.kind === "not_equals") && r.right === r.left))
+      return void rejected.push({ index, why: "relation compares a reading with itself" });
 
     let kind = exp.kind as ExpectationKind;
     let quote = typeof exp.quote === "string" ? exp.quote.trim() : undefined;
@@ -185,7 +314,8 @@ export function parseHypotheses(reply: string, inv: Inventory): { accepted: Hypo
       expect: expect as Relation[],
     });
   });
-  return { accepted, rejected };
+  const status: GenerationStatus = accepted.length ? "ok" : extracted.list.length ? "all_rejected" : "no_hypotheses";
+  return { accepted, rejected, status };
 }
 
 export async function generateHypotheses(
@@ -193,8 +323,8 @@ export async function generateHypotheses(
   complete: Completer,
   maxHypotheses = 12,
   maxTokens = 6000
-): Promise<{ accepted: Hypothesis[]; rejected: Rejected[]; prompt: string; reply: string }> {
+): Promise<{ accepted: Hypothesis[]; rejected: Rejected[]; prompt: string; reply: string; status: GenerationStatus; formatError?: string; finishReason?: string }> {
   const prompt = buildPrompt(inv, maxHypotheses);
-  const reply = await complete({ system: SYSTEM, prompt, maxTokens });
-  return { ...parseHypotheses(reply, inv), prompt, reply };
+  const { text: reply, finishReason } = replyText(await complete({ system: SYSTEM, prompt, maxTokens, schema: HYPOTHESES_SCHEMA }));
+  return { ...parseHypotheses(reply, inv, finishReason), prompt, reply, finishReason };
 }

@@ -15,7 +15,7 @@
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { complete, setUsageSink } from "../../src/core/llm.js";
+import { completeDetailed, completeWithTools, isOllama, resolveSettings, setUsageSink } from "../../src/core/llm.js";
 import { discover } from "../../src/core/hypothesis/index.js";
 import { runBaseline } from "../../src/core/hypothesis/baseline.js";
 import { Ledger, pricingFromEnv, redact } from "../../src/core/hypothesis/ledger.js";
@@ -40,10 +40,11 @@ const out = arg("out");
 if ((arm !== "pipeline" && arm !== "baseline") || !url || !out) die("usage: --arm pipeline|baseline --url <app> --out <dir> [--repo <dir>] [--cap <usd>] [--reset <cmd>]");
 
 const base = process.env.AZTRX_API_BASE?.trim();
-if (!base || !process.env.AZTRX_API_KEY || !process.env.AZTRX_MODEL) {
-  die("set AZTRX_API_BASE, AZTRX_API_KEY and AZTRX_MODEL for this project (nothing else is read). OpenAI: AZTRX_API_BASE=https://api.openai.com/v1");
-}
-const pricing = pricingFromEnv();
+if (!base || !process.env.AZTRX_MODEL) die("set AZTRX_API_BASE and AZTRX_MODEL for this project (nothing else is read)");
+// A local Ollama endpoint needs no key and costs nothing; anything else is paid and must be priced and keyed.
+const local = isOllama(resolveSettings());
+if (!local && !process.env.AZTRX_API_KEY) die("set AZTRX_API_KEY. OpenAI: AZTRX_API_BASE=https://api.openai.com/v1");
+const pricing = local ? { inputPerM: 0, outputPerM: 0 } : pricingFromEnv();
 if (!pricing) die("set AZTRX_PRICE_IN and AZTRX_PRICE_OUT (USD per 1M tokens) so the spend cap can be enforced");
 
 // Per-arm cap: two arms at the default stay under the $5 pilot limit with margin.
@@ -56,7 +57,7 @@ setUsageSink(ledger.record);
 const repoDir = arg("repo");
 const resetCmd = arg("reset");
 const reset = resetCmd ? async () => void execSync(resetCmd, { stdio: "ignore", timeout: 120_000 }) : undefined;
-const completer = (req: { system: string; prompt: string; maxTokens: number }) => complete(req);
+const completer = (req: { system: string; prompt: string; maxTokens: number; schema?: object }) => completeDetailed(req);
 
 const BUDGET = { maxMs: 10 * 60_000, experiments: 12, turns: 40 };
 
@@ -74,11 +75,11 @@ const meta = {
 try {
   if (arm === "pipeline") {
     const r = await discover({ baseUrl: url, repoDir, complete: completer, ledger, maxMs: BUDGET.maxMs, maxExperiments: BUDGET.experiments, outDir: out, reset });
-    console.log(JSON.stringify({ ...meta, counts: r.counts, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
+    console.log(JSON.stringify({ ...meta, generation: r.generation, counts: r.counts, observations: r.observations, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
   } else {
-    const r = await runBaseline({ baseUrl: url, repoDir, complete: completer, ledger, maxTurns: BUDGET.turns, maxMs: BUDGET.maxMs });
+    const r = await runBaseline({ baseUrl: url, repoDir, callTools: completeWithTools, ledger, maxTurns: BUDGET.turns, maxMs: BUDGET.maxMs });
     fs.writeFileSync(path.join(out, "baseline-report.json"), redact(JSON.stringify({ ...meta, ...r }, null, 2)));
-    console.log(JSON.stringify({ ...meta, claims: r.claims.length, turns: r.turns.length, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
+    console.log(JSON.stringify({ ...meta, claims: r.claims.length, metrics: r.metrics, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
   }
 } catch (e) {
   die(redact(String((e as Error).message ?? e)));

@@ -80,6 +80,36 @@ export interface CompleteOptions {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** JSON Schema the reply must satisfy. Enforced by constrained decoding where the
+   * transport supports it (Ollama native); ignored elsewhere, so callers still validate. */
+  schema?: object;
+  /** Let a reasoning model think before answering. Default off on the Ollama
+   * transport: thinking tokens count against `maxTokens` there and can starve the answer. */
+  think?: boolean;
+}
+
+/** A completion plus why it stopped — `length` means the text may be cut off. */
+export interface CompletionResult {
+  text: string;
+  finishReason?: string;
+}
+
+export interface ToolDef {
+  name: string;
+  description: string;
+  /** JSON Schema of the arguments object. */
+  parameters: object;
+}
+
+export interface ToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolReply {
+  calls: ToolCall[];
+  text: string;
+  finishReason?: string;
 }
 
 // Announce the resolved model once per distinct (provider, model), so the two-tier
@@ -110,8 +140,53 @@ export function setUsageSink(fn: ((u: LlmUsage) => void) | undefined): void {
   usageSink = fn;
 }
 
+/**
+ * Ollama serves an OpenAI-compatible `/v1`, but that surface cannot turn thinking
+ * off, so reasoning tokens eat `max_tokens`. Its native `/api/chat` can, and also
+ * constrains output to a JSON Schema. An Ollama endpoint is therefore talked to
+ * natively. Detected by the default port, or forced with `AZTRX_TRANSPORT=ollama`.
+ */
+export function isOllama(s: LlmSettings = resolveSettings()): boolean {
+  if (process.env.AZTRX_TRANSPORT?.trim().toLowerCase() === "ollama") return true;
+  if (s.provider !== "openai" || !s.baseUrl) return false;
+  try {
+    return new URL(s.baseUrl).port === "11434";
+  } catch {
+    return false;
+  }
+}
+
 /** Run one completion against the active provider and return the text. */
 export async function complete(opts: CompleteOptions): Promise<string> {
+  return (await completeDetailed(opts)).text;
+}
+
+/** Like `complete`, but also reports the stop reason. */
+export async function completeDetailed(opts: CompleteOptions): Promise<CompletionResult> {
+  const s = resolveSettings();
+  if (isOllama(s)) {
+    const model = opts.model || primaryModel();
+    announce(model, s.provider, s.baseUrl);
+    const r = await ollamaChat(s, model, opts);
+    return { text: r.text, finishReason: r.finishReason };
+  }
+  return { text: await completeRemote(opts) };
+}
+
+/**
+ * One turn with tools the model may call. Supported on Ollama (native) and on
+ * OpenAI-compatible endpoints; the Anthropic transport has none here.
+ */
+export async function completeWithTools(opts: CompleteOptions & { tools: ToolDef[] }): Promise<ToolReply> {
+  const s = resolveSettings();
+  const model = opts.model || primaryModel();
+  announce(model, s.provider, s.baseUrl);
+  if (isOllama(s)) return ollamaChat(s, model, opts);
+  if (s.provider === "openai") return openaiTools(s, model, opts);
+  throw new Error("tool calling is not implemented for the Anthropic transport");
+}
+
+async function completeRemote(opts: CompleteOptions): Promise<string> {
   const s = resolveSettings();
   const model = opts.model || primaryModel();
   if (!model) {
@@ -257,4 +332,96 @@ async function openaiComplete(
     if (text.trim()) return text;
   }
   throw emptyCompletion("OpenAI-compatible endpoint", model, choice?.finish_reason);
+}
+
+const toolWire = (tools: ToolDef[]) =>
+  tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
+
+function toArgs(raw: unknown): Record<string, unknown> {
+  let v = raw;
+  if (typeof raw === "string") {
+    try { v = JSON.parse(raw); } catch { v = undefined; }
+  }
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+/** Native Ollama `/api/chat`: schema-constrained output, tool calls, thinking switch. */
+async function ollamaChat(
+  s: LlmSettings,
+  model: string,
+  opts: CompleteOptions & { tools?: ToolDef[] },
+): Promise<ToolReply> {
+  const root = (s.baseUrl ?? "http://localhost:11434").replace(/\/v1$/, "");
+  const res = await fetch(`${root}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(s.apiKey ? { authorization: `Bearer ${s.apiKey}` } : {}) },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      think: opts.think ?? false,
+      options: { temperature: opts.temperature ?? 0, num_predict: opts.maxTokens ?? 2048 },
+      ...(opts.schema ? { format: opts.schema } : {}),
+      ...(opts.tools ? { tools: toolWire(opts.tools) } : {}),
+      messages: [
+        { role: "system", content: opts.system },
+        { role: "user", content: opts.prompt },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`LLM request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    error?: string;
+    message?: { content?: string; tool_calls?: Array<{ function?: { name?: string; arguments?: unknown } }> };
+    done_reason?: string;
+    prompt_eval_count?: number;
+    eval_count?: number;
+  };
+  if (data.error) throw new Error(`LLM request failed: ${data.error}`);
+  usageSink?.({ model, inputTokens: data.prompt_eval_count ?? 0, outputTokens: data.eval_count ?? 0 });
+  const calls: ToolCall[] = (data.message?.tool_calls ?? []).map((c) => ({
+    name: String(c.function?.name ?? ""),
+    arguments: toArgs(c.function?.arguments),
+  }));
+  const text = data.message?.content ?? "";
+  if (!calls.length && !text.trim()) throw emptyCompletion("Ollama", model, data.done_reason);
+  return { calls, text, finishReason: data.done_reason };
+}
+
+async function openaiTools(s: LlmSettings, model: string, opts: CompleteOptions & { tools: ToolDef[] }): Promise<ToolReply> {
+  const official = (s.baseUrl ?? "").includes("api.openai.com");
+  const res = await fetch(`${s.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${s.apiKey}` },
+    body: JSON.stringify({
+      model,
+      ...(official ? { max_completion_tokens: opts.maxTokens ?? 2048 } : { max_tokens: opts.maxTokens ?? 2048, temperature: opts.temperature ?? 0 }),
+      tools: toolWire(opts.tools),
+      messages: [
+        { role: "system", content: opts.system },
+        { role: "user", content: opts.prompt },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`LLM request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    error?: { message?: string };
+    choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: Array<{ function?: { name?: string; arguments?: string } }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  usageSink?.({ model, inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: data.usage?.completion_tokens ?? 0 });
+  if (data.error) throw new Error(`LLM request failed: ${data.error.message ?? "unknown error"}`);
+  const choice = data.choices?.[0];
+  const calls: ToolCall[] = (choice?.message?.tool_calls ?? []).map((c) => ({
+    name: String(c.function?.name ?? ""),
+    arguments: toArgs(c.function?.arguments),
+  }));
+  const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
+  if (!calls.length && !text.trim()) throw emptyCompletion("OpenAI-compatible endpoint", model, choice?.finish_reason);
+  return { calls, text, finishReason: choice?.finish_reason };
 }

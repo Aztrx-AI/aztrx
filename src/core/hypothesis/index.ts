@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { chromium } from "playwright";
-import { generateHypotheses, type Completer } from "./generate.js";
+import { generateHypotheses, type Completer, type GenerationStatus } from "./generate.js";
 import { buildInventory } from "./inventory.js";
 import { BudgetExceeded, Ledger, redact, sha256 } from "./ledger.js";
 import { prioritize, runHypothesis } from "./execute.js";
@@ -41,11 +41,15 @@ export interface DiscoveryReport {
   inventory: { sha256: string; sections: Array<{ source: string; chars: number }>; text: string };
   prompt: string;
   reply: string;
+  /** How hypothesis generation ended — `format_error` and `no_hypotheses` are different failures. */
+  generation: { status: GenerationStatus | "call_failed"; formatError?: string; finishReason?: string };
   hypotheses: Hypothesis[];
   rejected: Array<{ index: number; why: string }>;
   results: HypothesisResult[];
   notRun: Array<{ id: string; why: string }>;
   counts: Record<Outcome, number> & { generated: number; executed: number };
+  /** Readings that returned a real value (not null) across all executed runs. */
+  observations: number;
   stoppedBecause: string;
   /** `reset-per-run` when the environment was restored before each run. */
   isolation: "reset-per-run" | "shared-state";
@@ -75,12 +79,16 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoveryReport> 
     let rejected: Array<{ index: number; why: string }> = [];
     let prompt = "";
     let reply = "";
+    let generation: DiscoveryReport["generation"] = { status: "call_failed" };
     try {
-      ({ accepted, rejected, prompt, reply } = await generateHypotheses(inv, guarded, opts.maxHypotheses ?? 12));
+      const g = await generateHypotheses(inv, guarded, opts.maxHypotheses ?? 12);
+      ({ accepted, rejected, prompt, reply } = g);
+      generation = { status: g.status, ...(g.formatError ? { formatError: g.formatError } : {}), ...(g.finishReason ? { finishReason: g.finishReason } : {}) };
+      if (g.status !== "ok") stoppedBecause = `no experiments: generation ${g.status}${g.formatError ? ` (${g.formatError})` : ""}`;
     } catch (e) {
       stoppedBecause = e instanceof BudgetExceeded ? `budget: ${e.message}` : `generation failed: ${redact(String((e as Error).message))}`;
     }
-    Object.assign(report, { prompt: redact(prompt), reply: redact(reply), hypotheses: accepted, rejected });
+    Object.assign(report, { prompt: redact(prompt), reply: redact(reply), generation, hypotheses: accepted, rejected });
 
     const ordered = prioritize(accepted);
     const results: HypothesisResult[] = [];
@@ -114,6 +122,7 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoveryReport> 
     inventory: report.inventory ?? { sha256: "", sections: [], text: "" },
     prompt: report.prompt ?? "",
     reply: report.reply ?? "",
+    generation: report.generation ?? { status: "call_failed" },
     hypotheses: report.hypotheses ?? [],
     rejected: report.rejected ?? [],
     results,
@@ -126,6 +135,7 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoveryReport> 
       unknown: count("unknown"),
       environment: count("environment"),
     },
+    observations: results.reduce((n, r) => n + r.runs.reduce((m, run) => m + run.readings.filter((x) => x.value !== null).length, 0), 0),
     stoppedBecause,
     isolation: opts.reset ? "reset-per-run" : "shared-state",
     ledger: ledger.summary(),
@@ -139,5 +149,5 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoveryReport> 
 
 export * from "./types.js";
 export { Ledger, pricingFromEnv, BudgetExceeded, findLeaks, redact } from "./ledger.js";
-export { parseHypotheses } from "./generate.js";
+export { parseHypotheses, generateHypotheses, HYPOTHESES_SCHEMA, type GenerationStatus } from "./generate.js";
 export { prioritize, judge } from "./execute.js";
