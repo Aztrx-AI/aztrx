@@ -359,7 +359,9 @@ async function ollamaChat(
       model,
       stream: false,
       think: opts.think ?? false,
-      options: { temperature: opts.temperature ?? 0, num_predict: opts.maxTokens ?? 2048 },
+      // Ollama's default window is 4096 tokens shared by prompt and reply, and it silently
+      // truncates beyond that — a real app's inventory plus a 6000-token reply does not fit.
+      options: { temperature: opts.temperature ?? 0, num_predict: opts.maxTokens ?? 2048, num_ctx: Number(process.env.AZTRX_NUM_CTX) || 16384 },
       ...(opts.schema ? { format: opts.schema } : {}),
       ...(opts.tools ? { tools: toolWire(opts.tools) } : {}),
       messages: [
