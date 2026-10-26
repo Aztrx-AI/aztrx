@@ -243,6 +243,8 @@ export async function runBaseline(opts: {
   maxTurns: number;
   maxMs: number;
   maxTokensPerTurn?: number;
+  /** Signs the page in with credentials the operator supplied — the same session the other arm gets. */
+  setup?: (page: Page) => Promise<void>;
 }): Promise<BaselineReport> {
   const browser = await chromium.launch({ headless: true });
   const turns: BaselineReport["turns"] = [];
@@ -253,6 +255,7 @@ export async function runBaseline(opts: {
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await ctx.newPage();
+    if (opts.setup) await opts.setup(page);
     const inv = await buildInventory({ repoDir: opts.repoDir, page, baseUrl: opts.baseUrl });
     await page.goto(opts.baseUrl, { waitUntil: "load" });
     const transcript: string[] = [];

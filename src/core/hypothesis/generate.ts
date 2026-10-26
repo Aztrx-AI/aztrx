@@ -152,7 +152,7 @@ function asTarget(x: unknown): Target | undefined {
   return Object.keys(t).length ? t : undefined;
 }
 
-function asStep(x: unknown): Step | undefined {
+export function asStep(x: unknown): Step | undefined {
   if (!x || typeof x !== "object") return undefined;
   const o = x as Record<string, unknown>;
   switch (o.op) {
@@ -186,6 +186,19 @@ function asRead(x: unknown): Read | undefined {
 }
 
 const REF = /^[\w-]+\.[\w-]+$/;
+
+/** Say what is wrong with a relation, so a retry can act on it. */
+export function whyBadRelation(x: unknown): string {
+  if (!x || typeof x !== "object") return "is not an object";
+  const o = x as Record<string, unknown>;
+  if (typeof o.kind !== "string" || !REL.has(o.kind)) return `has kind ${JSON.stringify(o.kind)}; use one of ${[...REL].join(", ")}`;
+  if (!asRef(o.left)) return 'needs "left" as {"snapshot": <a snapshot label>, "read": <a read name>}';
+  if (o.kind === "increased_by") {
+    if (!asRef(o.base)) return 'increased_by needs "base" as {"snapshot":…, "read":…}';
+    if (typeof o.by !== "number") return 'increased_by needs a numeric "by"';
+  } else if (o.right === undefined && o.right_ref === undefined) return `${o.kind} needs "right" (a value) or "right_ref" (a reading)`;
+  return "is malformed";
+}
 
 /** A reference to a reading: `{snapshot, read}` (constrained form) or `"label.name"` (older form). */
 function asRef(v: unknown): string | undefined {
@@ -268,6 +281,20 @@ function extractList(text: string, truncated: boolean): { list: unknown[] } | { 
   return { error: 'JSON has no "hypotheses" array' };
 }
 
+/** Which kind of source a verbatim quote was found in (docs, a test name, or the UI), or undefined if nowhere. */
+export function sourceKindOf(inv: Inventory, quote: string): ExpectationKind | undefined {
+  const q = norm(quote);
+  for (const section of inv.text.split(/^### /m)) {
+    const nl = section.indexOf("\n");
+    if (nl < 0 || !norm(section.slice(nl)).includes(q)) continue;
+    const head = section.slice(0, nl);
+    if (/^docs?:/i.test(head)) return "doc";
+    if (/^tests?\b/i.test(head)) return "test";
+    if (/^ui:/i.test(head)) return "ui";
+  }
+  return undefined;
+}
+
 export interface Rejected {
   index: number;
   why: string;
@@ -300,7 +327,9 @@ export function parseHypotheses(
     if (typeof exp.kind !== "string" || !KINDS.has(exp.kind as ExpectationKind)) return void rejected.push({ index, why: "no expectation source" });
     if (!steps.length || steps.length > 12 || steps.some((s) => !s)) return void rejected.push({ index, why: "steps missing, too many, or malformed" });
     if (!reads.length || reads.some((r) => !r)) return void rejected.push({ index, why: "reads missing or malformed" });
-    if (!expect.length || expect.some((r) => !r)) return void rejected.push({ index, why: "expectations missing or malformed" });
+    if (!expect.length) return void rejected.push({ index, why: "no expectations: \"expect\" needs at least one relation" });
+    const badAt = expect.findIndex((r) => !r);
+    if (badAt >= 0) return void rejected.push({ index, why: `expectation #${badAt + 1} ${whyBadRelation((o.expect as unknown[])[badAt])}` });
 
     // Actionable: the script has to do something to the app, and has to take at
     // least one reading moment; otherwise there is nothing to compare.
@@ -325,9 +354,13 @@ export function parseHypotheses(
 
     let kind = exp.kind as ExpectationKind;
     let quote = typeof exp.quote === "string" ? exp.quote.trim() : undefined;
-    if (kind !== "universal" && (!quote || quote.length < 6 || !hay.includes(norm(quote)))) {
+    const verified = Boolean(quote && quote.length >= 6 && hay.includes(norm(quote)));
+    if (!verified) {
       kind = "universal";
       quote = undefined;
+    } else if (kind === "universal") {
+      // A model that quotes the project's own words has cited a source whatever it called it.
+      kind = sourceKindOf(inv, quote as string) ?? "universal";
     }
     accepted.push({
       id: `h${accepted.length + 1}`,

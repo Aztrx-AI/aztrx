@@ -59,6 +59,15 @@ export type Relation =
 
 export type PropertyKind = "round-trip" | "persistence" | "consistency" | "idempotence" | "ordering" | "documented" | "other";
 
+/** How much a hypothesis is entitled to claim — computed from evidence, never self-declared. */
+export type Grounding =
+  | "specified" //   a requirement the project itself states, quote verified
+  | "general" //     a general property whose preconditions and operands are established
+  | "exploratory"; // an unverified assumption: worth an experiment, never a finding
+
+/** What a result may be called. */
+export type ResultStatus = "finding" | "lead" | "held" | "unknown" | "environment";
+
 export interface Hypothesis {
   id: string;
   /** One sentence, in the user's terms: what should be true. */
@@ -70,6 +79,10 @@ export interface Hypothesis {
   steps: Step[];
   reads: Read[];
   expect: Relation[];
+  /** Set by the investigator, which knows which controls it bound; otherwise derived from the run. */
+  grounding?: Grounding;
+  /** Why this experiment was chosen next (adaptive loop only). */
+  why?: string;
 }
 
 export type Outcome =

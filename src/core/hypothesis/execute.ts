@@ -121,7 +121,31 @@ export function judge(rel: Relation, readings: Reading[]): boolean | null {
 
 const ENV_ERR = /ERR_CONNECTION|ERR_NAME_NOT_RESOLVED|ECONNREFUSED|net::ERR_(?:ABORTED|FAILED)|ERR_EMPTY_RESPONSE/i;
 
-async function runOnce(ctx: BrowserContext, baseUrl: string, h: Hypothesis): Promise<RunTrace> {
+/** Prepares a fresh page before the script runs — e.g. signs in with credentials the operator supplied. */
+export type Setup = (page: Page) => Promise<void>;
+
+/** One non-snapshot step, on a page. The single driver for every runner. */
+export async function applyStep(page: Page, baseUrl: string, step: Exclude<Step, { op: "snapshot" }>): Promise<void> {
+  switch (step.op) {
+    case "goto":
+      await page.goto(new URL(step.path, baseUrl).toString(), { waitUntil: "load", timeout: 20_000 });
+      break;
+    case "click":
+      await locate(page, step.target).click({ timeout: STEP_TIMEOUT });
+      break;
+    case "fill":
+      await locate(page, step.target).fill(step.value, { timeout: STEP_TIMEOUT });
+      break;
+    case "press":
+      await page.keyboard.press(step.key);
+      break;
+    case "reload":
+      await page.reload({ waitUntil: "load", timeout: 20_000 });
+      break;
+  }
+}
+
+async function runOnce(ctx: BrowserContext, baseUrl: string, h: Hypothesis, setup?: Setup): Promise<RunTrace> {
   const page = await ctx.newPage();
   const origin = new URL(baseUrl).origin;
   const environment: string[] = [];
@@ -133,31 +157,27 @@ async function runOnce(ctx: BrowserContext, baseUrl: string, h: Hypothesis): Pro
   });
 
   const trace: RunTrace = { steps: [], readings: [], relations: [], environment };
+  if (setup) {
+    try {
+      await setup(page);
+    } catch (e) {
+      // A session that could not be established says nothing about the product.
+      environment.push(`setup failed: ${String((e as Error).message ?? e).split("\n")[0]}`);
+      trace.relations = h.expect.map((relation) => ({ relation, held: null }));
+      await page.close().catch(() => undefined);
+      return trace;
+    }
+  }
   const first = h.steps[0];
   if (!first || first.op !== "goto") await page.goto(baseUrl, { waitUntil: "load", timeout: 20_000 }).catch((e) => environment.push(String(e.message).split("\n")[0]));
 
   for (const step of h.steps) {
     try {
-      switch (step.op) {
-        case "goto":
-          await page.goto(new URL(step.path, baseUrl).toString(), { waitUntil: "load", timeout: 20_000 });
-          break;
-        case "click":
-          await locate(page, step.target).click({ timeout: STEP_TIMEOUT });
-          break;
-        case "fill":
-          await locate(page, step.target).fill(step.value, { timeout: STEP_TIMEOUT });
-          break;
-        case "press":
-          await page.keyboard.press(step.key);
-          break;
-        case "reload":
-          await page.reload({ waitUntil: "load", timeout: 20_000 });
-          break;
-        case "snapshot":
-          await page.waitForTimeout(300);
-          for (const r of h.reads) trace.readings.push({ label: step.label, name: r.name, value: await read(page, r) });
-          break;
+      if (step.op === "snapshot") {
+        await page.waitForTimeout(300);
+        for (const r of h.reads) trace.readings.push({ label: step.label, name: r.name, value: await read(page, r) });
+      } else {
+        await applyStep(page, baseUrl, step);
       }
       trace.steps.push({ step, ok: true });
       if (step.op !== "snapshot") await page.waitForTimeout(250);
@@ -208,7 +228,8 @@ export async function runHypothesis(
   baseUrl: string,
   h: Hypothesis,
   prio: number,
-  reset?: () => Promise<void>
+  reset?: () => Promise<void>,
+  setup?: Setup
 ): Promise<HypothesisResult> {
   const t0 = Date.now();
   const fresh = () => browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -218,7 +239,7 @@ export async function runHypothesis(
   let ctx = await fresh();
   try {
     await reset?.();
-    const a = await runOnce(ctx, baseUrl, h);
+    const a = await runOnce(ctx, baseUrl, h, setup);
     runs.push(a);
     const v = verdictOf(h, a);
     if (a.environment.length && v !== "preserved") return done("environment", `app dependency failed during the run: ${a.environment[0]}`);
@@ -231,7 +252,7 @@ export async function runHypothesis(
     await ctx.close();
     ctx = await fresh();
     await reset?.();
-    const b = await runOnce(ctx, baseUrl, h);
+    const b = await runOnce(ctx, baseUrl, h, setup);
     runs.push(b);
     if (b.environment.length) return done("environment", `app dependency failed on replay: ${b.environment[0]}`);
     return verdictOf(h, b) === "violated"

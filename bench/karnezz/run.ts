@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { completeDetailed, completeWithTools, isOllama, resolveSettings, setUsageSink } from "../../src/core/llm.js";
 import { discover } from "../../src/core/hypothesis/index.js";
 import { runBaseline } from "../../src/core/hypothesis/baseline.js";
+import { investigate, parseAuthSpec, setupFrom } from "../../src/core/hypothesis/investigate.js";
 import { Ledger, pricingFromEnv, redact } from "../../src/core/hypothesis/ledger.js";
 
 delete process.env.OPENAI_API_KEY;
@@ -37,7 +38,7 @@ function die(msg: string): never {
 const arm = arg("arm");
 const url = arg("url");
 const out = arg("out");
-if ((arm !== "pipeline" && arm !== "baseline") || !url || !out) die("usage: --arm pipeline|baseline --url <app> --out <dir> [--repo <dir>] [--cap <usd>] [--reset <cmd>]");
+if ((arm !== "pipeline" && arm !== "baseline" && arm !== "investigate") || !url || !out) die("usage: --arm pipeline|investigate|baseline --url <app> --out <dir> [--repo <dir>] [--cap <usd>] [--reset <cmd>]");
 
 const base = process.env.AZTRX_API_BASE?.trim();
 if (!base || !process.env.AZTRX_MODEL) die("set AZTRX_API_BASE and AZTRX_MODEL for this project (nothing else is read)");
@@ -56,6 +57,10 @@ setUsageSink(ledger.record);
 
 const repoDir = arg("repo");
 const resetCmd = arg("reset");
+// Credentials come only from a file the operator wrote for this test environment: { loginPath?, steps: [...] }.
+const authFile = arg("auth");
+const auth = authFile ? parseAuthSpec(fs.readFileSync(authFile, "utf8")) : undefined;
+const setup = auth ? setupFrom(auth, url!) : undefined;
 const reset = resetCmd ? async () => void execSync(resetCmd, { stdio: "ignore", timeout: 120_000 }) : undefined;
 const completer = (req: { system: string; prompt: string; maxTokens: number; schema?: object }) => completeDetailed(req);
 
@@ -73,11 +78,14 @@ const meta = {
 };
 
 try {
-  if (arm === "pipeline") {
+  if (arm === "investigate") {
+    const r = await investigate({ baseUrl: url, repoDir, complete: completer, ledger, maxMs: BUDGET.maxMs, maxIterations: BUDGET.experiments, outDir: out, reset, setup });
+    console.log(JSON.stringify({ ...meta, auth: auth ? "supplied" : "none", prerequisites: r.prerequisites, blockers: r.blockers, counts: r.counts, metrics: r.metrics, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
+  } else if (arm === "pipeline") {
     const r = await discover({ baseUrl: url, repoDir, complete: completer, ledger, maxMs: BUDGET.maxMs, maxExperiments: BUDGET.experiments, outDir: out, reset });
     console.log(JSON.stringify({ ...meta, generation: r.generation, counts: r.counts, observations: r.observations, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
   } else {
-    const r = await runBaseline({ baseUrl: url, repoDir, callTools: completeWithTools, ledger, maxTurns: BUDGET.turns, maxMs: BUDGET.maxMs });
+    const r = await runBaseline({ baseUrl: url, repoDir, callTools: completeWithTools, ledger, maxTurns: BUDGET.turns, maxMs: BUDGET.maxMs, setup });
     fs.writeFileSync(path.join(out, "baseline-report.json"), redact(JSON.stringify({ ...meta, ...r }, null, 2)));
     console.log(JSON.stringify({ ...meta, claims: r.claims.length, metrics: r.metrics, stoppedBecause: r.stoppedBecause, ledger: r.ledger }, null, 2));
   }

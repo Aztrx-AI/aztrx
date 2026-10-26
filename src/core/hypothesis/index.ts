@@ -15,6 +15,7 @@ import { generateHypotheses, type Completer, type GenerationStatus } from "./gen
 import { buildInventory } from "./inventory.js";
 import { BudgetExceeded, Ledger, redact, sha256 } from "./ledger.js";
 import { prioritize, runHypothesis } from "./execute.js";
+import { statusOf } from "./ground.js";
 import type { Hypothesis, HypothesisResult, Outcome } from "./types.js";
 
 export interface DiscoverOptions {
@@ -47,7 +48,7 @@ export interface DiscoveryReport {
   rejected: Array<{ index: number; why: string }>;
   results: HypothesisResult[];
   notRun: Array<{ id: string; why: string }>;
-  counts: Record<Outcome, number> & { generated: number; executed: number };
+  counts: Record<Outcome, number> & { generated: number; executed: number; /** replayed violations of a stated requirement */ findings: number; /** replayed violations with no stated requirement behind them */ leads: number };
   /** Readings that returned a real value (not null) across all executed runs. */
   observations: number;
   stoppedBecause: string;
@@ -130,6 +131,8 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoveryReport> 
     counts: {
       generated: (report.hypotheses ?? []).length,
       executed: results.length,
+      findings: results.filter((r) => statusOf(r) === "finding").length,
+      leads: results.filter((r) => statusOf(r) === "lead").length,
       supported_violation: count("supported_violation"),
       disproven: count("disproven"),
       unknown: count("unknown"),
@@ -151,3 +154,5 @@ export * from "./types.js";
 export { Ledger, pricingFromEnv, BudgetExceeded, findLeaks, redact } from "./ledger.js";
 export { parseHypotheses, generateHypotheses, HYPOTHESES_SCHEMA, type GenerationStatus } from "./generate.js";
 export { prioritize, judge } from "./execute.js";
+export { investigate, parseAuthSpec, setupFrom, planFromReply, type InvestigationReport } from "./investigate.js";
+export { groundingOf, statusOf, observeState } from "./ground.js";
